@@ -33,6 +33,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"rocketvault/common"
 	"rocketvault/internal/services/secrets"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -183,14 +184,6 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Encrypted export needs a passphrase, and a request body is the wrong
-	// place to carry one. Refusing is honest; returning plaintext under
-	// "encrypt": true is the bug this replaces (B36).
-	if exportReq.Encrypt {
-		c.SetInvalidParam("encrypt: encrypted export is available only through the CLI (rocketvault secrets export)")
-		return
-	}
-
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
@@ -207,11 +200,13 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		Format:      exportReq.Format,
 		FilterTags:  exportReq.Tags,
 		IncludeTags: exportReq.IncludeTags,
+		Encrypt:     exportReq.Encrypt,
+		Passphrase:  exportReq.Passphrase,
 	}
 
 	data, err := secretService.ExportSecrets(r.Context(), serviceReq)
 	if err != nil {
-		c.SetInternalError(err)
+		writeSecretError(c, err)
 		return
 	}
 
@@ -266,6 +261,22 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	overwrite := r.FormValue("overwrite") == "true"
 
+	// A sealed export must be opened here, in the handler, not in the
+	// service: this is the only layer with a passphrase channel (the
+	// "passphrase" form field). ImportSecrets refuses sealed data outright
+	// by design (see secret_service.go's ImportSecrets) — plaintext must
+	// reach it. This mirrors cmd/secrets/import.go's own detect-then-open
+	// sequence exactly. The passphrase form value is used only for this
+	// OpenExport call; it is never logged and never reaches the service.
+	if common.IsSealedExport(data) {
+		opened, openErr := common.OpenExport(data, r.FormValue("passphrase"))
+		if openErr != nil {
+			writeSecretError(c, openErr)
+			return
+		}
+		data = opened
+	}
+
 	secretService := c.secretSvc()
 	if secretService == nil {
 		return
@@ -286,7 +297,7 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	result, err := secretService.ImportSecrets(r.Context(), serviceReq)
 	if err != nil {
-		c.SetInternalError(err)
+		writeSecretError(c, err)
 		return
 	}
 

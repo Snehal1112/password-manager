@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,8 +16,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
+	"rocketvault/common"
 	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
@@ -997,10 +1000,18 @@ func TestExportSecrets_InvalidFormat_Returns400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-// The API has no passphrase channel, so it must refuse "encrypt": true rather
-// than return plaintext under it (B36).
+// Requesting encryption without a passphrase is refused with 400. This used
+// to be a hard "CLI only" rejection of any encrypt:true (B36's original API
+// fix); it is not anymore — the API now has a passphrase channel (the
+// request body's "passphrase" field) and ExportSecrets itself refuses to
+// seal without one (secrets.ErrExportPassphraseRequired), mapped to 400 by
+// writeSecretError. It still never returns plaintext under "encrypt": true.
 func TestExportSecrets_EncryptRequested_Returns400(t *testing.T) {
-	c := newSecretCtx(nil)
+	svc := &mockSecretService{}
+	svc.On("ExportSecrets", mock.Anything, mock.Anything).
+		Return([]byte(nil), secretServices.ErrExportPassphraseRequired)
+
+	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
 	body, _ := json.Marshal(map[string]any{"format": "json", "encrypt": true})
 	r := httptest.NewRequest(http.MethodPost, "/secrets/export", bytes.NewReader(body))
@@ -1011,6 +1022,49 @@ func TestExportSecrets_EncryptRequested_Returns400(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestExportSecrets_EncryptWithPassphrase_Success_Returns200(t *testing.T) {
+	svc := &mockSecretService{}
+	svc.On("ExportSecrets", mock.Anything, mock.MatchedBy(func(req secretServices.ExportSecretsRequest) bool {
+		return req.Encrypt && req.Passphrase == "correct horse battery staple" && req.Format == "json"
+	})).Return([]byte(`{"rocketvault_export":1}`), nil)
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"format": "json", "encrypt": true, "passphrase": "correct horse battery staple",
+	})
+	r := httptest.NewRequest(http.MethodPost, "/secrets/export", bytes.NewReader(body))
+
+	exportSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestExportSecrets_PassphraseWithoutEncryptFlag_StillThreadsThrough(t *testing.T) {
+	svc := &mockSecretService{}
+	svc.On("ExportSecrets", mock.Anything, mock.MatchedBy(func(req secretServices.ExportSecretsRequest) bool {
+		return !req.Encrypt && req.Passphrase == "pw"
+	})).Return([]byte(`{"rocketvault_export":1}`), nil)
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"format": "json", "passphrase": "pw"}) // encrypt omitted
+	r := httptest.NewRequest(http.MethodPost, "/secrets/export", bytes.NewReader(body))
+
+	exportSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestExportSecrets_ServiceError_Returns500(t *testing.T) {
@@ -1041,6 +1095,137 @@ func TestExportSecrets_JSON_Success_Returns200(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/secrets/export", bytes.NewReader(body))
 
 	exportSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// ============================================================
+// importSecrets — passphrase handling
+// ============================================================
+
+// newImportRequest builds a multipart import request, optionally carrying an
+// overwrite and a passphrase form field.
+func newImportRequest(t *testing.T, fileBytes []byte, format, overwrite, passphrase string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	fw, err := w.CreateFormFile("file", "export.json")
+	require.NoError(t, err)
+	_, err = fw.Write(fileBytes)
+	require.NoError(t, err)
+	require.NoError(t, w.WriteField("format", format))
+	if overwrite != "" {
+		require.NoError(t, w.WriteField("overwrite", overwrite))
+	}
+	if passphrase != "" {
+		require.NoError(t, w.WriteField("passphrase", passphrase))
+	}
+	require.NoError(t, w.Close())
+
+	r := httptest.NewRequest(http.MethodPost, "/secrets/import", &buf)
+	r.Header.Set("Content-Type", w.FormDataContentType())
+	return r
+}
+
+func TestImportSecrets_SealedUpload_CorrectPassphrase_Returns200(t *testing.T) {
+	plaintext := []byte(`[{"name":"n1","value":"v1"}]`)
+	sealed, err := common.SealExport(plaintext, "correct-pass")
+	require.NoError(t, err)
+
+	svc := &mockSecretService{}
+	svc.On("ImportSecrets", mock.Anything, mock.MatchedBy(func(req secretServices.ImportSecretsRequest) bool {
+		return bytes.Equal(req.Data, plaintext) && req.Format == "json"
+	})).Return(&secretServices.ImportResult{ImportedCount: 1, TotalCount: 1}, nil)
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	r := newImportRequest(t, sealed, "json", "", "correct-pass")
+
+	importSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestImportSecrets_SealedUpload_WrongPassphrase_Returns400(t *testing.T) {
+	sealed, err := common.SealExport([]byte(`[{"name":"n1","value":"v1"}]`), "correct-pass")
+	require.NoError(t, err)
+
+	svc := &mockSecretService{} // ImportSecrets must never be called
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	r := newImportRequest(t, sealed, "json", "", "wrong-pass")
+
+	importSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertNotCalled(t, "ImportSecrets", mock.Anything, mock.Anything)
+}
+
+func TestImportSecrets_SealedUpload_MissingPassphrase_Returns400(t *testing.T) {
+	sealed, err := common.SealExport([]byte(`[{"name":"n1","value":"v1"}]`), "correct-pass")
+	require.NoError(t, err)
+
+	svc := &mockSecretService{}
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	r := newImportRequest(t, sealed, "json", "", "") // no passphrase field at all
+
+	importSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertNotCalled(t, "ImportSecrets", mock.Anything, mock.Anything)
+}
+
+func TestImportSecrets_PlaintextUpload_PassphraseFieldIgnored_Returns200(t *testing.T) {
+	plaintext := []byte(`[{"name":"n1","value":"v1"}]`)
+
+	svc := &mockSecretService{}
+	svc.On("ImportSecrets", mock.Anything, mock.MatchedBy(func(req secretServices.ImportSecretsRequest) bool {
+		return bytes.Equal(req.Data, plaintext)
+	})).Return(&secretServices.ImportResult{ImportedCount: 1, TotalCount: 1}, nil)
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	r := newImportRequest(t, plaintext, "json", "", "some-passphrase-nobody-needed")
+
+	importSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestImportSecrets_PlaintextUpload_NoPassphrase_Returns200(t *testing.T) {
+	plaintext := []byte(`[{"name":"n1","value":"v1"}]`)
+
+	svc := &mockSecretService{}
+	svc.On("ImportSecrets", mock.Anything, mock.MatchedBy(func(req secretServices.ImportSecretsRequest) bool {
+		return bytes.Equal(req.Data, plaintext)
+	})).Return(&secretServices.ImportResult{ImportedCount: 1, TotalCount: 1}, nil)
+
+	c := newSecretCtx(svc)
+	w := httptest.NewRecorder()
+	r := newImportRequest(t, plaintext, "json", "", "")
+
+	importSecrets(c, w, r)
 	if c.Err != nil {
 		writeError(w, c)
 	}

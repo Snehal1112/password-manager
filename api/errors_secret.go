@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 
+	"rocketvault/common"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
 )
@@ -20,6 +21,12 @@ func writeSecretError(c *Context, err error) {
 		c.SetNotFound("secret")
 	case errors.Is(err, repositories.ErrSecretPurgeProtected):
 		c.SetPermissionError("secret has purge protection enabled (directly or via its vault)")
+	case errors.Is(err, secrets.ErrExportPassphraseRequired):
+		c.SetInvalidParam("passphrase: required to produce an encrypted export (encrypt is true, or a passphrase was supplied)")
+	case errors.Is(err, common.ErrPassphraseRequired):
+		c.SetInvalidParam("passphrase: required to import an encrypted export")
+	case errors.Is(err, common.ErrWrongPassphrase):
+		c.SetInvalidParam("passphrase: incorrect, or the uploaded file is not a valid encrypted export")
 	default:
 		c.SetInternalError(err)
 	}

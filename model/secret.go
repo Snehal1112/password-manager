@@ -228,6 +228,11 @@ type ExportSecretsRequest struct {
 	Encrypt     bool     `json:"encrypt"`
 	Tags        []string `json:"tags"`
 	IncludeTags bool     `json:"include_tags"`
+	// Passphrase seals the export via common.SealExport when Encrypt is true,
+	// or when Passphrase is itself non-empty (the service treats either as
+	// sufficient — see secret_service.go's ExportSecrets). It is request-scoped
+	// only: never logged, never echoed back, never audit-logged verbatim.
+	Passphrase string `json:"passphrase,omitempty"`
 }
 
 func ExportSecretsRequestFromJson(data io.Reader) (*ExportSecretsRequest, error) {
