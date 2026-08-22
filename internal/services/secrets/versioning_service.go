@@ -368,12 +368,23 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 		return nil, fmt.Errorf("failed to decrypt target version: %w", err)
 	}
 
+	// The stored value is ciphertext and CreateVersion encrypts whatever it is
+	// given, so the pre-rollback plaintext is what must be archived. Passing
+	// the ciphertext straight through would store it doubly encrypted and the
+	// pre-rollback state would be unrecoverable -- see § B46.
+	currentPlaintext, err := s.cryptoSvc.DecryptSecret(secret.Value)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to decrypt current value for rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to decrypt current value", err)
+		return nil, fmt.Errorf("failed to decrypt current value: %w", err)
+	}
+
 	// Create new version from current state before rollback
 	currentVersionReq := CreateVersionRequest{
 		SecretID: req.SecretID,
 		UserID:   req.UserID,
 		Name:     secret.Name,
-		Value:    secret.Value,
+		Value:    currentPlaintext,
 		Version:  secret.Version + 1,
 	}
 
@@ -384,8 +395,19 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 		return nil, fmt.Errorf("failed to create backup version: %w", err)
 	}
 
+	// secretRepo.Update always expects ciphertext in the value column, so the
+	// target version's plaintext has to be re-encrypted before it is written.
+	// Storing the plaintext would leave the secret undecryptable on the next
+	// read -- see § B46.
+	encryptedValue, err := s.cryptoSvc.EncryptSecret(decryptedValue)
+	if err != nil {
+		s.log.WithError(err).Error("Failed to encrypt target version value for rollback")
+		s.log.LogAuditError(actor, "rollback_secret", "failed", "Failed to encrypt target version value", err)
+		return nil, fmt.Errorf("failed to encrypt target version value: %w", err)
+	}
+
 	// Update secret with target version data
-	secret.Value = decryptedValue
+	secret.Value = encryptedValue
 	secret.Version = secret.Version + 2 // Increment beyond backup version
 
 	err = s.secretRepo.Update(ctx, secret, model.NewOwnerScope(secret.VaultID, secret.UserID))
@@ -408,6 +430,10 @@ func (s *versioningService) RollbackToVersion(ctx context.Context, req RollbackR
 		"new_version":    secret.Version,
 		"user_id":        req.UserID,
 	}).Info("Secret rolled back successfully")
+
+	// Return plaintext to the caller, matching CreateSecret. The ciphertext
+	// above exists only for the repository write -- see § B46.
+	secret.Value = decryptedValue
 
 	return secret, nil
 }

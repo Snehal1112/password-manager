@@ -251,7 +251,11 @@ func TestRollbackToVersionInvalidatesCacheAndAudits(t *testing.T) {
 
 	crypto := &testutils.MockCryptographyService{}
 	crypto.On("DecryptSecret", "encrypted-target").Return("rolled-back", nil).Once()
-	crypto.On("EncryptSecret", "current").Return("encrypted-current", nil).Once()
+	// Rollback decrypts the stored ciphertext before archiving it and
+	// re-encrypts the target plaintext before storing it -- see § B46.
+	crypto.On("DecryptSecret", "current").Return("plain-current", nil).Once()
+	crypto.On("EncryptSecret", "plain-current").Return("encrypted-current", nil).Once()
+	crypto.On("EncryptSecret", "rolled-back").Return("encrypted-rolled-back", nil).Once()
 
 	invalidator := &recordingInvalidator{}
 	logger, audit := newAuditingLogger(t)

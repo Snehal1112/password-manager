@@ -2447,12 +2447,14 @@ constraint was "fix the defect and nothing else".
 
 ### B46 — `RollbackToVersion` has B35's exact defect (double-encrypt + plaintext write), currently unreachable
 
-**Status**: Open, found 2026-08-21
-**Severity**: Low today (unreachable), would be Critical if ever wired up —
-same defect class as B35, which was rated Critical for the equivalent
-scheduler path
+**Status**: Fixed 2026-08-22
+**Severity**: Low today (unreachable), would have been Critical if ever wired
+up unfixed — same defect class as B35, which was rated Critical for the
+equivalent scheduler path
 **Files**: `internal/services/secrets/versioning_service.go`
-(`RollbackToVersion`, l.340-403)
+(`RollbackToVersion`), `internal/services/secrets/versioning_rollback_roundtrip_test.go`
+(new), `internal/services/secrets/coverage_boost_test.go`,
+`internal/services/secrets/direct_write_invalidation_test.go`
 
 **Symptom**: none yet in production. `RollbackToVersion` has no caller
 outside its own tests — no CLI command under `cmd/secrets` and no API route
@@ -2486,21 +2488,47 @@ Both halves fire on every call: there is no conditional or flag that skips
 either step, so a single rollback both corrupts the current version's backup
 row and breaks the secret's own decryptability going forward.
 
-**Why this is filed instead of fixed**: found during the B35 final review.
-The reviewer confirmed it is presently unreachable — fixing unreachable code
-is unplanned, unreviewed work outside that plan's scope — so it is tracked
-here for whoever wires a rollback command or route up next. Do not treat
-"unreachable" as "safe to ignore indefinitely": the moment a caller is added,
-this becomes exactly as live as B35 was.
+**Originally filed instead of fixed**: found during the B35 final review. The
+reviewer confirmed it was presently unreachable — fixing unreachable code was
+unplanned, unreviewed work outside that plan's scope — so it was tracked here
+for whoever wired a rollback command or route up next, with an explicit
+warning not to treat "unreachable" as "safe to ignore indefinitely."
 
-**Fix sketch**: mirror B35's fix. Pass `s.cryptoSvc.DecryptSecret(secret.Value)`
-(or an already-decrypted plaintext already in hand) as `Value` in the backup
-`CreateVersionRequest` so `CreateVersion`'s own encryption is the only
-encryption step; and re-encrypt `decryptedValue` through
-`s.cryptoSvc.EncryptSecret` before assigning it to `secret.Value` and calling
-`secretRepo.Update`. A regression test should roll back then `GetSecret` and
-assert the plaintext round-trips, plus assert the freshly-created backup
-version round-trips through a `secrets version get` on its own.
+**What was fixed**: mirrors B35's fix exactly, applying the same pattern
+already established in `PerformManualRotation`
+(`internal/services/secrets/rotation_service.go`). Before archiving the
+pre-rollback state, `secret.Value` (ciphertext) is decrypted into
+`currentPlaintext` via `s.cryptoSvc.DecryptSecret`, and that plaintext — not
+the raw ciphertext — is what `CreateVersionRequest.Value` carries, so
+`CreateVersion`'s own encryption is the only encryption step. Before writing
+the target version into `secrets.value`, the already-decrypted
+`decryptedValue` is re-encrypted via `s.cryptoSvc.EncryptSecret` into
+`encryptedValue`, and `secret.Value = encryptedValue` is what `secretRepo.Update`
+receives — never raw plaintext. A third gap surfaced during review of the
+fix itself (not present in the original filing): the function's final
+`return secret, nil` still held ciphertext in `secret.Value`, inconsistent
+with `CreateSecret`'s established "Return plaintext to the caller" convention
+in the same file. Fixed by restoring `secret.Value = decryptedValue`
+(reusing the already-decrypted target-version plaintext, no re-decryption)
+immediately before the final return, after the repository write and cache
+invalidation complete — so it cannot affect what gets persisted.
+
+**Test**: `internal/services/secrets/versioning_rollback_roundtrip_test.go`
+(new, real SQLite + real crypto service, reusing `rotation_roundtrip_test.go`'s
+fixture schema — a mocked-crypto test cannot prove a round trip).
+`TestRollbackToVersion_RoundTripsThroughGetSecret` rolls back then reads the
+secret back through the normal (decrypting) read path and asserts it equals
+the target version's original plaintext. `TestRollbackToVersion_ArchivesThePreRollbackValue`
+asserts the freshly-archived pre-rollback version decrypts in one pass, not
+double-encrypted garbage. `TestRollbackToVersion_LeavesTheSecretWritable`
+proves a later `UpdateSecret` can still decrypt the stored value (i.e. the
+column genuinely holds ciphertext, not stranded plaintext). All three
+independently verified to fail with the fix reverted and pass with it
+applied. A separate assertion (added during the "return plaintext" fix
+round) checks the `*model.Secret` returned directly by `RollbackToVersion`
+holds plaintext, using a raw `SELECT value FROM secrets` to independently
+confirm the DB column itself holds ciphertext — a two-sided check that
+cannot pass if either half of the fix is missing.
 
 ---
 

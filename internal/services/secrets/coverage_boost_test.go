@@ -797,12 +797,16 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 	crypto.On("DecryptSecret", "encrypted-target").Return("rolled-back", nil).Once()
 	userRepo.On("Read", ctx, userID).Return(&model.User{ID: userID, Username: "alice"}, nil).Once()
 	secretRepo.On("Read", ctx, secretID, adminScope).Return(secret, nil).Once()
-	crypto.On("EncryptSecret", "current").Return("encrypted-current", nil).Once()
+	// The stored value is ciphertext, so rollback decrypts it before handing it
+	// to CreateVersion, which encrypts whatever it is given -- see § B46.
+	crypto.On("DecryptSecret", "current").Return("plain-current", nil).Once()
+	crypto.On("EncryptSecret", "plain-current").Return("encrypted-current", nil).Once()
+	crypto.On("EncryptSecret", "rolled-back").Return("encrypted-rolled-back", nil).Once()
 	versionRepo.On("CreateVersion", ctx, mock.MatchedBy(func(version *model.SecretVersion) bool {
 		return version.SecretID == secretID && version.UserID == userID && version.Value == "encrypted-current"
 	})).Return(nil).Once()
 	secretRepo.On("Update", ctx, mock.MatchedBy(func(updated *model.Secret) bool {
-		return updated.Value == "rolled-back" && updated.Version == 4
+		return updated.Value == "encrypted-rolled-back" && updated.Version == 4
 	}), model.NewOwnerScope(secret.VaultID, secret.UserID)).Return(nil).Once()
 
 	rolledBack, err := svc.RollbackToVersion(ctx, secrets.RollbackRequest{
@@ -811,6 +815,8 @@ func TestVersioningServiceHappyPathAndOwnershipErrors(t *testing.T) {
 		UserID:        userID,
 	})
 	require.NoError(t, err)
+	// The repository write takes the ciphertext, but the caller gets plaintext
+	// back, exactly as CreateSecret does -- see § B46.
 	assert.Equal(t, "rolled-back", rolledBack.Value)
 	assert.Equal(t, 4, rolledBack.Version)
 
