@@ -14,6 +14,8 @@
 #   curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | bash
 #   VERSION=v0.2.5 ./install.sh          # install a specific tag
 #   INSTALL_DIR=~/.local/bin ./install.sh  # install somewhere other than /usr/local/bin
+#
+# Run with -h or --help for full usage details, including the piped-curl form.
 
 set -euo pipefail
 
@@ -80,7 +82,67 @@ resolve_version() {
     echo "${latest}"
 }
 
+show_help() {
+    cat <<EOF
+RocketVault Install Script
+
+Downloads the latest (or a pinned) release binary for the current platform
+from GitHub Releases and installs it.
+
+USAGE:
+    curl -fsSL <script-url> | bash
+    ./install.sh
+
+ENVIRONMENT VARIABLES:
+    VERSION       Release tag to install, e.g. v0.2.5. Default: latest release.
+    INSTALL_DIR   Directory to install the binary into. Default: /usr/local/bin.
+
+FLAGS:
+    -h, --help    Show this help message and exit.
+
+PLATFORM SUPPORT:
+    macOS: Apple Silicon (arm64) only. There is no Intel (amd64) build;
+    build from source on Intel Macs.
+    Linux: amd64 and arm64.
+
+REQUIREMENTS:
+    curl and tar must be installed. If INSTALL_DIR is not writable, the
+    script prompts for sudo to elevate.
+
+EXAMPLES:
+    # Remote install, latest version, default install directory.
+    curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | bash
+
+    # Remote install, pinned version. VERSION goes on the bash side of the pipe.
+    curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | VERSION=v0.2.5 bash
+
+    # Remote install, custom install directory.
+    curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | INSTALL_DIR=~/.local/bin bash
+
+    # Remote install, pinned version and custom install directory together.
+    curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | VERSION=v0.2.5 INSTALL_DIR=~/.local/bin bash
+
+    # Local clone, default settings.
+    ./install.sh
+
+    # Local clone, pinned version and custom install directory as env prefixes.
+    VERSION=v0.2.5 INSTALL_DIR=~/.local/bin ./install.sh
+
+    # Show this help locally.
+    ./install.sh --help
+
+    # Show this help via the piped form. Requires "bash -s --" to pass args
+    # through to a script read from stdin.
+    curl -fsSL https://raw.githubusercontent.com/Snehal1112/rocketvault/v-4.0.0/install.sh | bash -s -- --help
+EOF
+}
+
 main() {
+    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+        show_help
+        exit 0
+    fi
+
     if ! command -v curl &>/dev/null; then
         log_error "curl is required but not installed."
         exit 1

@@ -269,6 +269,9 @@ curl -fsSL .../install.sh | VERSION=v0.2.5 bash            # install a specific 
 curl -fsSL .../install.sh | INSTALL_DIR=~/.local/bin bash  # install elsewhere
 ```
 
+Run `./install.sh --help` (or `curl -fsSL .../install.sh | bash -s -- --help`)
+for the full list of environment variables, flags, and examples.
+
 Windows users: download the `.zip` asset for your platform from the
 [Releases page](https://github.com/Snehal1112/rocketvault/releases).
 
