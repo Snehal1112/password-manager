@@ -1017,7 +1017,7 @@ here; only a global admin can create, list, or restore one.
 ### Create a backup
 
 ```
-go run main.go backup create --output ./backups/my-backup.backup \
+go run main.go backup create --file ./backups/my-backup.backup \
   --username admin --password admin123 --totp-code 123456
 ```
 

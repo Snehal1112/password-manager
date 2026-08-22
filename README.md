@@ -732,11 +732,11 @@ A vault has no data-plane role assignments when it's created — grant one befor
 ```bash
 # Create an encrypted backup (default)
 ./rocketvault --username admin --password admin123 --totp-code <code> \
-  backup create --output ./backup-2024.backup
+  backup create --file ./backup-2024.backup
 
 # Create an unencrypted backup (use --encrypt=false)
 ./rocketvault --username admin --password admin123 --totp-code <code> \
-  backup create --output ./backup-2024.backup --encrypt=false
+  backup create --file ./backup-2024.backup --encrypt=false
 
 # List available backups
 ./rocketvault --username admin --password admin123 --totp-code <code> \

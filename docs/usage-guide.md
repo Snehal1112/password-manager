@@ -484,11 +484,11 @@ Beyond day-to-day access, RocketVault has operational surfaces too. The first is
 # OIDC-provisioned admin), drop $AUTH entirely and the cached session is used.
 AUTH="--username admin --password admin123 --totp-code 123456"
 
-# Create an encrypted backup (default; --output/-o is required)
-go run main.go backup create --output ./backups/backup-2026-07-25.backup $AUTH
+# Create an encrypted backup (default; --file/-f is required)
+go run main.go backup create --file ./backups/backup-2026-07-25.backup $AUTH
 
 # Create an unencrypted backup
-go run main.go backup create --output ./backups/backup-plain.backup --encrypt=false $AUTH
+go run main.go backup create --file ./backups/backup-plain.backup --encrypt=false $AUTH
 
 # List backup files in a directory (defaults to ./backups)
 go run main.go backup list --dir ./backups $AUTH

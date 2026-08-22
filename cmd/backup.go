@@ -92,7 +92,7 @@ rotation.`,
   rocketvault users login --username admin
 
   # Create an encrypted backup
-  rocketvault backup create --output ./backups/<name>.backup
+  rocketvault backup create --file ./backups/<name>.backup
 
   # List the backups in a directory
   rocketvault backup list --dir ./backups
@@ -122,7 +122,7 @@ are sealed in the database stay sealed inside the file.
 Requires the global admin role. The backup spans every vault, so --vault does
 not apply.
 
---output is required; its directory is created if missing and the file is
+--file is required; its directory is created if missing and the file is
 written readable only by its owner. The default --encrypt=true seals the
 whole file with the master key, which means it can only be restored on an
 instance holding that same key. --encrypt=false writes plain JSON instead:
@@ -132,10 +132,10 @@ who can read the file. Both encrypted and unencrypted backups appear in
 "backup list"; only an unencrypted one shows its table and record counts
 there, since listing never decrypts the payload.`,
 	Example: `  # Create an encrypted backup (the default)
-  rocketvault backup create --output ./backups/<name>.backup
+  rocketvault backup create --file ./backups/<name>.backup
 
   # Create an unencrypted backup, readable in full by "backup list"
-  rocketvault backup create --output ./backups/<name>.backup \
+  rocketvault backup create --file ./backups/<name>.backup \
     --encrypt=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runBackupCreate(cmd)
@@ -204,9 +204,9 @@ does not invalidate.`,
 
 func init() {
 	// Create command flags
-	backupCreateCmd.Flags().StringVarP(&backupOutput, "output", "o", "", "Output file path for backup (required)")
+	backupCreateCmd.Flags().StringVarP(&backupOutput, "file", "f", "", "Backup file path to write (required)")
 	backupCreateCmd.Flags().BoolVar(&backupEncrypt, "encrypt", true, "Encrypt the backup file (use --encrypt=false to disable)")
-	backupCreateCmd.MarkFlagRequired("output") //nolint:errcheck,gosec
+	backupCreateCmd.MarkFlagRequired("file") //nolint:errcheck,gosec
 
 	// List command flags
 	backupListCmd.Flags().StringVarP(&backupListDir, "dir", "d", "./backups", "Directory to scan for backup files")

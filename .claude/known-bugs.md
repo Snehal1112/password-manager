@@ -2590,10 +2590,13 @@ production code was changed to investigate or confirm it.
 
 ### B48 — `backup create --output <path>` fails outright: local flag shadowed by root's persistent `--output`
 
-**Status**: Open, found 2026-08-21
-**Severity**: Medium — `backup create --output <path>` cannot be run at all;
-the command exits with a format-validation error instead of writing a backup
-**Files**: `cmd/root.go`, `cmd/backup.go`
+**Status**: Fixed 2026-08-22
+**Severity**: Medium — `backup create --output <path>` could not be run at
+all; the command exited with a format-validation error instead of writing a
+backup
+**Files**: `cmd/root.go` (unchanged, root's persistent flag was always
+correct), `cmd/backup.go`, `cmd/backup_test.go` (new tests), `README.md`,
+`docs/cli-guide.md`, `docs/usage-guide.md`, `docs/usage-guide.html`
 
 **Symptom**: running `rocketvault backup create --output /path/to/file.backup`
 fails immediately with an error of the shape `Error: invalid --output value
@@ -2634,12 +2637,42 @@ merge is keyed on name and skips registering root's persistent `output` flag
 entirely on this command once the local `output` flag is registered,
 regardless of which form a user types.)
 
-**Not fixed here**: found incidentally while implementing the B40 fix
-(`backup list`'s encrypted/corrupt-file bug); this bug is about `backup
-create`, is pre-existing, and is unrelated to B40's change. No production
-code was changed to investigate or confirm it — the collision was traced by
-reading `cmd/root.go` and `cmd/backup.go` directly, not by reproducing the
-CLI failure live.
+**Originally not fixed alongside its discovery**: found incidentally while
+implementing the B40 fix (`backup list`'s encrypted/corrupt-file bug); that
+bug was about `backup create`, was pre-existing, and was unrelated to B40's
+change, so it was filed separately rather than fixed opportunistically.
+
+**What was fixed**: renamed `backupCreateCmd`'s local flag from `--output`/
+`-o` to `--file`/`-f`, matching the sibling `backupRestoreCmd`'s
+already-established convention for the identical concept (a backup file
+path) — `backup create` and `backup restore` now name their file-path flag
+consistently, and root's persistent `--output` (the format selector) is no
+longer shadowed on `backup create`. The Go variable backing the flag
+(`backupOutput`) was left unrenamed — only the flag's CLI name, shorthand,
+and help text changed — to avoid unnecessary churn outside this bug's scope.
+`backupCreateCmd`'s `Long`/`Example` text, the parent `backupCmd`'s Example
+line referencing it, and every hand-written doc example found across the
+repo (`README.md`, `docs/cli-guide.md`, `docs/usage-guide.md`,
+`docs/usage-guide.html`) were updated to `--file` to match. `cmd/root.go`
+itself needed no change — its persistent `--output` flag registration and
+`PersistentPreRunE`'s read of it were always correct; the bug was entirely
+in `backupCreateCmd`'s own registration colliding with it.
+
+**Test**: `cmd/backup_test.go` gained two tests.
+`TestBackupCreateCmd_FileFlagRegistered` asserts `--file`/`-f` is registered
+and required, that `backup create` no longer registers its own local
+`--output` flag, and that `--output` still resolves on the command but only
+via inheritance from root's persistent flag (confirmed by its default value
+being `"table"`, the format selector's default, not the empty string a
+required path flag would have). `TestBackupCreateCmd_FileAndOutputFlagsParseIndependently`
+parses `--file <path> --output json` together and asserts each flag
+independently captures its own value with no collision — the scenario that
+was previously impossible to express at all.
+
+**Not touched**: `docs/usage-guide.html` was hand-edited to match rather
+than regenerated via `./scripts/docs.sh build`, since a full regeneration
+would have pulled in an unrelated, pre-existing doc-drift issue from B40 —
+flagged for a future pass, not fixed here as it's outside this bug's scope.
 
 ---
 
@@ -2782,6 +2815,45 @@ workflow before editing it directly.
 **Found**: during the scoped re-review of the whole-branch review's own fix
 wave for `fix/b35-b44`, while independently verifying item 5 (the OpenAPI
 spec fix) against the rest of the documentation set.
+
+---
+
+### B52 — `docs/usage-guide.html` is stale relative to `docs/usage-guide.md` for a B40 passage
+
+**Status**: Open, found 2026-08-22
+**Severity**: Low — the generated `.html` doc shows outdated prose in one
+passage; the source-of-truth `.md` file is correct, no code behavior is
+affected
+**Files**: `docs/usage-guide.html`, `docs/usage-guide.md`
+
+**Symptom**: `docs/usage-guide.html` is normally generated from
+`docs/usage-guide.md` via `scripts/docs.sh build`. Running that build
+locally (to check an unrelated fix) revealed the checked-in `.html` had
+already drifted from the `.md`: a passage about `backup list`'s behavior
+with encrypted/corrupt backups (B40, fixed 2026-08-21) was updated in
+`usage-guide.md` at the time, but the corresponding `.html` was never
+regenerated to match, so it still shows pre-B40 prose.
+
+**Root cause**: whoever landed B40's `usage-guide.md` correction did not
+also run `./scripts/docs.sh build` (or did, but didn't commit the result)
+to regenerate `usage-guide.html` from it. The two files are meant to stay
+in sync via that build step; nothing enforces it automatically.
+
+**Not fixed here**: found incidentally while fixing B48 (a `backup create`
+flag-name doc update touched three lines of `usage-guide.md`/`.html`).
+Running a full `scripts/docs.sh build` to fix this properly also
+regenerates every other doc in `scripts/docsgen/docs.go`'s list and
+materializes two previously-ungenerated `docs/release-notes/*.html` files —
+a much larger, unreviewed diff than B48's own scope. B48's fix hand-edited
+only its own three affected lines in `usage-guide.html` and left this
+pre-existing drift untouched.
+
+**Fix sketch**: run `./scripts/docs.sh build` and review/commit the full
+regenerated output (including the two currently-uncommitted
+`docs/release-notes/*.html` files, if they're meant to be tracked) as its
+own, separately-reviewed change — not bundled into an unrelated bug fix.
+
+**Found**: while fixing B48 (2026-08-22).
 
 ---
 
