@@ -676,7 +676,9 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 	} else {
 		// Export as CSV via encoding/csv, which quotes and escapes embedded
 		// quotes, commas and newlines correctly. Hand-rolled string
-		// concatenation could not do this safely (B42).
+		// concatenation could not do this safely (B42). Name/Value are
+		// escapeCR'd first so an embedded CR round-trips too — encoding/csv
+		// itself silently converts CR to LF with no way to disable that (B49).
 		var buf bytes.Buffer
 		writer := csv.NewWriter(&buf)
 
@@ -690,7 +692,7 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 		}
 
 		for _, secret := range secretsList {
-			row := []string{secret.Name, secret.Value}
+			row := []string{escapeCR(secret.Name), escapeCR(secret.Value)}
 			if req.IncludeTags {
 				tagsField, tagErr := csvEncodeTags(secret.Tags)
 				if tagErr != nil {
@@ -834,8 +836,8 @@ func (s *secretService) ImportSecrets(ctx context.Context, req ImportSecretsRequ
 			}
 
 			secret := importSecret{
-				Name:  record[0],
-				Value: record[1],
+				Name:  unescapeCR(record[0]),
+				Value: unescapeCR(record[1]),
 			}
 			if hasTags && len(record) > 2 && record[2] != "" {
 				tags, tagErr := csvDecodeTags(record[2])
@@ -1002,19 +1004,87 @@ func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, sco
 	return nil
 }
 
+// crEscape is the sentinel byte escapeCR/unescapeCR use to hide a literal CR
+// from encoding/csv. Chosen because it is vanishingly unlikely to occur in a
+// secret name, value or tag; escapeCR escapes any literal occurrence of it
+// too, so the transform is still correct (bijective) on the rare input that
+// already contains one.
+const crEscape = '\x00'
+
+// escapeCR makes s safe to round-trip through encoding/csv, which
+// unconditionally converts an embedded "\r\n" (or a bare "\r") to "\n"
+// inside a quoted field, with no way to disable it (B49). It replaces every
+// literal CR with crEscape+'r', and escapes any literal crEscape byte
+// already in s as crEscape+crEscape, so unescapeCR can reverse it exactly
+// regardless of what s contains. A LF needs no escaping — encoding/csv
+// already preserves it correctly.
+func escapeCR(s string) string {
+	if !strings.ContainsAny(s, "\r\x00") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case crEscape:
+			b.WriteByte(crEscape)
+			b.WriteByte(crEscape)
+		case '\r':
+			b.WriteByte(crEscape)
+			b.WriteByte('r')
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+// unescapeCR reverses escapeCR. A malformed escape (crEscape followed by
+// neither crEscape nor 'r') cannot come from escapeCR's own output; it is
+// preserved byte-for-byte rather than silently dropped, so no case can lose
+// data even if fed input escapeCR never produced.
+func unescapeCR(s string) string {
+	if !strings.ContainsRune(s, crEscape) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == crEscape && i+1 < len(s) {
+			i++
+			switch s[i] {
+			case crEscape:
+				b.WriteByte(crEscape)
+			case 'r':
+				b.WriteByte('\r')
+			default:
+				b.WriteByte(crEscape)
+				b.WriteByte(s[i])
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
 // csvEncodeTags packs a secret's tags into a single CSV field using
 // encoding/csv itself, so a tag containing a comma or a quote survives
-// being embedded in the outer record (B42). Note: a tags slice containing
-// exactly one empty-string tag ([]string{""}) encodes to the empty string,
-// which import treats as "no tags present" — that one case does not
-// round-trip.
+// being embedded in the outer record (B42). Each tag is escapeCR'd first so
+// an embedded CR survives too (B49). Note: a tags slice containing exactly
+// one empty-string tag ([]string{""}) encodes to the empty string, which
+// import treats as "no tags present" — that one case does not round-trip.
 func csvEncodeTags(tags []string) (string, error) {
 	if len(tags) == 0 {
 		return "", nil
 	}
+	escaped := make([]string, len(tags))
+	for i, t := range tags {
+		escaped[i] = escapeCR(t)
+	}
 	var buf bytes.Buffer
 	w := csv.NewWriter(&buf)
-	if err := w.Write(tags); err != nil {
+	if err := w.Write(escaped); err != nil {
 		return "", err
 	}
 	w.Flush()
@@ -1024,7 +1094,8 @@ func csvEncodeTags(tags []string) (string, error) {
 	return strings.TrimSuffix(buf.String(), "\n"), nil
 }
 
-// csvDecodeTags reverses csvEncodeTags. An empty field means no tags (B42).
+// csvDecodeTags reverses csvEncodeTags, including each tag's escapeCR
+// (B49). An empty field means no tags (B42).
 func csvDecodeTags(field string) ([]string, error) {
 	if field == "" {
 		return nil, nil
@@ -1033,6 +1104,9 @@ func csvDecodeTags(field string) ([]string, error) {
 	tags, err := r.Read()
 	if err != nil {
 		return nil, err
+	}
+	for i, t := range tags {
+		tags[i] = unescapeCR(t)
 	}
 	return tags, nil
 }

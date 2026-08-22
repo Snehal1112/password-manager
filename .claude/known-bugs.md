@@ -2617,30 +2617,58 @@ CLI failure live.
 
 ### B49 — CSV export/import normalizes embedded CRLF to LF in values and tags
 
-**Status**: Open, found 2026-08-22
+**Status**: Fixed 2026-08-22
 **Severity**: Low — a documented limitation of a stdlib API, not silent
-corruption beyond byte-normalization; `--format json` is unaffected and
-available as a workaround
-**Files**: `internal/services/secrets/secret_service.go`
+corruption beyond byte-normalization; `--format json` was unaffected and
+remained available as a workaround throughout
+**Files**: `internal/services/secrets/secret_service.go`,
+`internal/services/secrets/secret_service_test.go`,
+`internal/services/secrets/csv_cr_escape_test.go`
 
-**Symptom**: export a secret whose value or a tag contains a literal `\r\n`
-(e.g. Windows-authored text, some PEM/config blobs) with `--format csv`, then
-import it back. The `\r\n` returns as `\n` — the round trip is not
-byte-exact.
+**Symptom** (pre-fix): export a secret whose value or a tag contains a
+literal `\r\n` (e.g. Windows-authored text, some PEM/config blobs) with
+`--format csv`, then import it back. The `\r\n` returned as `\n` — the round
+trip was not byte-exact.
 
 **Root cause**: `encoding/csv.Reader` (Go stdlib) unconditionally converts
 `\r\n` to `\n` wherever it appears, including inside a quoted multi-line
 field, with no option to disable this.
 
 **Not a regression**: before B42's fix, *any* embedded newline (`\r\n` or
-`\n`) destroyed the CSV record entirely. After B42's fix, `\n` round-trips
-exactly and only `\r\n` specifically is silently altered — a narrower,
+`\n`) destroyed the CSV record entirely. After B42's fix, `\n` round-tripped
+exactly and only `\r\n` specifically was silently altered — a narrower,
 lower-severity residual case.
 
-**Fix sketch**: none — there is no `encoding/csv` option to preserve literal
-`\r\n` inside a field. Out of scope for this fix wave; `--format json` is
-lossless for CRLF-containing values and is the recommended format when
-byte-exactness matters.
+**What was fixed**: since `encoding/csv` itself has no lever to preserve a
+literal CR, `escapeCR`/`unescapeCR` (`secret_service.go`) transparently hide
+it from the CSV layer instead. `escapeCR` replaces every literal `\r` with a
+two-byte escape (a sentinel `\x00` byte followed by `'r'`), and escapes any
+literal `\x00` already present the same way (doubled), so the transform is
+bijective even on input that already contains the sentinel byte — not just
+the common case. `unescapeCR` reverses it exactly. Applied to `Name`/`Value`
+before the outer `csv.Writer.Write`/after the outer `csv.Reader.Read` in
+`ExportSecrets`/`ImportSecrets`, and to each tag inside `csvEncodeTags`/
+`csvDecodeTags` (the nested tags-column writer/reader has the identical
+CR-normalization problem, since it is also `encoding/csv`). A plain `\n`
+still needs no escaping — encoding/csv already preserves it correctly, which
+is why the fast path (`strings.ContainsAny` check) skips the escape entirely
+for the common case of no `\r`/`\x00` in the field.
+
+**Backward compatibility**: a CSV file exported before this fix, whose value
+or tag contained a literal CR, still degrades to `\n` on import under the
+new code — exactly as it did under the pre-fix (but post-B42) code, since
+there is nothing in that old file to un-escape (no sentinel byte present).
+Nothing is retroactively repaired; only exports written after this fix
+preserve CR going forward.
+
+**Test**: `TestEscapeCR_RoundTrips`, `TestEscapeCR_NoOpFastPathForOrdinaryInput`,
+`TestUnescapeCR_MalformedEscapePreservesBytesRatherThanDroppingData`,
+`TestUnescapeCR_TrailingEscapeByteWithNoFollowingByte`
+(`csv_cr_escape_test.go`, package-internal since they exercise unexported
+functions); `TestExportImportCSV_RoundTripsCRLFValueAndTag`
+(`secret_service_test.go`), an end-to-end `ExportSecrets`→`ImportSecrets`
+round trip asserting the literal CR bytes in both the value and a tag
+survive exactly.
 
 **Found**: during final review of the B42 CSV round-trip fix.
 
