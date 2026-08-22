@@ -2960,14 +2960,20 @@ filter, was deleted — the argument it exercised no longer exists.
 
 ---
 
-### F3 — Item restore is non-atomic across its parent write, purge-protection write, and version replay
+### F3 — Item restore is non-atomic across its parent write, purge-protection write, and version replay — FIXED
 
-**Status**: Deferred — not blocking
-**Severity**: Low — a failure partway leaves a partial restore, not corrupt
-data; the caller gets an error rather than a false success, and the residue is
-cleanable on all three paths. (It was *not* cleanable for keys until
+**Status**: Fixed 2026-08-22
+**Severity**: Low — a failure partway left a partial restore, not corrupt
+data; the caller got an error rather than a false success, and the residue
+was cleanable on all three paths. (It was *not* cleanable for keys until
 2026-08-20; see the ordering table below.)
-**Files**: `internal/backup/item_backup.go`
+**Files**: `internal/backup/item_backup.go`,
+`internal/repositories/secret_repository.go`,
+`internal/repositories/versioning_repository.go`,
+`internal/repositories/key_repository.go`,
+`internal/repositories/certificate_repository.go`,
+`internal/container/service_container.go`,
+`internal/backup/item_backup_atomicity_test.go`
 
 **What it is**: `RestoreKey`, `RestoreSecret`, and `RestoreCertificate` each
 perform their work as separate, unwrapped repository calls, with no
@@ -3004,31 +3010,78 @@ entirely. A restored key looked protected either way, so the stub could not
 have caught this class of ordering bug. The stub now mirrors the INSERT, and
 fixtures apply protection through `SetPurgeProtection`, as production does.
 
-The remaining non-atomicity below is still open.
+**What was fixed**: a unit of work is now threaded through the repository
+layer, exactly as this entry's own "why it is deferred" reasoning called for.
+`SecretRepository`, `KeyRepository`, `CertificateRepository`, and
+`secretVersionRepository`'s `Create`/`CreateVersion`/`SetPurgeProtection`
+methods were each split into a private `ex db.DBTX`-parameterized helper,
+their existing public method (unchanged behavior, passes its own `r.db`),
+and a new `*Tx`-suffixed exported method (`CreateTx`, `CreateVersionTx`,
+`SetPurgeProtectionTx`) that runs against a caller-supplied executor
+instead — mirroring the `ReadByIDTx`/`SoftDeleteTx`/`RecoverTx` pattern
+`VaultService`/`VaultRepository` already established for the same problem
+(see `internal/services/vaults/vault_service.go`'s `txCapableVaultRepo`).
+The Tx-scoped methods live only on the concrete repository structs, not on
+the exported `*RepositoryInterface` types, so adding them did not ripple to
+any existing mock or test double implementing those interfaces.
 
-**Why it is deferred rather than fixed here**: a real fix needs a
-transaction spanning all of a restore's writes, but `ItemBackupService` is
-built on repository *interfaces* (`SecretRepositoryInterface`,
-`KeyRepositoryInterface`, `CertificateRepositoryInterface`,
-`SecretVersionRepositoryInterface`), not a concrete `*db.Tx`, and none of
-those interfaces has a transaction-scoped variant of its methods today.
-Threading a unit of work through the repository layer — so `Create`,
-`SetPurgeProtection`, and every `CreateVersion` call in one `Restore*` share
-a single transaction — is a real, separate piece of work, not a small
-reordering.
+`ItemBackupService` gained the identical `TxBeginner`/`SetTxBeginner`/
+`withTx` shape `VaultService` already uses, plus `txCapableSecretRepo`/
+`txCapableSecretVersionRepo`/`txCapableKeyRepo`/`txCapableCertRepo` type-
+assertion interfaces to detect the capability. `RestoreSecret`/`RestoreKey`/
+`RestoreCertificate` each try the transactional path first (when a
+`TxBeginner` is set and the injected repos support it) and fall back to the
+original non-transactional sequence otherwise — so a caller that never
+wires up a `TxBeginner` (every pre-existing test in this package, until the
+new atomicity tests) keeps exercising the exact old behavior, unchanged.
+`internal/container/service_container.go` wires the real
+`ItemBackupService.SetTxBeginner(c.conn)`, mirroring
+`vaultService.SetTxBeginner(c.conn)` immediately above it — this is the only
+change on the production code path that matters: the DI container now hands
+`ItemBackupService` a real transaction beginner, same as it already did for
+`VaultService`.
+
+The versions-before-purge-protection write order inside each `Restore*` is
+unchanged — it no longer matters for correctness on the transactional path
+(a version-replay failure now rolls back the `Create` too), but was kept
+identical on purpose so the two paths stay trivially comparable, and so the
+non-transactional fallback's already-established, already-tested guarantee
+(a failed replay leaves an unprotected, purgeable partial row, never a
+stranded protected orphan) is preserved exactly for any caller that still
+takes that path.
+
+**Test**: `TestRestoreSecret_TxBeginnerSet_FailurePartwayRollsBackEverything`
+proves, against a real in-memory SQLite database (not a mock), that a
+version-replay failure on the transactional path leaves zero rows behind —
+neither the secret nor the one version that succeeded before the injected
+failure. `TestRestoreSecret_NoTxBeginner_FailurePartwayLeavesDocumentedPartialRestore`
+proves the non-transactional fallback still leaves exactly the documented
+partial restore (one secret row, one version row) with the identical failure
+injected, unchanged by the transactional path's existence.
+`TestRestoreSecret_TxBeginnerSet_SuccessCommitsSecretAndAllVersions` proves
+the happy path still commits everything correctly under the new wiring, not
+just that failures roll back. All three
+(`internal/backup/item_backup_atomicity_test.go`) use a `failingVersionRepo`
+wrapper around the *real* `secretVersionRepository` — deterministically
+failing on a chosen call while delegating every other call to the real
+repository — rather than a hand-written stub, so a genuine wiring bug in the
+Tx-scoped methods could not hide behind a stub that never exercised them.
 
 **Verified**: `db.DB` does expose `BeginTx` (`internal/db/conn.go:14`), and
 several repositories already use it for their own atomic multi-statement
 writes (e.g. `internal/repositories/key_repository.go:321`,
 `internal/repositories/certificate_repository.go:134`,
 `internal/repositories/user_repository.go:238`, `internal/db/tags.go:50`).
-The full-database restore (`internal/backup/backup.go`,
-`Manager.RestoreBackup`) is also transactional, but not through that same
-mechanism: `Manager` holds a raw `*sql.DB` (not the `db.DB` interface) and
-calls the stdlib `(*sql.DB).Begin()` directly — a separate code path from
-`db.DB.BeginTx()`. Either way, the point stands: a transactional primitive
-exists and is proven in this codebase; `ItemBackupService`'s repository
-dependencies simply don't expose a way to reuse one across multiple calls.
+`KeyRepository.Create`/`CertificateRepository.Create` already opened their
+own inner transaction for the row+tags pair before this fix; their new
+`CreateTx` variants do NOT open a second, nested one — they execute directly
+against the caller-supplied `ex` (already a transaction the outer
+`ItemBackupService.withTx` owns), since `database/sql` has no nested-
+transaction primitive and none is needed once the outer transaction already
+covers the whole sequence. The full-database restore
+(`internal/backup/backup.go`, `Manager.RestoreBackup`) remains a separate,
+already-transactional code path (a raw `*sql.DB` and stdlib `Begin()`, not
+`db.DB.BeginTx()`) — untouched by this fix and not conflated with it.
 
 **Candidate fix (not implemented)**: give `ItemBackupService` a
 transaction-scoped variant of the repository methods it needs — either a

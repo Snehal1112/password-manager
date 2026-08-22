@@ -325,30 +325,8 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
-		// Insert key with pre-encrypted value.
-		_, err = tx.ExecContext(
-			ctx,
-			"INSERT INTO keys (id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			key.ID.String(), key.UserID.String(), key.VaultID.String(), key.Name, key.Value, key.Type, key.Revoked, key.CreatedAt,
-			key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve,
-		)
-		if err != nil {
-			r.log.LogAuditError(key.UserID.String(), "create_key", "failed", "Failed to insert key", err)
-			return fmt.Errorf("failed to insert key: %w", err)
-		}
-
-		// Insert tags if provided (using existing transaction to avoid locks)
-		if len(key.Tags) > 0 {
-			for _, tag := range key.Tags {
-				_, err := tx.ExecContext(ctx,
-					"INSERT INTO key_tags (key_id, tag) VALUES (?, ?)",
-					key.ID.String(), tag,
-				)
-				if err != nil {
-					r.log.LogAuditError(key.UserID.String(), "create_key", "failed", fmt.Sprintf("Failed to insert tag %s", tag), err)
-					return fmt.Errorf("failed to insert tag %s: %w", tag, err)
-				}
-			}
+		if err := r.insertKeyAndTags(ctx, tx, key); err != nil {
+			return err
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -366,6 +344,51 @@ func (r *KeyRepository) Create(ctx context.Context, key *model.Key) error {
 
 		return nil
 	})
+}
+
+// CreateTx is Create's Tx-scoped variant. Unlike Create, it does not open
+// its own transaction: ex is expected to already be a transaction the
+// caller (ItemBackupService, for an atomic restore, F3) owns and will
+// commit or roll back — nesting a second transaction inside it is neither
+// necessary nor supported by database/sql.
+func (r *KeyRepository) CreateTx(ctx context.Context, ex db.DBTX, key *model.Key) error {
+	return r.executeWithMetrics("create_key", func() error {
+		if err := r.insertKeyAndTags(ctx, ex, key); err != nil {
+			return err
+		}
+		r.log.LogAuditInfo(key.UserID.String(), "create_key", "success", fmt.Sprintf("Key created: %s", key.Name))
+		return nil
+	})
+}
+
+// insertKeyAndTags issues the key row insert and its tag inserts against ex.
+// Shared by Create (ex is a transaction it began and owns) and CreateTx (ex
+// is a transaction an outer caller began and owns).
+func (r *KeyRepository) insertKeyAndTags(ctx context.Context, ex db.DBTX, key *model.Key) error {
+	// Insert key with pre-encrypted value.
+	_, err := ex.ExecContext(
+		ctx,
+		"INSERT INTO keys (id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		key.ID.String(), key.UserID.String(), key.VaultID.String(), key.Name, key.Value, key.Type, key.Revoked, key.CreatedAt,
+		key.Enabled, key.ExpiresAt, key.NotBefore, key.Bits, key.Curve,
+	)
+	if err != nil {
+		r.log.LogAuditError(key.UserID.String(), "create_key", "failed", "Failed to insert key", err)
+		return fmt.Errorf("failed to insert key: %w", err)
+	}
+
+	// Insert tags if provided (using the same transaction to avoid locks).
+	for _, tag := range key.Tags {
+		_, err := ex.ExecContext(ctx,
+			"INSERT INTO key_tags (key_id, tag) VALUES (?, ?)",
+			key.ID.String(), tag,
+		)
+		if err != nil {
+			r.log.LogAuditError(key.UserID.String(), "create_key", "failed", fmt.Sprintf("Failed to insert tag %s", tag), err)
+			return fmt.Errorf("failed to insert tag %s: %w", tag, err)
+		}
+	}
+	return nil
 }
 
 // ReadDeleted retrieves a key by ID regardless of whether it has been soft-deleted.
@@ -671,8 +694,18 @@ func (r *KeyRepository) PurgeKey(ctx context.Context, id uuid.UUID) error {
 //
 //	An error if the update fails.
 func (r *KeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	return r.setPurgeProtection(ctx, r.db, id, enabled)
+}
+
+// SetPurgeProtectionTx is SetPurgeProtection's Tx-scoped variant. See
+// CreateTx.
+func (r *KeyRepository) SetPurgeProtectionTx(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
+	return r.setPurgeProtection(ctx, ex, id, enabled)
+}
+
+func (r *KeyRepository) setPurgeProtection(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
 	return r.executeWithMetrics("set_purge_protection_key", func() error {
-		result, err := r.db.ExecContext(ctx,
+		result, err := ex.ExecContext(ctx,
 			"UPDATE keys SET purge_protection = ? WHERE id = ?",
 			enabled, id.String())
 		if err != nil {
@@ -708,7 +741,16 @@ func (r *KeyRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, en
 //
 //	An error if the insertion fails.
 func (r *KeyRepository) CreateVersion(ctx context.Context, keyID uuid.UUID, version int, value string) error {
-	_, err := r.db.ExecContext(ctx,
+	return r.createVersion(ctx, r.db, keyID, version, value)
+}
+
+// CreateVersionTx is CreateVersion's Tx-scoped variant. See CreateTx.
+func (r *KeyRepository) CreateVersionTx(ctx context.Context, ex db.DBTX, keyID uuid.UUID, version int, value string) error {
+	return r.createVersion(ctx, ex, keyID, version, value)
+}
+
+func (r *KeyRepository) createVersion(ctx context.Context, ex db.DBTX, keyID uuid.UUID, version int, value string) error {
+	_, err := ex.ExecContext(ctx,
 		"INSERT INTO key_versions (key_id, version, value, created_at) VALUES (?, ?, ?, ?)",
 		keyID.String(), version, value, time.Now(),
 	)

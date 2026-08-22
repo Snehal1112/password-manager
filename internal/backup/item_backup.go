@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -9,12 +10,54 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
 // ErrInvalidBlob is returned when the backup blob cannot be decoded.
 var ErrInvalidBlob = errors.New("invalid backup blob")
+
+// TxBeginner begins a transaction usable by the Tx-scoped repository
+// methods. Satisfied by *db.Conn. Injected via SetTxBeginner so unit tests
+// that construct an ItemBackupService without a real database (every
+// existing test in this package, until F3's atomicity tests) keep
+// exercising the pre-existing non-transactional path.
+type TxBeginner interface {
+	BeginTx(ctx context.Context, opts *sql.TxOptions) (*db.Tx, error)
+}
+
+// txCapableSecretRepo is implemented by SecretRepositoryInterface's concrete
+// type when it also supports the Tx-scoped restore path (F3). The Tx-scoped
+// methods live only on the concrete *repositories.SecretRepository, not on
+// the exported interface, so adding them doesn't ripple to every test
+// double implementing that interface — mirrors vault_service.go's
+// txCapableVaultRepo.
+type txCapableSecretRepo interface {
+	CreateTx(ctx context.Context, ex db.DBTX, secret *model.Secret) error
+	SetPurgeProtectionTx(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error
+}
+
+// txCapableSecretVersionRepo is SecretVersionRepositoryInterface's Tx-scoped
+// counterpart. See txCapableSecretRepo.
+type txCapableSecretVersionRepo interface {
+	CreateVersionTx(ctx context.Context, ex db.DBTX, version *model.SecretVersion) error
+}
+
+// txCapableKeyRepo is KeyRepositoryInterface's Tx-scoped counterpart. See
+// txCapableSecretRepo.
+type txCapableKeyRepo interface {
+	CreateTx(ctx context.Context, ex db.DBTX, key *model.Key) error
+	CreateVersionTx(ctx context.Context, ex db.DBTX, keyID uuid.UUID, version int, value string) error
+	SetPurgeProtectionTx(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error
+}
+
+// txCapableCertRepo is CertificateRepositoryInterface's Tx-scoped
+// counterpart. See txCapableSecretRepo.
+type txCapableCertRepo interface {
+	CreateTx(ctx context.Context, ex db.DBTX, cert *model.Certificate) error
+	SetPurgeProtectionTx(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error
+}
 
 // ItemBackupService provides per-item backup and restore for secrets, keys,
 // and certificates. Each backup is a base64url-encoded JSON envelope that is
@@ -24,6 +67,7 @@ type ItemBackupService struct {
 	keyRepo     repositories.KeyRepositoryInterface
 	certRepo    repositories.CertificateRepositoryInterface
 	versionRepo repositories.SecretVersionRepositoryInterface
+	txBeginner  TxBeginner
 }
 
 // NewItemBackupService creates an ItemBackupService wired to the given repos.
@@ -40,6 +84,32 @@ func NewItemBackupService(
 		certRepo:    certRepo,
 		versionRepo: versionRepo,
 	}
+}
+
+// SetTxBeginner attaches an optional transaction beginner. When set (and the
+// injected repos support the Tx-scoped methods — always true for the real
+// repositories, never for a test double that only implements the exported
+// interfaces), RestoreSecret/RestoreKey/RestoreCertificate run their whole
+// restore atomically inside one transaction (F3): a failure partway rolls
+// back everything already written, rather than leaving a partial row under
+// an ID the caller never received. When unset, they run the pre-existing
+// non-transactional sequence.
+func (s *ItemBackupService) SetTxBeginner(tb TxBeginner) { s.txBeginner = tb }
+
+// withTx runs fn inside a transaction begun via txBeginner, committing on
+// success and rolling back on error. Mirrors vault_service.go's withTx.
+func (s *ItemBackupService) withTx(ctx context.Context, fn func(tx *db.Tx) error) error {
+	tx, err := s.txBeginner.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("rollback failed: %w (original: %v)", rbErr, err)
+		}
+		return err
+	}
+	return tx.Commit()
 }
 
 // blobVersions carries whatever version history a resource type has. Both
@@ -104,26 +174,82 @@ func (s *ItemBackupService) RestoreSecret(ctx context.Context, blob string, user
 	secret.ID = newID
 	secret.UserID = userID
 	secret.VaultID = vaultID
-	if err := s.secretRepo.Create(ctx, &secret); err != nil {
+
+	// The write order below (versions before purge protection) matters
+	// regardless of which path runs: it is what keeps a NON-transactional
+	// partial restore purgeable rather than a stranded protected orphan.
+	// See the comment inside restoreSecretWith for the full reasoning.
+	// The tx path additionally makes the whole sequence atomic (F3): a
+	// version-replay failure there leaves NOTHING behind, not even the
+	// unprotected partial row this ordering used to guarantee.
+	if txSecretRepo, repoOK := s.secretRepo.(txCapableSecretRepo); repoOK {
+		if txVersionRepo, verOK := s.versionRepo.(txCapableSecretVersionRepo); verOK && s.txBeginner != nil {
+			return s.withTx(ctx, func(tx *db.Tx) error {
+				return s.restoreSecretWith(ctx, &secret, versions.Secret, userID, newID,
+					func(ctx context.Context, sec *model.Secret) error { return txSecretRepo.CreateTx(ctx, tx, sec) },
+					func(ctx context.Context, v *model.SecretVersion) error {
+						return txVersionRepo.CreateVersionTx(ctx, tx, v)
+					},
+					func(ctx context.Context, id uuid.UUID, enabled bool) error {
+						return txSecretRepo.SetPurgeProtectionTx(ctx, tx, id, enabled)
+					},
+				)
+			})
+		}
+	}
+	// Closures, not bare method values: NewItemBackupService's contract lets
+	// any repo be nil when its resource type is unneeded by the caller, and
+	// taking a method value directly off a nil interface panics immediately
+	// on evaluation — even if the method itself is never called.
+	return s.restoreSecretWith(ctx, &secret, versions.Secret, userID, newID,
+		func(ctx context.Context, sec *model.Secret) error { return s.secretRepo.Create(ctx, sec) },
+		func(ctx context.Context, v *model.SecretVersion) error { return s.versionRepo.CreateVersion(ctx, v) },
+		func(ctx context.Context, id uuid.UUID, enabled bool) error {
+			return s.secretRepo.SetPurgeProtection(ctx, id, enabled)
+		},
+	)
+}
+
+// restoreSecretWith runs the actual restore sequence — create, replay
+// versions, re-apply purge protection — against whichever create/
+// createVersion/setPurgeProtection functions the caller passes: the plain
+// repository methods for the non-transactional path, or Tx-scoped ones
+// closed over a shared transaction for the atomic path (F3). Keeping one
+// copy of this sequence, parameterized by the write functions, is what lets
+// both paths share the exact same ordering logic instead of drifting apart
+// the way RestoreSecret and RestoreKey once did (see the comment below).
+func (s *ItemBackupService) restoreSecretWith(
+	ctx context.Context,
+	secret *model.Secret,
+	versions []model.SecretVersion,
+	userID, newID uuid.UUID,
+	create func(context.Context, *model.Secret) error,
+	createVersion func(context.Context, *model.SecretVersion) error,
+	setPurgeProtection func(context.Context, uuid.UUID, bool) error,
+) error {
+	if err := create(ctx, secret); err != nil {
 		return err
 	}
-	// Replay versions before applying purge protection: if this fails, the
-	// partial restore is left unprotected and can still be purged by an
-	// operator. Setting purge protection first would leave a partial restore
-	// that PurgeSecret refuses to clean up, orphaning it under an ID the
-	// caller never received.
-	for _, v := range versions.Secret {
+	// Replay versions before applying purge protection: on the
+	// non-transactional path, if this fails the partial restore is left
+	// unprotected and can still be purged by an operator. Setting purge
+	// protection first would leave a partial restore that PurgeSecret
+	// refuses to clean up, orphaning it under an ID the caller never
+	// received. On the transactional path this ordering no longer matters
+	// for correctness (a failure here rolls back the Create too), but is
+	// kept identical so the two paths are trivially comparable.
+	for _, v := range versions {
 		v.ID = uuid.New()
 		v.SecretID = newID
 		v.UserID = userID
-		if err := s.versionRepo.CreateVersion(ctx, &v); err != nil {
+		if err := createVersion(ctx, &v); err != nil {
 			return fmt.Errorf("restore secret: create version %d: %w", v.Version, err)
 		}
 	}
 	// Create does not write purge_protection, so a protected item would be
 	// restored unprotected. Re-apply the blob's flag as a second write.
 	if secret.PurgeProtection {
-		if err := s.secretRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+		if err := setPurgeProtection(ctx, newID, true); err != nil {
 			return fmt.Errorf("restore secret: set purge protection: %w", err)
 		}
 	}
@@ -164,21 +290,61 @@ func (s *ItemBackupService) RestoreKey(ctx context.Context, blob string, userID,
 	key.ID = newID
 	key.UserID = userID
 	key.VaultID = vaultID
-	if err := s.keyRepo.Create(ctx, &key); err != nil {
+
+	if txKeyRepo, repoOK := s.keyRepo.(txCapableKeyRepo); repoOK && s.txBeginner != nil {
+		return s.withTx(ctx, func(tx *db.Tx) error {
+			return s.restoreKeyWith(ctx, &key, versions.Key, newID,
+				func(ctx context.Context, k *model.Key) error { return txKeyRepo.CreateTx(ctx, tx, k) },
+				func(ctx context.Context, id uuid.UUID, version int, value string) error {
+					return txKeyRepo.CreateVersionTx(ctx, tx, id, version, value)
+				},
+				func(ctx context.Context, id uuid.UUID, enabled bool) error {
+					return txKeyRepo.SetPurgeProtectionTx(ctx, tx, id, enabled)
+				},
+			)
+		})
+	}
+	// See RestoreSecret for why these are closures, not bare method values.
+	return s.restoreKeyWith(ctx, &key, versions.Key, newID,
+		func(ctx context.Context, k *model.Key) error { return s.keyRepo.Create(ctx, k) },
+		func(ctx context.Context, id uuid.UUID, version int, value string) error {
+			return s.keyRepo.CreateVersion(ctx, id, version, value)
+		},
+		func(ctx context.Context, id uuid.UUID, enabled bool) error {
+			return s.keyRepo.SetPurgeProtection(ctx, id, enabled)
+		},
+	)
+}
+
+// restoreKeyWith is RestoreKey's write sequence, parameterized the same way
+// restoreSecretWith is. See restoreSecretWith for why this shape exists.
+func (s *ItemBackupService) restoreKeyWith(
+	ctx context.Context,
+	key *model.Key,
+	versions []model.KeyVersionRecord,
+	newID uuid.UUID,
+	create func(context.Context, *model.Key) error,
+	createVersion func(context.Context, uuid.UUID, int, string) error,
+	setPurgeProtection func(context.Context, uuid.UUID, bool) error,
+) error {
+	if err := create(ctx, key); err != nil {
 		return err
 	}
-	// Replay versions before applying purge protection, for the reason spelled
-	// out in RestoreSecret: a failure here must leave the partial restore
-	// purgeable. Setting purge protection first would strand it, since
-	// PurgeKey refuses a protected key.
-	for _, v := range versions.Key {
-		if err := s.keyRepo.CreateVersion(ctx, newID, v.Version, v.Value); err != nil {
+	// Replay versions before applying purge protection, for the reason
+	// spelled out in restoreSecretWith: on the non-transactional path, a
+	// failure here must leave the partial restore purgeable. Setting purge
+	// protection first would strand it, since PurgeKey refuses a protected
+	// key. On the transactional path this ordering no longer matters for
+	// correctness, but is kept identical to restoreSecretWith's on purpose —
+	// see the write-order-divergence lesson recorded for F3.
+	for _, v := range versions {
+		if err := createVersion(ctx, newID, v.Version, v.Value); err != nil {
 			return fmt.Errorf("restore key: create version %d: %w", v.Version, err)
 		}
 	}
-	// See RestoreSecret: Create does not write purge_protection.
+	// See restoreSecretWith: Create does not write purge_protection.
 	if key.PurgeProtection {
-		if err := s.keyRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+		if err := setPurgeProtection(ctx, newID, true); err != nil {
 			return fmt.Errorf("restore key: set purge protection: %w", err)
 		}
 	}
@@ -210,12 +376,43 @@ func (s *ItemBackupService) RestoreCertificate(ctx context.Context, blob string,
 	cert.ID = newID
 	cert.UserID = userID
 	cert.VaultID = vaultID
-	if err := s.certRepo.Create(ctx, &cert); err != nil {
+
+	if txCertRepo, repoOK := s.certRepo.(txCapableCertRepo); repoOK && s.txBeginner != nil {
+		return s.withTx(ctx, func(tx *db.Tx) error {
+			return s.restoreCertificateWith(ctx, &cert, newID,
+				func(ctx context.Context, c *model.Certificate) error { return txCertRepo.CreateTx(ctx, tx, c) },
+				func(ctx context.Context, id uuid.UUID, enabled bool) error {
+					return txCertRepo.SetPurgeProtectionTx(ctx, tx, id, enabled)
+				},
+			)
+		})
+	}
+	// See RestoreSecret for why these are closures, not bare method values.
+	return s.restoreCertificateWith(ctx, &cert, newID,
+		func(ctx context.Context, c *model.Certificate) error { return s.certRepo.Create(ctx, c) },
+		func(ctx context.Context, id uuid.UUID, enabled bool) error {
+			return s.certRepo.SetPurgeProtection(ctx, id, enabled)
+		},
+	)
+}
+
+// restoreCertificateWith is RestoreCertificate's write sequence,
+// parameterized the same way restoreSecretWith is. Certificates have no
+// version history, so this is just the create-then-purge-protection pair —
+// see restoreSecretWith for why this shape exists.
+func (s *ItemBackupService) restoreCertificateWith(
+	ctx context.Context,
+	cert *model.Certificate,
+	newID uuid.UUID,
+	create func(context.Context, *model.Certificate) error,
+	setPurgeProtection func(context.Context, uuid.UUID, bool) error,
+) error {
+	if err := create(ctx, cert); err != nil {
 		return err
 	}
-	// See RestoreSecret: Create does not write purge_protection.
+	// See restoreSecretWith: Create does not write purge_protection.
 	if cert.PurgeProtection {
-		if err := s.certRepo.SetPurgeProtection(ctx, newID, true); err != nil {
+		if err := setPurgeProtection(ctx, newID, true); err != nil {
 			return fmt.Errorf("restore certificate: set purge protection: %w", err)
 		}
 	}

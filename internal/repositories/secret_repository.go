@@ -145,6 +145,19 @@ func NewSecretRepository(db db.DB, log *logging.Logger) SecretRepositoryInterfac
 //
 //	An error if the insertion fails.
 func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) error {
+	return r.create(ctx, r.db, secret)
+}
+
+// CreateTx is Create's Tx-scoped variant: it executes against ex (typically
+// a *db.Tx an outer caller began and owns) instead of r.db, so it can be
+// composed with other Tx-scoped writes into one atomic unit of work. Used by
+// ItemBackupService.RestoreSecret for an atomic restore (F3) — a version
+// insert failing partway no longer leaves a stray secret row behind.
+func (r *SecretRepository) CreateTx(ctx context.Context, ex db.DBTX, secret *model.Secret) error {
+	return r.create(ctx, ex, secret)
+}
+
+func (r *SecretRepository) create(ctx context.Context, ex db.DBTX, secret *model.Secret) error {
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"user_id":   secret.UserID.String(),
@@ -152,7 +165,7 @@ func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) err
 	}).Debug("Inserting secret into database")
 
 	// Insert the secret into the database.
-	_, err := r.db.ExecContext(
+	_, err := ex.ExecContext(
 		ctx,
 		"INSERT INTO secrets (id, user_id, vault_id, name, value, version, created_at, content_type, enabled, expires_at, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		secret.ID.String(), secret.UserID.String(), secret.VaultID.String(), secret.Name, secret.Value, secret.Version, secret.CreatedAt, secret.ContentType, secret.Enabled, secret.ExpiresAt, secret.NotBefore,
@@ -164,7 +177,7 @@ func (r *SecretRepository) Create(ctx context.Context, secret *model.Secret) err
 
 	// Insert tags if provided.
 	for _, tag := range secret.Tags {
-		_, err = r.db.ExecContext(
+		_, err = ex.ExecContext(
 			ctx,
 			"INSERT INTO secret_tags (secret_id, tag) VALUES (?, ?)",
 			secret.ID.String(), tag,
@@ -519,7 +532,17 @@ func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error 
 //
 //	An error if the update fails.
 func (r *SecretRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
-	result, err := r.db.ExecContext(ctx,
+	return r.setPurgeProtection(ctx, r.db, id, enabled)
+}
+
+// SetPurgeProtectionTx is SetPurgeProtection's Tx-scoped variant. See
+// CreateTx.
+func (r *SecretRepository) SetPurgeProtectionTx(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
+	return r.setPurgeProtection(ctx, ex, id, enabled)
+}
+
+func (r *SecretRepository) setPurgeProtection(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
+	result, err := ex.ExecContext(ctx,
 		"UPDATE secrets SET purge_protection = ? WHERE id = ?", enabled, id.String())
 	if err != nil {
 		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Failed to set purge protection", err)

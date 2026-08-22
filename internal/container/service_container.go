@@ -582,6 +582,12 @@ func (c *ServiceContainer) initializeServices() error {
 		c.certificateRepository,
 		c.versionRepository,
 	)
+	// Makes RestoreSecret/RestoreKey/RestoreCertificate atomic (F3): a
+	// failure partway through a restore rolls back everything already
+	// written, instead of leaving a partial row under an ID the caller
+	// never received. See vaultService.SetTxBeginner above for the same
+	// pattern.
+	c.itemBackupService.SetTxBeginner(c.conn)
 
 	return nil
 }

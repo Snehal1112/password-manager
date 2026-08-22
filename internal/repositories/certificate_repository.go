@@ -331,36 +331,8 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 		}
 		defer tx.Rollback() //nolint:errcheck
 
-		// ca_cert_id is NULL for a self-signed certificate.
-		var caCertID any
-		if cert.CACertID != nil {
-			caCertID = cert.CACertID.String()
-		}
-
-		// Insert certificate with pre-encrypted private key and renewal metadata.
-		_, err = tx.ExecContext(
-			ctx,
-			"INSERT INTO certificates (id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			cert.ID.String(), cert.UserID.String(), cert.VaultID.String(), cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
-			cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.KeyID.String(), caCertID, cert.Enabled, cert.NotBefore,
-		)
-		if err != nil {
-			r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to insert certificate", err)
-			return fmt.Errorf("failed to insert certificate: %w", err)
-		}
-
-		// Insert tags if provided (using existing transaction to avoid locks)
-		if len(cert.Tags) > 0 {
-			for _, tag := range cert.Tags {
-				_, err := tx.ExecContext(ctx,
-					"INSERT INTO certificate_tags (certificate_id, tag) VALUES (?, ?)",
-					cert.ID.String(), tag,
-				)
-				if err != nil {
-					r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", fmt.Sprintf("Failed to insert tag %s", tag), err)
-					return fmt.Errorf("failed to insert tag %s: %w", tag, err)
-				}
-			}
+		if err := r.insertCertAndTags(ctx, tx, cert); err != nil {
+			return err
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -377,6 +349,56 @@ func (r *CertificateRepository) Create(ctx context.Context, cert *model.Certific
 
 		return nil
 	})
+}
+
+// CreateTx is Create's Tx-scoped variant. Unlike Create, it does not open
+// its own transaction: ex is expected to already be a transaction the
+// caller (ItemBackupService, for an atomic restore, F3) owns and will
+// commit or roll back.
+func (r *CertificateRepository) CreateTx(ctx context.Context, ex db.DBTX, cert *model.Certificate) error {
+	return r.executeWithMetrics("create_certificate", func() error {
+		if err := r.insertCertAndTags(ctx, ex, cert); err != nil {
+			return err
+		}
+		r.log.LogAuditInfo(cert.UserID.String(), "create_certificate", "success", fmt.Sprintf("Certificate created: %s", cert.Name))
+		return nil
+	})
+}
+
+// insertCertAndTags issues the certificate row insert and its tag inserts
+// against ex. Shared by Create (ex is a transaction it began and owns) and
+// CreateTx (ex is a transaction an outer caller began and owns).
+func (r *CertificateRepository) insertCertAndTags(ctx context.Context, ex db.DBTX, cert *model.Certificate) error {
+	// ca_cert_id is NULL for a self-signed certificate.
+	var caCertID any
+	if cert.CACertID != nil {
+		caCertID = cert.CACertID.String()
+	}
+
+	// Insert certificate with pre-encrypted private key and renewal metadata.
+	_, err := ex.ExecContext(
+		ctx,
+		"INSERT INTO certificates (id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		cert.ID.String(), cert.UserID.String(), cert.VaultID.String(), cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt,
+		cert.ExpiresAt, cert.AutoRenew, cert.RenewalDays, cert.KeyID.String(), caCertID, cert.Enabled, cert.NotBefore,
+	)
+	if err != nil {
+		r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", "Failed to insert certificate", err)
+		return fmt.Errorf("failed to insert certificate: %w", err)
+	}
+
+	// Insert tags if provided (using the same transaction to avoid locks).
+	for _, tag := range cert.Tags {
+		_, err := ex.ExecContext(ctx,
+			"INSERT INTO certificate_tags (certificate_id, tag) VALUES (?, ?)",
+			cert.ID.String(), tag,
+		)
+		if err != nil {
+			r.log.LogAuditError(cert.UserID.String(), "create_certificate", "failed", fmt.Sprintf("Failed to insert tag %s", tag), err)
+			return fmt.Errorf("failed to insert tag %s: %w", tag, err)
+		}
+	}
+	return nil
 }
 
 // Delete removes a certificate from the database.
@@ -695,8 +717,18 @@ func (r *CertificateRepository) PurgeCertificate(ctx context.Context, id uuid.UU
 //
 //	An error if the update fails.
 func (r *CertificateRepository) SetPurgeProtection(ctx context.Context, id uuid.UUID, enabled bool) error {
+	return r.setPurgeProtection(ctx, r.db, id, enabled)
+}
+
+// SetPurgeProtectionTx is SetPurgeProtection's Tx-scoped variant. See
+// CreateTx.
+func (r *CertificateRepository) SetPurgeProtectionTx(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
+	return r.setPurgeProtection(ctx, ex, id, enabled)
+}
+
+func (r *CertificateRepository) setPurgeProtection(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
 	return r.executeWithMetrics("set_purge_protection_certificate", func() error {
-		result, err := r.db.ExecContext(ctx,
+		result, err := ex.ExecContext(ctx,
 			"UPDATE certificates SET purge_protection = ? WHERE id = ?",
 			enabled, id.String())
 		if err != nil {

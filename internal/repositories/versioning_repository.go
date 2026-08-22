@@ -40,12 +40,23 @@ func NewSecretVersionRepository(db db.DB, log *logging.Logger) SecretVersionRepo
 
 // CreateVersion creates a new version of a secret (expects pre-encrypted value).
 func (r *secretVersionRepository) CreateVersion(ctx context.Context, version *model.SecretVersion) error {
+	return r.createVersion(ctx, r.db, version)
+}
+
+// CreateVersionTx is CreateVersion's Tx-scoped variant, letting a caller run
+// it inside an existing transaction. Used by ItemBackupService.RestoreSecret
+// for an atomic restore (F3).
+func (r *secretVersionRepository) CreateVersionTx(ctx context.Context, ex db.DBTX, version *model.SecretVersion) error {
+	return r.createVersion(ctx, ex, version)
+}
+
+func (r *secretVersionRepository) createVersion(ctx context.Context, ex db.DBTX, version *model.SecretVersion) error {
 	query := `
 		INSERT INTO secret_versions (id, secret_id, user_id, name, value, version, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := ex.ExecContext(ctx, query,
 		version.ID.String(),
 		version.SecretID.String(),
 		version.UserID.String(),
