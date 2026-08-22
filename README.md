@@ -1113,6 +1113,13 @@ export ROCKETVAULT_DATABASE_CONNECTION="host=localhost user=postgres password=se
 ./rocketvault serve
 ```
 
+### Railway Deployment
+
+`railway.json` builds from the committed Dockerfile and defaults to SQLite on a mounted
+volume (no PostgreSQL required). See [docs/deploy-railway.md](docs/deploy-railway.md) for
+the full quick-start: attaching the volume, required variables, and bootstrapping the
+first admin.
+
 ### Configuration
 
 Create a `.rocketvault.yaml` configuration file:

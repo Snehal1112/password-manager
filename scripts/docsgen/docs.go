@@ -34,6 +34,7 @@ var docsList = []docEntry{
 	{"doc/troubleshooting.markdown", "doc/troubleshooting.html"},
 	{"docs/api-developer-guide.md", "docs/api-developer-guide.html"},
 	{"docs/consuming-secrets-guide.md", "docs/consuming-secrets-guide.html"},
+	{"docs/deploy-railway.md", "docs/deploy-railway.html"},
 	{"docs/hsm-softhsm2-testing.md", "docs/hsm-softhsm2-testing.html"},
 	{"docs/integration-examples.md", "docs/integration-examples.html"},
 	{"docs/release-notes/v4.0.0-azure-rbac.md", "docs/release-notes/v4.0.0-azure-rbac.html"},
