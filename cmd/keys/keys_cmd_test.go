@@ -527,6 +527,38 @@ func TestCreateCmd_Authorized(t *testing.T) {
 	policies.AssertExpectations(t)
 }
 
+func TestCreateCmd_MultiRoleCaller_PrivilegedRoleNotFirst_Allowed(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	result := &keyServices.CreateKeyResult{
+		KeyID: uuid.New(), Name: "mykey", Type: "RSA", CreatedAt: time.Now(),
+	}
+	keySvc.On("CreateRSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
+		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048 && r.VaultID == vaultID
+	})).Return(result, nil)
+
+	// The privileged role (crypto_manager) is second in Roles, not first, to
+	// prove common.HasAnyRole is used at this call site rather than only
+	// checking claims.Roles[0].
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleUser, model.RoleCryptoManager}}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]any{
+		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
+	})
+	defer cleanup()
+
+	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+}
+
 func TestCreateCmd_RSAWithTags(t *testing.T) {
 	keySvc := &keyCmdKeyService{}
 	userID := uuid.New()

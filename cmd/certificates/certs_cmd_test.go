@@ -521,6 +521,43 @@ func TestCertCreateCmd_CertificateManagerRoleAllowed(t *testing.T) {
 	certSvc.AssertExpectations(t)
 }
 
+func TestCertCreateCmd_MultiRoleCaller_PrivilegedRoleNotFirst_Allowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	certSvc := &certCmdCertService{}
+	keyID := uuid.New()
+	result := &certServices.CreateCertificateResult{CertID: uuid.New(), Name: "cert", CreatedAt: time.Now()}
+	certSvc.On("CreateSelfSignedCertificate", mock.Anything, mock.Anything).Return(result, nil)
+
+	sc := &certsTestContainer{
+		MockServiceContainer: tc.MockContainer,
+		certSvc:              certSvc,
+	}
+	// The privileged role (certificate_manager) is second in Roles, not
+	// first, to prove common.HasAnyRole is used at this call site rather
+	// than only checking claims.Roles[0].
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "user", Roles: []string{model.RoleUser, model.RoleCertificateManager}}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
+	cleanup := viperSetCert(map[string]interface{}{
+		"cert-name":          "cert",
+		"cert-key-id":        keyID.String(),
+		"cert-validity-days": 365,
+		"cert-tags":          "",
+		"cert-ca-cert-id":    "",
+	})
+	defer cleanup()
+
+	cmd, _ := newCertCmd(createCmd.RunE, nil)
+	cmd.Flags().Bool("auto-renew", false, "")
+	cmd.Flags().Int("renewal-days", 30, "")
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	certSvc.AssertExpectations(t)
+}
+
 func TestCertCreateCmd_Denied(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	certSvc := &certCmdCertService{}

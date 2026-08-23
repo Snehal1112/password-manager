@@ -533,6 +533,41 @@ func TestCreateCmd_NoFormatter_FullRunE(t *testing.T) {
 	tc.MockSecretService.AssertExpectations(t)
 }
 
+func TestCreateCmd_MultiRoleCaller_PrivilegedRoleNotFirst_Allowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	now := time.Now()
+	secret := &model.Secret{
+		ID:        uuid.New(),
+		Name:      "multi-role-secret",
+		Version:   1,
+		Enabled:   true,
+		CreatedAt: now,
+	}
+
+	tc.MockSecretService.On("CreateSecret", mock.Anything, mock.Anything).Return(secret, nil)
+	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
+
+	// The privileged role (secrets_manager) is second in Roles, not first,
+	// to prove common.HasAnyRole is used at this call site rather than only
+	// checking claims.Roles[0].
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "testuser", Roles: []string{model.RoleUser, model.RoleSecretsManager}}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, tc.MockContainer)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newSecFmtr())
+	ctx = context.WithValue(ctx, common.UserIDKey, tc.TestUserID)
+
+	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
+	cmd.Flags().StringSlice("tags", []string{}, "")
+	cmd.Flags().String("content-type", "", "")
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"secret-name", "secret-value"})
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	tc.MockSecretService.AssertExpectations(t)
+}
+
 // ---- updateCmd additional path coverage ----
 
 func TestUpdateCmd_NoServiceContainer_FullRunE(t *testing.T) {
