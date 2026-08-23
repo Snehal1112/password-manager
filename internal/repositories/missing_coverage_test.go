@@ -292,6 +292,28 @@ func TestUserRepository_Delete_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+func TestUserRepository_Delete_RemovesUserRoles(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	u := &model.User{
+		ID:           uuid.New(),
+		Username:     "frank",
+		PasswordHash: "hashed-password",
+		Roles:        []string{"admin", "secrets_manager"},
+		CreatedAt:    time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, u))
+
+	require.NoError(t, repo.Delete(ctx, u.ID))
+
+	var count int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = ?`, u.ID.String()).Scan(&count))
+	assert.Equal(t, 0, count, "user_roles rows must not survive user deletion on SQLite")
+}
+
 func TestUserRepository_ReadByUsername(t *testing.T) {
 	t.Parallel()
 	db := setupUserDB(t)

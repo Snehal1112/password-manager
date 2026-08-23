@@ -266,10 +266,16 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		}
 		defer tx.Rollback() //nolint:errcheck
 
-		// Optimized cascading deletion using ON DELETE CASCADE constraints
-		// The foreign key constraints with ON DELETE CASCADE will handle most cleanup automatically
+		// user_roles' ON DELETE CASCADE is inert on SQLite (the foreign_keys
+		// PRAGMA is off here), so the rows must be removed explicitly or
+		// they strand role grants for a user that no longer exists. Harmless
+		// no-op on Postgres, where the DB-level cascade already handles it.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM user_roles WHERE user_id = ?", id.String()); err != nil {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user_roles", err)
+			return fmt.Errorf("failed to delete user_roles: %w", err)
+		}
 
-		// Delete the user - cascading will handle related data
+		// Delete the user - cascading will handle most other related data
 		result, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id.String())
 		if err != nil {
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user", err)
