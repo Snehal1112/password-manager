@@ -459,8 +459,8 @@ paths:
     put:
       summary: Update a user
       description: |
-        Updates a user's username, password, or role. Callers may update their
-        own profile but not their own role; admins may update any user.
+        Updates a user's username, password, or roles. Callers may update their
+        own profile but not their own roles; admins may update any user.
       operationId: updateUser
       tags:
         - Users
@@ -4869,7 +4869,7 @@ components:
         - refresh_token
         - user_id
         - username
-        - role
+        - roles
       properties:
         token:
           type: string
@@ -4881,9 +4881,11 @@ components:
           format: uuid
         username:
           type: string
-        role:
-          type: string
-          example: "admin"
+        roles:
+          type: array
+          items:
+            type: string
+          example: ["admin"]
 
     RefreshTokenRequest:
       type: object
@@ -4900,7 +4902,7 @@ components:
         - refresh_token
         - user_id
         - username
-        - role
+        - roles
         - expires_at
       properties:
         token:
@@ -4912,8 +4914,10 @@ components:
           format: uuid
         username:
           type: string
-        role:
-          type: string
+        roles:
+          type: array
+          items:
+            type: string
         expires_at:
           type: string
           format: date-time
@@ -4960,7 +4964,7 @@ components:
       required:
         - username
         - password
-        - role
+        - roles
       properties:
         username:
           type: string
@@ -4970,13 +4974,14 @@ components:
           type: string
           format: password
           minLength: 8
-        role:
-          type: string
+        roles:
+          type: array
+          items:
+            type: string
           description: |
-            One or more comma-separated global roles. Valid values are `admin`,
-            `user`, `secrets_manager`, `crypto_manager`, and
-            `certificate_manager`.
-          example: "secrets_manager"
+            One or more global roles. Valid values are `admin`, `user`,
+            `secrets_manager`, `crypto_manager`, and `certificate_manager`.
+          example: ["secrets_manager"]
 
     UpdateUserRequest:
       type: object
@@ -4989,16 +4994,18 @@ components:
           type: string
           format: password
           minLength: 8
-        role:
-          type: string
-          description: Admin-only; a non-admin caller cannot change its own role.
+        roles:
+          type: array
+          items:
+            type: string
+          description: Admin-only; a non-admin caller cannot change their own roles.
 
     UserResponse:
       type: object
       required:
         - id
         - username
-        - role
+        - roles
         - created_at
       properties:
         id:
@@ -5006,8 +5013,10 @@ components:
           format: uuid
         username:
           type: string
-        role:
-          type: string
+        roles:
+          type: array
+          items:
+            type: string
         created_at:
           type: string
           format: date-time

@@ -135,9 +135,9 @@ echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${YELLOW}Skipping integration tests${NC}"
     echo "To create test users, run:"
-    echo "  ./rocketvault users create --username=testuser --password=test123 --role=user"
-    echo "  ./rocketvault users create --username=secretsmgr --password=test123 --role=secrets_manager"
-    echo "  ./rocketvault users create --username=cryptomgr --password=test123 --role=crypto_manager"
+    echo "  ./rocketvault users create --new-username=testuser --new-password=test123 --new-role=user"
+    echo "  ./rocketvault users create --new-username=secretsmgr --new-password=test123 --new-role=secrets_manager"
+    echo "  ./rocketvault users create --new-username=cryptomgr --new-password=test123 --new-role=crypto_manager"
 else
     print_section "Testing Admin Permissions"
 
@@ -150,7 +150,7 @@ else
     echo -e "${GREEN}✓ Admin login successful${NC}"
 
     # Admin should be able to create users
-    STATUS=$(make_request "POST" "/users" "$ADMIN_TOKEN" '{"username":"tempuser","password":"temp123","role":"user"}')
+    STATUS=$(make_request "POST" "/users" "$ADMIN_TOKEN" '{"username":"tempuser","password":"temp123","roles":["user"]}')
     print_test_result "Admin can create users (POST /users)" "201" "$STATUS"
 
     # Admin should be able to create secrets
