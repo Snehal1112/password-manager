@@ -105,7 +105,7 @@ func NewTestContext(t *testing.T) *TestContext {
 	testClaims := &model.Claims{
 		UserID:   testUserID,
 		Username: "testuser",
-		Role:     model.RoleAdmin,
+		Roles:    []string{model.RoleAdmin},
 	}
 
 	// Create context with service container and authentication
@@ -820,7 +820,7 @@ func CreateTestUser() *model.User {
 		ID:           uuid.New(),
 		Username:     "testuser",
 		PasswordHash: "$2a$10$test.hash",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 		TOTPSecret:   "testsecret",
 	}
 }

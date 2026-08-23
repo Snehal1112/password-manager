@@ -58,10 +58,10 @@ accounts are global, not a vault-scoped resource.`,
 
 		// Require admin role to create any user account.
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok || claims == nil {
+		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
 		}
-		if claims.Role != model.RoleAdmin {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 			return fmt.Errorf("forbidden: only admin users can create new accounts")
 		}
 
@@ -74,19 +74,19 @@ accounts are global, not a vault-scoped resource.`,
 		// Get new user details from flags directly.
 		username, _ := cmd.Flags().GetString("new-username")
 		password, _ := cmd.Flags().GetString("new-password")
-		role, _ := cmd.Flags().GetString("new-role")
+		roles, _ := cmd.Flags().GetStringArray("new-role")
 
-		if username == "" || password == "" || role == "" {
-			return fmt.Errorf("username, password, and role are required")
+		if username == "" || password == "" || len(roles) == 0 {
+			return fmt.Errorf("username, password, and at least one role are required")
 		}
 
 		// Create user using service.
 		userSvc := serviceContainer.GetUserService()
 		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
-			Username:   username,
-			Password:   password,
-			Role:       role,
-			CallerRole: claims.Role,
+			Username:    username,
+			Password:    password,
+			Roles:       roles,
+			CallerRoles: claims.Roles,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create user: %w", err)
@@ -95,14 +95,14 @@ accounts are global, not a vault-scoped resource.`,
 		logrus.WithFields(logrus.Fields{
 			"username":   result.Username,
 			"user_id":    result.UserID.String(),
-			"role":       result.Role,
+			"role":       result.Roles,
 			"totpSecret": result.TOTPSecret,
 		}).Info("User created successfully. Configure this TOTP secret in your authenticator app (e.g., Google Authenticator)")
 
 		fmt.Printf("User created successfully:\n")
 		fmt.Printf("  Username: %s\n", result.Username)
 		fmt.Printf("  User ID: %s\n", result.UserID.String())
-		fmt.Printf("  Role: %s\n", result.Role)
+		fmt.Printf("  Role: %s\n", result.Roles)
 		fmt.Printf("  TOTP Secret: %s\n", result.TOTPSecret)
 		fmt.Printf("\nConfigure the TOTP secret in your authenticator app for MFA.\n")
 
@@ -147,7 +147,7 @@ func InitUsersCreate(usersCmd *cobra.Command) *cobra.Command {
 	// Flags for registration.
 	createCmd.Flags().String("new-username", "", "Username for the new user")
 	createCmd.Flags().String("new-password", "", "Password for the new user")
-	createCmd.Flags().String("new-role", "", "Role for the new user (e.g., secrets_manager, crypto_manager, certificate_manager)")
+	createCmd.Flags().StringArray("new-role", []string{}, "Role(s) for the new user (repeatable, e.g. --new-role admin --new-role secrets_manager)")
 
 	viper.BindPFlag("new-username", createCmd.Flags().Lookup("new-username")) //nolint:errcheck,gosec
 	viper.BindPFlag("new-password", createCmd.Flags().Lookup("new-password")) //nolint:errcheck,gosec
