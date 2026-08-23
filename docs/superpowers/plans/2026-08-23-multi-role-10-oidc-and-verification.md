@@ -139,9 +139,19 @@ type SessionCache struct {
 
 - [ ] **Step 4b: Fix `cmd/users/login.go`'s `SessionCache` construction**
 
-`performPasswordLogin` builds a `SessionCache{..., Role: result.Role, ...}`
-literal from `*authServices.AuthenticationResult` (Plan 04 already added
-`.Roles` there). Change:
+Corrected during Plan 07 Task 3: this plan originally assumed `login.go`
+still read `Role: result.Role` and compiled fine until this step ran. That
+assumption was wrong — `AuthenticationResult.Role` was already renamed to
+`Roles []string` back in Plan 04 (an earlier, unrelated auth-service
+change), so `login.go` was already broken and Plan 07 Task 3 had to apply
+an interim fix just to keep `cmd/users` compiling. The line you'll actually
+find is:
+
+```go
+		Role:      strings.Join(result.Roles, ","),
+```
+
+not the `Role: result.Role` this step originally described. Change it to:
 
 ```go
 	session := &common.SessionCache{
@@ -154,9 +164,17 @@ literal from `*authServices.AuthenticationResult` (Plan 04 already added
 	}
 ```
 
+Remove the now-unnecessary `strings.Join` and its explanatory comment
+(check whether `"strings"` becomes an unused import in this file once it's
+gone — remove that too if so).
+
 Check `cmd/users/login_password_test.go` for a test covering
-`performPasswordLogin` and fix any stale `Role:` fixture literal the same
-mechanical way.
+`performPasswordLogin` and fix any stale `Role:`/`Roles: []string{"admin"}`
+fixture literal the same mechanical way (Plan 07 Task 3 already updated
+this file's `AuthenticationResult` fixture to `Roles: []string{"admin"}` —
+confirm it's consistent with whatever `SessionCache` assertion the test
+makes, adjusting only if the test still expects the old joined-string
+shape).
 
 - [ ] **Step 5: Fix `cmd/users/login_oidc.go`'s hand-duplicated wire shape**
 
