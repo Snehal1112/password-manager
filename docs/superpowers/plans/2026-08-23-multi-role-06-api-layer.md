@@ -95,10 +95,12 @@ all five structs untouched.
 
 Run: `go build ./... 2>&1 | grep -c "^"`
 
-Expected: a nonzero count of errors, all inside `api/users.go` (Task 2 fixes
-them). If errors appear anywhere else, stop and investigate before
-continuing — this task should only ripple into the one file Task 2 already
-plans to rewrite.
+Expected: a nonzero count of errors. Most are inside `api/users.go` (Task 2
+fixes them); `api/oidc.go` and `api/oidc_test.go` also break (Task 3 fixes
+them — see its file list, added during this plan's pre-flight scan). If
+errors appear anywhere ELSE in the repo — a file not named in Task 2's or
+Task 3's file list — stop and investigate before continuing rather than
+assuming it's later-plan territory.
 
 - [ ] **Step 3: Commit**
 
@@ -342,7 +344,18 @@ git commit -m "feat(api): createUser/updateUser accept roles arrays, delegate va
 **Files:**
 - Modify: `api/users.go` (`listUsers`, `getUser`, `deleteUser`, `loginUser`,
   `refreshToken`)
-- Test: `api/users_test.go`
+- Modify: `api/oidc.go` (`handleOIDCCallback`'s `model.LoginResponse{...}`
+  literal — added during this plan's pre-flight scan: `api/oidc.go` builds
+  its own `model.LoginResponse` from `AuthenticationResult.Role`, a field
+  Plan 04 already renamed to `Roles []string`, so this file has been broken
+  since Plan 04 landed and is named in NO other plan's file list. It's the
+  same wire-response-mapping fix as `loginUser`/`refreshToken` below, just
+  in a different file of the same `api` package — fix it here rather than
+  leaving a gap.)
+- Test: `api/users_test.go`, `api/oidc_test.go` (two pre-existing
+  `model.User{Role: ...}`/`model.LoginResponse{Role: ...}` literals need the
+  same mechanical `Role:` → `Roles: []string{...}` fix Step 6 below already
+  asks you to apply package-wide)
 
 **Interfaces:**
 - Consumes: `common.HasAnyRole`, `model.Claims.Roles`.
@@ -409,6 +422,11 @@ user.Role, ...}` — change to `Roles: user.Roles`. `loginUser` and
 ...}` / `model.RefreshTokenResponse{..., Role: result.Role, ...}` — change
 both to `Roles: result.Roles` (this now reads from the `AuthenticationResult`/
 `RefreshTokenResult.Roles` field Plan 04 added).
+
+`api/oidc.go`'s `handleOIDCCallback` builds a third `model.LoginResponse{...,
+Role: result.Role, ...}` from the same `AuthenticationResult` type (via
+`authSvc.IssueSessionForUser`) — apply the identical `Role: result.Role` →
+`Roles: result.Roles` fix there too.
 
 - [ ] **Step 5: Remove the now-dead `strings` import if applicable**
 
