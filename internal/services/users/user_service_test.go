@@ -375,11 +375,10 @@ func TestUpdateUser_RoleChangeByNonAdmin_Forbidden(t *testing.T) {
 	totpSvc := &mockTOTPService{}
 	svc := newService(repo, pw, totpSvc)
 
-	newRole := model.RoleSecretsManager
 	req := UpdateUserRequest{
-		UserID:     uuid.New(),
-		CallerRole: model.RoleUser,
-		Role:       &newRole,
+		UserID:      uuid.New(),
+		CallerRoles: []string{model.RoleUser},
+		Roles:       []string{model.RoleSecretsManager},
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
@@ -397,11 +396,10 @@ func TestUpdateUser_InvalidRole(t *testing.T) {
 	totpSvc := &mockTOTPService{}
 	svc := newService(repo, pw, totpSvc)
 
-	newRole := "super_hacker"
 	req := UpdateUserRequest{
-		UserID:     uuid.New(),
-		CallerRole: model.RoleAdmin,
-		Role:       &newRole,
+		UserID:      uuid.New(),
+		CallerRoles: []string{model.RoleAdmin},
+		Roles:       []string{"super_hacker"},
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
@@ -422,8 +420,8 @@ func TestUpdateUser_UserNotFound(t *testing.T) {
 	repo.On("Read", mock.Anything, userID).Return(nil, errors.New("user not found"))
 
 	req := UpdateUserRequest{
-		UserID:     userID,
-		CallerRole: model.RoleUser,
+		UserID:      userID,
+		CallerRoles: []string{model.RoleUser},
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
@@ -452,9 +450,9 @@ func TestUpdateUser_PasswordHashFails(t *testing.T) {
 	pw.On("HashPassword", "newpass").Return("", errors.New("hash error"))
 
 	req := UpdateUserRequest{
-		UserID:     userID,
-		CallerRole: model.RoleUser,
-		Password:   &newPw,
+		UserID:      userID,
+		CallerRoles: []string{model.RoleUser},
+		Password:    &newPw,
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
@@ -481,8 +479,8 @@ func TestUpdateUser_RepoUpdateFails(t *testing.T) {
 	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.User")).Return(errors.New("db error"))
 
 	req := UpdateUserRequest{
-		UserID:     userID,
-		CallerRole: model.RoleUser,
+		UserID:      userID,
+		CallerRoles: []string{model.RoleUser},
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
@@ -512,9 +510,9 @@ func TestUpdateUser_SuccessUsernameChange(t *testing.T) {
 
 	newUsername := "alice_new"
 	req := UpdateUserRequest{
-		UserID:     userID,
-		CallerRole: model.RoleUser,
-		Username:   &newUsername,
+		UserID:      userID,
+		CallerRoles: []string{model.RoleUser},
+		Username:    &newUsername,
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
@@ -541,16 +539,81 @@ func TestUpdateUser_SuccessRoleChange(t *testing.T) {
 		return len(u.Roles) == 1 && u.Roles[0] == model.RoleSecretsManager
 	})).Return(nil)
 
-	newRole := model.RoleSecretsManager
 	req := UpdateUserRequest{
-		UserID:     userID,
-		CallerRole: model.RoleAdmin,
-		Role:       &newRole,
+		UserID:      userID,
+		CallerRoles: []string{model.RoleAdmin},
+		Roles:       []string{model.RoleSecretsManager},
 	}
 
 	err := svc.UpdateUser(context.Background(), req)
 	require.NoError(t, err)
 	repo.AssertExpectations(t)
+}
+
+// 25. Self-promotion is blocked: even a caller including their own already-
+// held role in the new Roles list is rejected without admin.
+func TestUpdateUser_SelfPromotion_Blocked(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	req := UpdateUserRequest{
+		UserID:      userID,
+		CallerRoles: []string{model.RoleUser},
+		Roles:       []string{model.RoleUser, model.RoleAdmin}, // self-promotion attempt
+	}
+
+	err := svc.UpdateUser(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "forbidden")
+	repo.AssertNotCalled(t, "Update")
+}
+
+// 26. Admin caller can grant multiple roles in one update.
+func TestUpdateUser_AdminCanGrantMultipleRoles(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	userID := uuid.New()
+	existing := &model.User{ID: userID, Username: "alice", Roles: []string{model.RoleUser}}
+	repo.On("Read", mock.Anything, userID).Return(existing, nil)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return assert.ObjectsAreEqualValues([]string{"secrets_manager", "crypto_manager"}, u.Roles)
+	})).Return(nil)
+
+	req := UpdateUserRequest{
+		UserID:      userID,
+		CallerRoles: []string{model.RoleAdmin},
+		Roles:       []string{model.RoleSecretsManager, model.RoleCryptoManager},
+	}
+	err := svc.UpdateUser(context.Background(), req)
+	require.NoError(t, err)
+	repo.AssertExpectations(t)
+}
+
+// 27. An invalid role anywhere in the list rejects the whole update.
+func TestUpdateUser_InvalidRoleInList_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	req := UpdateUserRequest{
+		UserID:      uuid.New(),
+		CallerRoles: []string{model.RoleAdmin},
+		Roles:       []string{model.RoleAdmin, "not_a_real_role"},
+	}
+	err := svc.UpdateUser(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid role")
+	repo.AssertNotCalled(t, "Update")
 }
 
 // ---------------------------------------------------------------------------
@@ -804,11 +867,10 @@ func TestUpdateUser_AllValidRoles_Accepted(t *testing.T) {
 			repo.On("Read", mock.Anything, userID).Return(existing, nil)
 			repo.On("Update", mock.Anything, mock.AnythingOfType("*model.User")).Return(nil)
 
-			r := role
 			req := UpdateUserRequest{
-				UserID:     userID,
-				CallerRole: model.RoleAdmin,
-				Role:       &r,
+				UserID:      userID,
+				CallerRoles: []string{model.RoleAdmin},
+				Roles:       []string{role},
 			}
 			err := svc.UpdateUser(context.Background(), req)
 			require.NoError(t, err)

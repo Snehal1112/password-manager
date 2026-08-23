@@ -46,12 +46,12 @@ type CreateUserResult struct {
 
 // UpdateUserRequest represents a request to update an existing user.
 type UpdateUserRequest struct {
-	UserID     uuid.UUID
-	CallerID   uuid.UUID // ID of the user performing the update
-	CallerRole string    // Role of the user performing the update
-	Username   *string   // Optional - nil means no change
-	Password   *string   // Optional - nil means no change
-	Role       *string   // Optional - nil means no change
+	UserID      uuid.UUID
+	CallerID    uuid.UUID // Unused today (pre-existing dead field) -- left as-is.
+	CallerRoles []string  // Must include model.RoleAdmin for any Roles change.
+	Username    *string
+	Password    *string
+	Roles       []string // nil means no change; non-nil (even empty) is a validation error.
 }
 
 // UserService handles user management operations.
@@ -245,36 +245,48 @@ func (s *userService) FindOrCreateExternalUser(ctx context.Context, req FindOrCr
 //
 //	An error if the update fails.
 func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) error {
-	// Only admins may change any user's role.
-	if req.Role != nil && req.CallerRole != model.RoleAdmin {
+	// Only admins may change any user's roles -- including their own. This
+	// is the self-promotion guard: a non-admin including "admin" (or any
+	// role) in req.Roles is rejected here before roles are ever validated
+	// or written, regardless of which roles they already hold.
+	if req.Roles != nil && !common.HasAnyRole(req.CallerRoles, model.RoleAdmin) {
 		return fmt.Errorf("forbidden: only admins can change roles")
 	}
 
-	// Validate role value if provided.
-	if req.Role != nil {
-		if !model.IsValidRole(*req.Role) {
-			return fmt.Errorf("invalid role: %s", *req.Role)
+	var newRoles []string
+	if req.Roles != nil {
+		if len(req.Roles) == 0 {
+			return fmt.Errorf("invalid role: at least one role is required")
+		}
+		seen := map[string]bool{}
+		for _, r := range req.Roles {
+			// Same trimming requirement as CreateUser above -- see its comment.
+			r = strings.TrimSpace(r)
+			if r == "" || seen[r] {
+				continue
+			}
+			if !model.IsValidRole(r) {
+				return fmt.Errorf("invalid role: %s", r)
+			}
+			seen[r] = true
+			newRoles = append(newRoles, r)
 		}
 	}
 
 	logrus.WithField("user_id", req.UserID.String()).Info("Updating user")
 
-	// Get existing user
 	existingUser, err := s.userRepo.Read(ctx, req.UserID)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "update_user", "failed", "User not found", err)
 		return fmt.Errorf("user not found: %w", err)
 	}
 
-	// Prepare updated user
 	updatedUser := *existingUser
 
-	// Update username if provided
 	if req.Username != nil {
 		updatedUser.Username = *req.Username
 	}
 
-	// Update password if provided
 	if req.Password != nil {
 		hashedPassword, err := s.passwordService.HashPassword(*req.Password)
 		if err != nil {
@@ -284,12 +296,10 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 		updatedUser.PasswordHash = hashedPassword
 	}
 
-	// Update role if provided.
-	if req.Role != nil {
-		updatedUser.Roles = []string{*req.Role}
+	if req.Roles != nil {
+		updatedUser.Roles = newRoles
 	}
 
-	// Update user via repository
 	if err := s.userRepo.Update(ctx, &updatedUser); err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "update_user", "failed", "Failed to update user", err)
 		return fmt.Errorf("failed to update user: %w", err)
