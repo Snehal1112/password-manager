@@ -344,13 +344,32 @@ least one test) and extend the same way rather than inventing a new pattern.
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./internal/services/oauth2/... -v`
-Expected: FAIL — compile error in `IssueToken` (still passing
-`model.RoleServiceAccount` as a bare string to a function now expecting
-`[]string`)
+Expected: FAIL — compile error, though NOT inside `oauth2_service.go` itself
+(read on before assuming where).
 
-- [ ] **Step 3: Fix the call site**
+**Correction to this brief, found during Task 1's review:** `oauth2_service.go`
+defines its OWN local `JWTService` interface —
+`GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error)`
+— separate from `internal/services/auth`'s `JWTService`. Because Go
+interfaces are structural, `oauth2_service.go`'s own type-checking is
+unaffected by Task 1's change to the *other* package's interface; the actual
+break is an interface-satisfaction mismatch where the real `*jwtService` gets
+wired in, at `internal/container/service_container.go`'s
+`OAuth2Config{JWTService: c.jwtService}` assignment. Confirm this yourself
+first with `go build ./internal/services/oauth2/... ./internal/container/...`
+before proceeding, rather than assuming the brief's original file list is
+complete.
 
-In `IssueToken`:
+- [ ] **Step 3: Fix both the local interface and the call site**
+
+In `internal/services/oauth2/oauth2_service.go`, update the local `JWTService`
+interface's `GenerateToken` method signature to match the real one:
+
+```go
+	GenerateToken(userID uuid.UUID, username string, roles []string, sessionID uuid.UUID) (string, error)
+```
+
+Then fix `IssueToken`'s call:
 
 ```go
 	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, []string{model.RoleServiceAccount}, client.ID)
