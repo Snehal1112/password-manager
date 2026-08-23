@@ -36,6 +36,14 @@ const rotationFixtureSchema = `
 		external_idp_subject TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
+	CREATE TABLE user_roles (
+		id         TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL,
+		role       TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (user_id, role),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
 	CREATE TABLE secrets (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,

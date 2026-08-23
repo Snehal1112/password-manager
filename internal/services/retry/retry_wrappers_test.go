@@ -717,7 +717,7 @@ func TestNewRetryAuthenticationService(t *testing.T) {
 
 func TestRetryAuth_AuthenticateUser_Success(t *testing.T) {
 	base := &MockAuthService{}
-	expected := &auth.AuthenticationResult{Token: "tok", UserID: uuid.New(), Username: "alice", Role: "admin"}
+	expected := &auth.AuthenticationResult{Token: "tok", UserID: uuid.New(), Username: "alice", Roles: []string{"admin"}}
 	base.On("AuthenticateUser", mock.Anything, "alice", "pass", "123456").Return(expected, nil)
 
 	svc := NewRetryAuthenticationService(base, newNoop())
@@ -740,8 +740,8 @@ func TestRetryAuth_AuthenticateUser_Error(t *testing.T) {
 
 func TestRetryAuth_IssueSessionForUser_Success(t *testing.T) {
 	base := &MockAuthService{}
-	user := &model.User{ID: uuid.New(), Username: "alice", Role: "admin"}
-	expected := &auth.AuthenticationResult{Token: "tok", UserID: user.ID, Username: "alice", Role: "admin"}
+	user := &model.User{ID: uuid.New(), Username: "alice", Roles: []string{"admin"}}
+	expected := &auth.AuthenticationResult{Token: "tok", UserID: user.ID, Username: "alice", Roles: []string{"admin"}}
 	base.On("IssueSessionForUser", mock.Anything, user).Return(expected, nil)
 
 	svc := NewRetryAuthenticationService(base, newNoop())
@@ -753,7 +753,7 @@ func TestRetryAuth_IssueSessionForUser_Success(t *testing.T) {
 
 func TestRetryAuth_IssueSessionForUser_Error(t *testing.T) {
 	base := &MockAuthService{}
-	user := &model.User{ID: uuid.New(), Username: "alice", Role: "admin"}
+	user := &model.User{ID: uuid.New(), Username: "alice", Roles: []string{"admin"}}
 	base.On("IssueSessionForUser", mock.Anything, user).Return(nil, fmt.Errorf("session creation failed"))
 
 	svc := NewRetryAuthenticationService(base, newNoop())
@@ -765,7 +765,7 @@ func TestRetryAuth_IssueSessionForUser_Error(t *testing.T) {
 
 func TestRetryAuth_ValidateSession_Success(t *testing.T) {
 	base := &MockAuthService{}
-	expected := &auth.JWTClaims{Username: "alice", Role: "admin"}
+	expected := &auth.JWTClaims{Username: "alice", Roles: []string{"admin"}}
 	base.On("ValidateSession", mock.Anything, "mytoken").Return(expected, nil)
 
 	svc := NewRetryAuthenticationService(base, newNoop())
@@ -863,7 +863,7 @@ func TestNewRetryUserService(t *testing.T) {
 
 func TestRetryUser_CreateUser_Success(t *testing.T) {
 	base := &MockUserService{}
-	req := users.CreateUserRequest{Username: "alice", Password: "secret", Role: "admin", CallerRole: "admin"}
+	req := users.CreateUserRequest{Username: "alice", Password: "secret", Roles: []string{"admin"}, CallerRoles: []string{"admin"}}
 	expected := &users.CreateUserResult{UserID: uuid.New(), Username: "alice"}
 	base.On("CreateUser", mock.Anything, req).Return(expected, nil)
 
@@ -876,7 +876,7 @@ func TestRetryUser_CreateUser_Success(t *testing.T) {
 
 func TestRetryUser_CreateUser_Error(t *testing.T) {
 	base := &MockUserService{}
-	req := users.CreateUserRequest{Username: "alice", Password: "secret", Role: "admin", CallerRole: "admin"}
+	req := users.CreateUserRequest{Username: "alice", Password: "secret", Roles: []string{"admin"}, CallerRoles: []string{"admin"}}
 	base.On("CreateUser", mock.Anything, req).Return(nil, fmt.Errorf("create failed"))
 
 	svc := NewRetryUserService(base, newNoop())

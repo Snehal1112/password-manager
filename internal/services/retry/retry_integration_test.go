@@ -226,7 +226,7 @@ func TestRetryRepositoryWrapperIntegration(t *testing.T) {
 		Username:     "testuser",
 		PasswordHash: "hashed_password",
 		TOTPSecret:   "totp_secret",
-		Role:         "user",
+		Roles:        []string{"user"},
 	}
 
 	t.Run("create user with retry on temporary failure", func(t *testing.T) {
