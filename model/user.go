@@ -70,9 +70,9 @@ const AuthProviderOIDC = "oidc"
 // --- HTTP request/response types ---
 
 type CreateUserRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Username string   `json:"username"`
+	Password string   `json:"password"`
+	Roles    []string `json:"roles"`
 }
 
 func CreateUserRequestFromJson(data io.Reader) (*CreateUserRequest, error) {
@@ -81,9 +81,9 @@ func CreateUserRequestFromJson(data io.Reader) (*CreateUserRequest, error) {
 }
 
 type UpdateUserRequest struct {
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	Role     string `json:"role,omitempty"`
+	Username string   `json:"username,omitempty"`
+	Password string   `json:"password,omitempty"`
+	Roles    []string `json:"roles,omitempty"`
 }
 
 func UpdateUserRequestFromJson(data io.Reader) (*UpdateUserRequest, error) {
@@ -92,11 +92,11 @@ func UpdateUserRequestFromJson(data io.Reader) (*UpdateUserRequest, error) {
 }
 
 type UserResponse struct {
-	ID         string `json:"id"`
-	Username   string `json:"username"`
-	Role       string `json:"role"`
-	CreatedAt  string `json:"created_at"`
-	TOTPSecret string `json:"totp_secret,omitempty"`
+	ID         string   `json:"id"`
+	Username   string   `json:"username"`
+	Roles      []string `json:"roles"`
+	CreatedAt  string   `json:"created_at"`
+	TOTPSecret string   `json:"totp_secret,omitempty"`
 }
 
 func (r *UserResponse) ToJson() string {
@@ -126,11 +126,11 @@ func LoginRequestFromJson(data io.Reader) (*LoginRequest, error) {
 }
 
 type LoginResponse struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
-	UserID       string `json:"user_id"`
-	Username     string `json:"username"`
-	Role         string `json:"role"`
+	Token        string   `json:"token"`
+	RefreshToken string   `json:"refresh_token"`
+	UserID       string   `json:"user_id"`
+	Username     string   `json:"username"`
+	Roles        []string `json:"roles"`
 }
 
 func (r *LoginResponse) ToJson() string {
@@ -152,7 +152,7 @@ type RefreshTokenResponse struct {
 	RefreshToken string    `json:"refresh_token"`
 	UserID       string    `json:"user_id"`
 	Username     string    `json:"username"`
-	Role         string    `json:"role"`
+	Roles        []string  `json:"roles"`
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
