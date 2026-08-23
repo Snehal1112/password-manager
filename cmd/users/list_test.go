@@ -17,6 +17,7 @@ import (
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
 	"rocketvault/internal/container"
+	"rocketvault/internal/formatter"
 	"rocketvault/model"
 )
 
@@ -234,6 +235,38 @@ func TestListUsersOutputFormat(t *testing.T) {
 	assert.Contains(t, outputStr, model.RoleUser)
 
 	// Verify mock expectations
+	tc.MockUserService.AssertExpectations(t)
+}
+
+// TestListCmdRunE_MultiRoleCallerAdminNotFirst pins that the admin gate on
+// the real listCmd.RunE checks the caller's whole Roles slice, not just
+// Roles[0] -- a caller holding "admin" as a later, non-sole role must still
+// pass the gate.
+func TestListCmdRunE_MultiRoleCallerAdminNotFirst(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	claims := &model.Claims{
+		UserID: tc.TestUserID,
+		Roles:  []string{model.RoleSecretsManager, model.RoleAdmin},
+	}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, tc.MockContainer)
+	fmtr, err := formatter.New(formatter.FormatTable)
+	require.NoError(t, err)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, fmtr)
+
+	users := []model.User{
+		{ID: uuid.New(), Username: "alice", Roles: []string{model.RoleUser}, CreatedAt: time.Now()},
+	}
+	tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
+
+	cmd := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: listCmd.RunE}
+	cmd.SetContext(ctx)
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	execErr := cmd.Execute()
+	require.NoError(t, execErr)
+	assert.Contains(t, buf.String(), "alice")
 	tc.MockUserService.AssertExpectations(t)
 }
 

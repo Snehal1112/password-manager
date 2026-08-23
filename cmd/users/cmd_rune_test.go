@@ -281,8 +281,13 @@ func TestUpdateCmdRunE_Success(t *testing.T) {
 	targetID := uuid.New()
 	ctx := newUsersTestCtx(tc.MockContainer)
 
+	// req.Roles must come through as nil, not a non-nil empty slice: per
+	// UpdateUserRequest's contract, nil means "no change" while any non-nil
+	// value (even empty) is an explicit role-change request that fails
+	// validation. This pins the absent-flag-to-nil guard in updateCmd.RunE --
+	// see the comment above `var rolesArg []string` there.
 	tc.MockUserService.On("UpdateUser", mock.Anything, mock.MatchedBy(func(r userServices.UpdateUserRequest) bool {
-		return r.UserID == targetID && r.Username != nil && *r.Username == "renamed"
+		return r.UserID == targetID && r.Username != nil && *r.Username == "renamed" && r.Roles == nil
 	})).Return(nil)
 
 	cmd := newUpdateTestCmd()

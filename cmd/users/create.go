@@ -24,6 +24,7 @@ package users
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -95,14 +96,14 @@ accounts are global, not a vault-scoped resource.`,
 		logrus.WithFields(logrus.Fields{
 			"username":   result.Username,
 			"user_id":    result.UserID.String(),
-			"role":       result.Roles,
+			"roles":      strings.Join(result.Roles, ", "),
 			"totpSecret": result.TOTPSecret,
 		}).Info("User created successfully. Configure this TOTP secret in your authenticator app (e.g., Google Authenticator)")
 
 		fmt.Printf("User created successfully:\n")
 		fmt.Printf("  Username: %s\n", result.Username)
 		fmt.Printf("  User ID: %s\n", result.UserID.String())
-		fmt.Printf("  Role: %s\n", result.Roles)
+		fmt.Printf("  Role: %s\n", strings.Join(result.Roles, ", "))
 		fmt.Printf("  TOTP Secret: %s\n", result.TOTPSecret)
 		fmt.Printf("\nConfigure the TOTP secret in your authenticator app for MFA.\n")
 

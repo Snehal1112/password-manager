@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -333,7 +335,24 @@ func TestCreateUserCommand_MultipleRoles(t *testing.T) {
 		return assert.ObjectsAreEqualValues([]string{"admin", "secrets_manager"}, req.Roles)
 	})).Return(&userServices.CreateUserResult{Username: "newuser", Roles: []string{"admin", "secrets_manager"}}, nil)
 
+	// createCmd.RunE prints via fmt.Printf (os.Stdout), not cmd.OutOrStdout(),
+	// so capture the real os.Stdout to pin the clean joined-role output.
+	origStdout := os.Stdout
+	r, w, pipeErr := os.Pipe()
+	require.NoError(t, pipeErr)
+	os.Stdout = w
+
 	err := cmd.Execute()
+
+	w.Close() //nolint:errcheck
+	os.Stdout = origStdout
+	out, readErr := io.ReadAll(r)
+	require.NoError(t, readErr)
+
 	require.NoError(t, err)
 	tc.MockUserService.AssertExpectations(t)
+
+	output := string(out)
+	assert.Contains(t, output, "admin, secrets_manager", "role output must be a clean comma-joined list")
+	assert.NotContains(t, output, "[admin", "role output must not render Go slice literal syntax")
 }

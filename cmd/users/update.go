@@ -110,6 +110,10 @@ a vault-scoped resource.`,
 			passwordPtr = &newPassword
 		}
 
+		// GetStringArray returns a non-nil empty slice when --new-role is absent,
+		// but UpdateUserRequest.Roles treats non-nil as an explicit (even if
+		// empty) role-change request. Convert the absent-flag case to nil so a
+		// plain update that doesn't touch roles isn't misclassified as one.
 		var rolesArg []string
 		if len(roles) > 0 {
 			rolesArg = roles
