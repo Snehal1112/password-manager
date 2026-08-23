@@ -76,7 +76,7 @@ The key is created in the vault named by --vault, which defaults to
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
 			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
 		}

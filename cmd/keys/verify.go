@@ -81,7 +81,7 @@ outside its not-before/expiry window is refused.`,
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
 
-		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCryptoManager) {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
 			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
 		}

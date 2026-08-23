@@ -295,7 +295,7 @@ func newTestFmtr() formatter.Formatter {
 // buildAdminCtx builds a context with admin claims, logger, the given container, and formatter.
 func buildAdminCtx(sc any) context.Context {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -307,7 +307,7 @@ func buildAdminCtx(sc any) context.Context {
 // buildUserCtx builds a context with non-admin (secrets_manager) claims.
 func buildUserCtx(sc any, role string) context.Context {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Username: "user", Role: role}
+	claims := &model.Claims{UserID: userID, Username: "user", Roles: []string{role}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
@@ -369,7 +369,7 @@ func TestCreateCmd_NoServiceContainer(t *testing.T) {
 	})
 	defer cleanup()
 	ctx := context.Background()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	// No ServiceContainerKey in context.
@@ -435,7 +435,7 @@ func TestCreateCmd_RSASuccess(t *testing.T) {
 		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048 && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -467,7 +467,7 @@ func TestCreateCmd_Denied(t *testing.T) {
 	userID := uuid.New()
 	sc := newDeniedContainer(keySvc, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -507,7 +507,7 @@ func TestCreateCmd_Authorized(t *testing.T) {
 		return r.Name == "mykey" && r.Type == "RSA" && r.Bits == 2048 && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -538,7 +538,7 @@ func TestCreateCmd_RSAWithTags(t *testing.T) {
 		return r.Name == "tagged-key" && len(r.Tags) == 2 && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -567,7 +567,7 @@ func TestCreateCmd_ECDSASuccess(t *testing.T) {
 		return r.Name == "eckey" && r.Type == "ECDSA" && r.Curve == "P-256" && r.VaultID == vaultID
 	})).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleCryptoManager}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleCryptoManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -591,7 +591,7 @@ func TestCreateCmd_ServiceError(t *testing.T) {
 	sc, _ := newAllowedContainer(keySvc, nil)
 	keySvc.On("CreateRSAKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("db error"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -615,7 +615,7 @@ func TestCreateCmd_NoFormatter(t *testing.T) {
 	result := &keyServices.CreateKeyResult{KeyID: uuid.New(), Name: "k", Type: "RSA", CreatedAt: time.Now()}
 	keySvc.On("CreateRSAKey", mock.Anything, mock.Anything).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -643,7 +643,7 @@ func TestListCmd_NoClaims(t *testing.T) {
 }
 
 func TestListCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
@@ -665,7 +665,7 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(keys, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleSecretsManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -687,7 +687,7 @@ func TestListCmd_Denied(t *testing.T) {
 	userID := uuid.New()
 	sc := newDeniedContainer(keySvc, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleSecretsManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -723,7 +723,7 @@ func TestListCmd_Authorized(t *testing.T) {
 	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(keys, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleSecretsManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -748,7 +748,7 @@ func TestListCmd_NonAdminWithTags(t *testing.T) {
 	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "RSA", Tags: []string{"prod", "secure"}}).
 		Return([]model.Key{}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleUser}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleUser}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -773,7 +773,7 @@ func TestListCmd_AdminRoleAloneDoesNotBypassVaultAuthorization(t *testing.T) {
 	// GET /keys (scopeFromRequest has no role-based special case).
 	sc := newDeniedContainer(keySvc, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -799,7 +799,7 @@ func TestListCmd_ServiceError(t *testing.T) {
 	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return(nil, fmt.Errorf("db error"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleSecretsManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -821,7 +821,7 @@ func TestListCmd_NoFormatter(t *testing.T) {
 	keySvc.On("ListKeys", mock.Anything, model.NewVaultScope(vaultID, userID), repositories.KeyFilter{Type: "", Tags: nil}).
 		Return([]model.Key{}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleUser}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleUser}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -848,7 +848,7 @@ func TestGetCmd_NoClaims(t *testing.T) {
 }
 
 func TestGetCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(getCmd.RunE, []string{"not-a-uuid"})
@@ -859,7 +859,7 @@ func TestGetCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestGetCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(getCmd.RunE, []string{uuid.New().String()})
@@ -877,7 +877,7 @@ func TestGetCmd_Success(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Name: "my-key", Type: "RSA", CreatedAt: time.Now()}
 	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -898,7 +898,7 @@ func TestGetCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(keySvc, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -930,7 +930,7 @@ func TestGetCmd_Authorized(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Name: "my-key", Type: "RSA", CreatedAt: time.Now()}
 	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -953,7 +953,7 @@ func TestGetCmd_ServiceError(t *testing.T) {
 	sc, vaultID := newAllowedContainer(keySvc, nil)
 	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, fmt.Errorf("not found"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -974,7 +974,7 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 	key := &model.Key{ID: keyID, UserID: userID, Name: "k", Type: "RSA", CreatedAt: time.Now()}
 	keySvc.On("GetKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(key, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -999,7 +999,7 @@ func TestDeleteCmd_NoClaims(t *testing.T) {
 }
 
 func TestDeleteCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(deleteCmd.RunE, []string{"bad-uuid"})
@@ -1010,7 +1010,7 @@ func TestDeleteCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestDeleteCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(deleteCmd.RunE, []string{uuid.New().String()})
@@ -1027,7 +1027,7 @@ func TestDeleteCmd_Success(t *testing.T) {
 	sc, vaultID := newAllowedContainer(keySvc, nil)
 	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1046,7 +1046,7 @@ func TestDeleteCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(keySvc, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1076,7 +1076,7 @@ func TestDeleteCmd_Authorized(t *testing.T) {
 
 	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1098,7 +1098,7 @@ func TestDeleteCmd_ServiceError(t *testing.T) {
 	sc, vaultID := newAllowedContainer(keySvc, nil)
 	keySvc.On("DeleteKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, fmt.Errorf("delete failed"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1122,7 +1122,7 @@ func TestRotateCmd_NoClaims(t *testing.T) {
 }
 
 func TestRotateCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(rotateCmd.RunE, []string{"not-uuid"})
@@ -1133,7 +1133,7 @@ func TestRotateCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestRotateCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(rotateCmd.RunE, []string{uuid.New().String()})
@@ -1153,7 +1153,7 @@ func TestRotateCmd_Success(t *testing.T) {
 	}
 	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1174,7 +1174,7 @@ func TestRotateCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(keySvc, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1207,7 +1207,7 @@ func TestRotateCmd_Authorized(t *testing.T) {
 	}
 	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(result, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1229,7 +1229,7 @@ func TestRotateCmd_ServiceError(t *testing.T) {
 	sc, vaultID := newAllowedContainer(keySvc, nil)
 	keySvc.On("RotateKey", mock.Anything, keyID, model.NewVaultScope(vaultID, userID)).Return(nil, fmt.Errorf("rotation failed"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1256,7 +1256,7 @@ func TestWrapCmd_NoClaims(t *testing.T) {
 func TestWrapCmd_MissingKeyID(t *testing.T) {
 	cleanup := viperSet(map[string]any{"wrap-key-id": "", "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
@@ -1268,7 +1268,7 @@ func TestWrapCmd_MissingKeyID(t *testing.T) {
 func TestWrapCmd_MissingKeyMaterial(t *testing.T) {
 	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": ""})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
@@ -1280,7 +1280,7 @@ func TestWrapCmd_MissingKeyMaterial(t *testing.T) {
 func TestWrapCmd_InvalidKeyID(t *testing.T) {
 	cleanup := viperSet(map[string]any{"wrap-key-id": "not-a-uuid", "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
@@ -1292,7 +1292,7 @@ func TestWrapCmd_InvalidKeyID(t *testing.T) {
 func TestWrapCmd_InvalidBase64(t *testing.T) {
 	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": "not!!valid@@base64"})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
@@ -1305,7 +1305,7 @@ func TestWrapCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
 	cleanup := viperSet(map[string]any{"wrap-key-id": keyID.String(), "wrap-key-material": "dGVzdA=="})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	// No service container.
@@ -1327,7 +1327,7 @@ func TestWrapCmd_Success(t *testing.T) {
 			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1352,7 +1352,7 @@ func TestWrapCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(nil, cryptoSvc)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1392,7 +1392,7 @@ func TestWrapCmd_Authorized(t *testing.T) {
 			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1419,7 +1419,7 @@ func TestWrapCmd_ServiceError(t *testing.T) {
 	sc, _ := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("WrapKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("wrap error"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1451,7 +1451,7 @@ func TestUnwrapCmd_NoClaims(t *testing.T) {
 func TestUnwrapCmd_MissingKeyID(t *testing.T) {
 	cleanup := viperSet(map[string]any{"unwrap-key-id": "", "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
@@ -1463,7 +1463,7 @@ func TestUnwrapCmd_MissingKeyID(t *testing.T) {
 func TestUnwrapCmd_MissingWrappedKey(t *testing.T) {
 	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": ""})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
@@ -1475,7 +1475,7 @@ func TestUnwrapCmd_MissingWrappedKey(t *testing.T) {
 func TestUnwrapCmd_InvalidKeyID(t *testing.T) {
 	cleanup := viperSet(map[string]any{"unwrap-key-id": "bad-uuid", "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
@@ -1487,7 +1487,7 @@ func TestUnwrapCmd_InvalidKeyID(t *testing.T) {
 func TestUnwrapCmd_InvalidBase64(t *testing.T) {
 	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "not!!base64"})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
@@ -1500,7 +1500,7 @@ func TestUnwrapCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
 	cleanup := viperSet(map[string]any{"unwrap-key-id": keyID.String(), "unwrap-wrapped-key": "dGVzdA=="})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
@@ -1521,7 +1521,7 @@ func TestUnwrapCmd_Success(t *testing.T) {
 			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1546,7 +1546,7 @@ func TestUnwrapCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(nil, cryptoSvc)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1586,7 +1586,7 @@ func TestUnwrapCmd_Authorized(t *testing.T) {
 			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1613,7 +1613,7 @@ func TestUnwrapCmd_ServiceError(t *testing.T) {
 	sc, _ := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("UnwrapKey", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("unwrap error"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1641,7 +1641,7 @@ func TestWrapCmd_SetsResolvedVaultID(t *testing.T) {
 		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: wrapped}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1670,7 +1670,7 @@ func TestUnwrapCmd_SetsResolvedVaultID(t *testing.T) {
 		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: plaintext}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1703,7 +1703,7 @@ func TestSignCmd_NoClaims(t *testing.T) {
 func TestSignCmd_MissingKeyIDOrData(t *testing.T) {
 	cleanup := viperSet(map[string]any{"sign-key-id": "", "sign-data": "", "sign-algorithm": "RS256"})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
@@ -1715,7 +1715,7 @@ func TestSignCmd_MissingKeyIDOrData(t *testing.T) {
 func TestSignCmd_InvalidKeyID(t *testing.T) {
 	cleanup := viperSet(map[string]any{"sign-key-id": "not-a-uuid", "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
@@ -1727,7 +1727,7 @@ func TestSignCmd_InvalidKeyID(t *testing.T) {
 func TestSignCmd_InvalidBase64(t *testing.T) {
 	cleanup := viperSet(map[string]any{"sign-key-id": uuid.New().String(), "sign-data": "not!!valid@@base64", "sign-algorithm": "RS256"})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
@@ -1740,7 +1740,7 @@ func TestSignCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
 	cleanup := viperSet(map[string]any{"sign-key-id": keyID.String(), "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	// No service container.
@@ -1763,7 +1763,7 @@ func TestSignCmd_DefaultsAlgorithmToRS256(t *testing.T) {
 			r.Algorithm == crypto.SignatureAlgorithm("RS256")
 	})).Return(&keyServices.SignResult{Signature: signature}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1795,7 +1795,7 @@ func TestSignCmd_Success(t *testing.T) {
 			r.Algorithm == crypto.SignatureAlgorithm("ES256")
 	})).Return(&keyServices.SignResult{Signature: signature}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1820,7 +1820,7 @@ func TestSignCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(nil, cryptoSvc)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1861,7 +1861,7 @@ func TestSignCmd_Authorized(t *testing.T) {
 			r.VaultID == vaultID && r.Scope == model.NewVaultScope(vaultID, userID)
 	})).Return(&keyServices.SignResult{Signature: signature}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1889,7 +1889,7 @@ func TestSignCmd_ServiceError(t *testing.T) {
 	sc, _ := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("Sign", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("sign error"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1917,7 +1917,7 @@ func TestSignCmd_SetsResolvedVaultID(t *testing.T) {
 		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
 	})).Return(&keyServices.SignResult{Signature: signature}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1969,7 +1969,7 @@ func TestVerifyCmd_MissingRequiredFlags(t *testing.T) {
 				"verify-signature": tc.signature, "verify-algorithm": "RS256",
 			})
 			defer cleanup()
-			claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+			claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 			ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 			ctx = context.WithValue(ctx, common.LogKey, newLogger())
 			cmd, _ := newTestCmd(verifyCmd.RunE, nil)
@@ -1986,7 +1986,7 @@ func TestVerifyCmd_InvalidKeyID(t *testing.T) {
 		"verify-signature": "c2ln", "verify-algorithm": "RS256",
 	})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
@@ -2001,7 +2001,7 @@ func TestVerifyCmd_InvalidDataBase64(t *testing.T) {
 		"verify-signature": "c2ln", "verify-algorithm": "RS256",
 	})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
@@ -2016,7 +2016,7 @@ func TestVerifyCmd_InvalidSignatureBase64(t *testing.T) {
 		"verify-signature": "not!!valid@@base64", "verify-algorithm": "RS256",
 	})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
@@ -2032,7 +2032,7 @@ func TestVerifyCmd_NoServiceContainer(t *testing.T) {
 		"verify-signature": "c2ln", "verify-algorithm": "RS256",
 	})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
@@ -2047,7 +2047,7 @@ func TestVerifyCmd_Denied(t *testing.T) {
 	keyID := uuid.New()
 	sc := newDeniedContainer(nil, cryptoSvc)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -2088,7 +2088,7 @@ func TestVerifyCmd_Authorized_ValidSignature(t *testing.T) {
 			r.Algorithm == crypto.SignatureAlgorithm("RS256")
 	})).Return(&keyServices.VerifyResult{KeyID: keyID, Algorithm: crypto.SignatureAlgorithm("RS256"), Valid: true}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := buildAdminCtx(sc)
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 
@@ -2116,7 +2116,7 @@ func TestVerifyCmd_InvalidSignature_ExitsNonZeroButPrintsResult(t *testing.T) {
 	cryptoSvc.On("Verify", mock.Anything, mock.Anything).
 		Return(&keyServices.VerifyResult{KeyID: keyID, Algorithm: crypto.SignatureAlgorithm("RS256"), Valid: false}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := buildAdminCtx(sc)
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 
@@ -2141,7 +2141,7 @@ func TestVerifyCmd_ServiceError(t *testing.T) {
 	sc, _ := newAllowedContainer(nil, cryptoSvc)
 	cryptoSvc.On("Verify", mock.Anything, mock.Anything).Return(nil, fmt.Errorf("verify error"))
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -2167,7 +2167,7 @@ func TestVerifyCmd_SetsResolvedVaultID(t *testing.T) {
 		return r.VaultID == vaultID && r.VaultID == uuid.MustParse(model.DefaultVaultID)
 	})).Return(&keyServices.VerifyResult{KeyID: keyID, Algorithm: crypto.SignatureAlgorithm("RS256"), Valid: true}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := buildAdminCtx(sc)
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 
@@ -2206,7 +2206,7 @@ func TestSignCmd_PassesVersionToService(t *testing.T) {
 		return r.KeyID == keyID && r.Version == 2
 	})).Return(&keyServices.SignResult{Signature: []byte("sig")}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -2234,7 +2234,7 @@ func TestSignCmd_OmittedVersionSendsZero(t *testing.T) {
 		return r.Version == 0
 	})).Return(&keyServices.SignResult{Signature: []byte("sig")}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -2261,7 +2261,7 @@ func TestVerifyCmd_PassesVersionToService(t *testing.T) {
 		return r.KeyID == keyID && r.Version == 3
 	})).Return(&keyServices.VerifyResult{Valid: true, KeyID: keyID}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -2293,7 +2293,7 @@ func TestWrapCmd_PassesVersionToService(t *testing.T) {
 		return r.KeyID == keyID && r.Version == 4
 	})).Return(&keyServices.WrapKeyResult{WrappedKey: []byte("wrapped")}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -2320,7 +2320,7 @@ func TestUnwrapCmd_PassesVersionToService(t *testing.T) {
 		return r.KeyID == keyID && r.Version == 5
 	})).Return(&keyServices.UnwrapKeyResult{PlaintextKey: []byte("plain")}, nil)
 
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
