@@ -31,13 +31,13 @@ func TestUsersCreateCommand(t *testing.T) {
 				result := &userServices.CreateUserResult{
 					UserID:     uuid.New(),
 					Username:   "testuser",
-					Role:       model.RoleUser,
+					Roles:      []string{model.RoleUser},
 					TOTPSecret: "JBSWY3DPEHPK3PXP",
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
 					Username: "testuser",
 					Password: "password123",
-					Role:     "user",
+					Roles:    []string{"user"},
 				}).Return(result, nil)
 			},
 			expectedOutput: "User created successfully",
@@ -87,13 +87,13 @@ func TestUsersCreateCommand(t *testing.T) {
 				result := &userServices.CreateUserResult{
 					UserID:     uuid.New(),
 					Username:   "admin",
-					Role:       model.RoleAdmin,
+					Roles:      []string{model.RoleAdmin},
 					TOTPSecret: "ABCDEFGHIJKLMNOP",
 				}
 				tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
 					Username: "admin",
 					Password: "admin123",
-					Role:     "admin",
+					Roles:    []string{"admin"},
 				}).Return(result, nil)
 			},
 			expectedOutput: "User created successfully",
@@ -121,7 +121,7 @@ func TestUsersCreateCommand(t *testing.T) {
 					req := userServices.CreateUserRequest{
 						Username: username,
 						Password: password,
-						Role:     role,
+						Roles:    []string{role},
 					}
 
 					result, err := tc.MockUserService.CreateUser(cmd.Context(), req)
@@ -130,7 +130,7 @@ func TestUsersCreateCommand(t *testing.T) {
 					}
 
 					cmd.Printf("User created successfully: %s (Role: %s, TOTP Secret: %s)\n",
-						result.Username, result.Role, result.TOTPSecret)
+						result.Username, result.Roles, result.TOTPSecret)
 					return nil
 				},
 			}
@@ -180,12 +180,12 @@ func TestUsersListCommand(t *testing.T) {
 					{
 						ID:       uuid.New(),
 						Username: "admin",
-						Role:     model.RoleAdmin,
+						Roles:    []string{model.RoleAdmin},
 					},
 					{
 						ID:       uuid.New(),
 						Username: "testuser",
-						Role:     model.RoleUser,
+						Roles:    []string{model.RoleUser},
 					},
 				}
 				tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
@@ -231,7 +231,7 @@ func TestUsersListCommand(t *testing.T) {
 					}
 
 					for _, user := range users {
-						cmd.Printf("User: %s (Role: %s)\n", user.Username, user.Role)
+						cmd.Printf("User: %s (Role: %s)\n", user.Username, user.Roles)
 					}
 					return nil
 				},
@@ -269,19 +269,19 @@ func TestUsersCommandIntegration(t *testing.T) {
 		createResult := &userServices.CreateUserResult{
 			UserID:     uuid.New(),
 			Username:   "lifecycle-user",
-			Role:       model.RoleUser,
+			Roles:      []string{model.RoleUser},
 			TOTPSecret: "TESTTOTP12345678",
 		}
 
 		tc.MockUserService.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
 			Username: "lifecycle-user",
 			Password: "secure-password",
-			Role:     "user",
+			Roles:    []string{"user"},
 		}).Return(createResult, nil)
 
 		// Step 2: List users (should include new user)
 		users := []model.User{
-			{ID: createResult.UserID, Username: "lifecycle-user", Role: model.RoleUser},
+			{ID: createResult.UserID, Username: "lifecycle-user", Roles: []string{model.RoleUser}},
 		}
 		tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
 
@@ -300,7 +300,7 @@ func TestUsersCommandIntegration(t *testing.T) {
 				req := userServices.CreateUserRequest{
 					Username: username,
 					Password: password,
-					Role:     role,
+					Roles:    []string{role},
 				}
 
 				result, err := tc.MockUserService.CreateUser(cmd.Context(), req)
@@ -309,7 +309,7 @@ func TestUsersCommandIntegration(t *testing.T) {
 				}
 
 				cmd.Printf("User created successfully: %s (Role: %s, TOTP Secret: %s)\n",
-					result.Username, result.Role, result.TOTPSecret)
+					result.Username, result.Roles, result.TOTPSecret)
 				return nil
 			},
 		}
@@ -341,7 +341,7 @@ func TestUsersCommandIntegration(t *testing.T) {
 				}
 
 				for _, user := range users {
-					cmd.Printf("User: %s (Role: %s)\n", user.Username, user.Role)
+					cmd.Printf("User: %s (Role: %s)\n", user.Username, user.Roles)
 				}
 				return nil
 			},

@@ -29,7 +29,7 @@ func TestPerformPasswordLogin_Success_SavesSession(t *testing.T) {
 	userID := uuid.New()
 	tc.MockAuthService.On("AuthenticateUser", mock.Anything, "admin", "admin123", "123456").
 		Return(&authServices.AuthenticationResult{
-			Token: "access-tok", RefreshToken: "refresh-tok", UserID: userID, Username: "admin", Role: "admin",
+			Token: "access-tok", RefreshToken: "refresh-tok", UserID: userID, Username: "admin", Roles: []string{"admin"},
 		}, nil)
 
 	session, err := performPasswordLogin(context.Background(), tc.MockAuthService, "admin", "admin123", "123456")

@@ -19,11 +19,11 @@ func TestAdminCommand_UsesContextContainer(t *testing.T) {
 	tc.MockUserService.On("ValidateBootstrapToken", mock.Anything, "test-token").
 		Return(true, nil)
 	tc.MockUserService.On("CreateUser", mock.Anything, mock.MatchedBy(func(r userServices.CreateUserRequest) bool {
-		return r.Username == "newadmin" && r.Role == model.RoleAdmin
+		return r.Username == "newadmin" && len(r.Roles) == 1 && r.Roles[0] == model.RoleAdmin
 	})).Return(&userServices.CreateUserResult{
 		UserID:     uuid.New(),
 		Username:   "newadmin",
-		Role:       model.RoleAdmin,
+		Roles:      []string{model.RoleAdmin},
 		TOTPSecret: "otpauth://totp/...?secret=ABCDEF",
 	}, nil)
 	tc.MockUserService.On("InvalidateBootstrapToken", mock.Anything, "test-token").

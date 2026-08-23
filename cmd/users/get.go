@@ -24,6 +24,7 @@ package users
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,7 +68,7 @@ resource.`,
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != model.RoleAdmin {
+		if claims.UserID != id && !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 			return fmt.Errorf("forbidden: can only access your own profile or requires admin role")
 		}
 
@@ -89,7 +90,7 @@ resource.`,
 		row := []string{
 			user.ID.String(),
 			user.Username,
-			user.Role,
+			strings.Join(user.Roles, ", "),
 			user.CreatedAt.Format(time.RFC3339),
 		}
 		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})

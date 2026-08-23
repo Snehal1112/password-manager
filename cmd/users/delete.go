@@ -65,7 +65,7 @@ resource.`,
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != model.RoleAdmin {
+		if claims.UserID != id && !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 			return fmt.Errorf("forbidden: can only delete your own account or requires admin role")
 		}
 

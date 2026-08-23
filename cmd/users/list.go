@@ -24,6 +24,7 @@ package users
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -61,7 +62,7 @@ accounts are global, not a vault-scoped resource.`,
 			return fmt.Errorf("service container not available in context")
 		}
 
-		if claims.Role != model.RoleAdmin {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 			return fmt.Errorf("forbidden: requires admin role")
 		}
 
@@ -85,7 +86,7 @@ accounts are global, not a vault-scoped resource.`,
 			rows[i] = []string{
 				u.ID.String(),
 				u.Username,
-				u.Role,
+				strings.Join(u.Roles, ", "),
 				u.CreatedAt.Format(time.RFC3339),
 			}
 		}

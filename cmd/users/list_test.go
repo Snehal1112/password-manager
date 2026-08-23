@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,19 +35,19 @@ func TestListUsersCommand(t *testing.T) {
 					{
 						ID:        uuid.New(),
 						Username:  "admin",
-						Role:      model.RoleAdmin,
+						Roles:     []string{model.RoleAdmin},
 						CreatedAt: time.Now().Add(-24 * time.Hour),
 					},
 					{
 						ID:        uuid.New(),
 						Username:  "user1",
-						Role:      model.RoleUser,
+						Roles:     []string{model.RoleUser},
 						CreatedAt: time.Now().Add(-12 * time.Hour),
 					},
 					{
 						ID:        uuid.New(),
 						Username:  "manager",
-						Role:      model.RoleSecretsManager,
+						Roles:     []string{model.RoleSecretsManager},
 						CreatedAt: time.Now().Add(-6 * time.Hour),
 					},
 				}
@@ -96,7 +97,7 @@ func TestListUsersCommand(t *testing.T) {
 						return fmt.Errorf("unauthorized: missing authentication claims")
 					}
 
-					if claims.Role != model.RoleAdmin {
+					if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 						return fmt.Errorf("forbidden: requires admin role")
 					}
 
@@ -117,7 +118,7 @@ func TestListUsersCommand(t *testing.T) {
 					cmd.Println("Users:")
 					for _, user := range users {
 						cmd.Printf("- ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
-							user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+							user.ID, user.Username, strings.Join(user.Roles, ", "), user.CreatedAt.Format(time.RFC3339))
 					}
 					return nil
 				},
@@ -158,13 +159,13 @@ func TestListUsersOutputFormat(t *testing.T) {
 		{
 			ID:        uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
 			Username:  "admin",
-			Role:      model.RoleAdmin,
+			Roles:     []string{model.RoleAdmin},
 			CreatedAt: time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 		},
 		{
 			ID:        uuid.MustParse("550e8400-e29b-41d4-a716-446655440002"),
 			Username:  "user1",
-			Role:      model.RoleUser,
+			Roles:     []string{model.RoleUser},
 			CreatedAt: time.Date(2023, 1, 2, 12, 0, 0, 0, time.UTC),
 		},
 	}
@@ -187,7 +188,7 @@ func TestListUsersOutputFormat(t *testing.T) {
 				return fmt.Errorf("unauthorized: missing authentication claims")
 			}
 
-			if claims.Role != model.RoleAdmin {
+			if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 				return fmt.Errorf("forbidden: requires admin role")
 			}
 
@@ -208,7 +209,7 @@ func TestListUsersOutputFormat(t *testing.T) {
 			cmd.Println("Users:")
 			for _, user := range users {
 				cmd.Printf("- ID=%s, Username=%s, Role=%s, CreatedAt=%s\n",
-					user.ID, user.Username, user.Role, user.CreatedAt.Format(time.RFC3339))
+					user.ID, user.Username, strings.Join(user.Roles, ", "), user.CreatedAt.Format(time.RFC3339))
 			}
 			return nil
 		},
@@ -239,7 +240,7 @@ func TestListUsersOutputFormat(t *testing.T) {
 func TestListUsersWithServiceUnavailable(t *testing.T) {
 	// Context with no service container — listCmd must return an error.
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{
-		Role: model.RoleAdmin,
+		Roles: []string{model.RoleAdmin},
 	})
 
 	cmd := &cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: listCmd.RunE}

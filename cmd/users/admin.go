@@ -77,10 +77,10 @@ logging in, since login always requires a TOTP code.`,
 		}
 
 		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
-			Username:   username,
-			Password:   password,
-			Role:       model.RoleAdmin,
-			CallerRole: model.RoleAdmin, // Bootstrap is pre-authorised.
+			Username:    username,
+			Password:    password,
+			Roles:       []string{model.RoleAdmin},
+			CallerRoles: []string{model.RoleAdmin}, // Bootstrap is pre-authorised.
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create admin user: %w", err)

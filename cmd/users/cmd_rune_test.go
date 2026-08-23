@@ -29,7 +29,7 @@ func newCreateTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().String("new-username", "", "")
 	cmd.Flags().String("new-password", "", "")
-	cmd.Flags().String("new-role", "", "")
+	cmd.Flags().StringArray("new-role", []string{}, "")
 	return cmd
 }
 
@@ -43,7 +43,7 @@ func newUpdateTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "update", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	cmd.Flags().String("new-username", "", "")
 	cmd.Flags().String("new-password", "", "")
-	cmd.Flags().String("new-role", "", "")
+	cmd.Flags().StringArray("new-role", []string{}, "")
 	return cmd
 }
 
@@ -68,7 +68,7 @@ func TestCreateCmdRunE_NonAdminRole(t *testing.T) {
 }
 
 func TestCreateCmdRunE_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	cmd := newCreateTestCmd()
 	cmd.SetContext(ctx)
@@ -93,12 +93,12 @@ func TestCreateCmdRunE_Success(t *testing.T) {
 	result := &userServices.CreateUserResult{
 		UserID:     uuid.New(),
 		Username:   "newuser",
-		Role:       model.RoleUser,
+		Roles:      []string{model.RoleUser},
 		TOTPSecret: "otpauth://totp/...",
 		CreatedAt:  time.Now(),
 	}
 	tc.MockUserService.On("CreateUser", mock.Anything, mock.MatchedBy(func(r userServices.CreateUserRequest) bool {
-		return r.Username == "newuser" && r.Password == "pw123" && r.Role == model.RoleUser
+		return r.Username == "newuser" && r.Password == "pw123" && len(r.Roles) == 1 && r.Roles[0] == model.RoleUser
 	})).Return(result, nil)
 
 	cmd := newCreateTestCmd()
@@ -138,7 +138,7 @@ func TestListCmdRunE_NoClaims(t *testing.T) {
 }
 
 func TestListCmdRunE_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	cmd := newListTestCmd()
 	cmd.SetContext(ctx)
@@ -160,8 +160,8 @@ func TestListCmdRunE_Success(t *testing.T) {
 	ctx := newUsersTestCtx(tc.MockContainer)
 
 	users := []model.User{
-		{ID: uuid.New(), Username: "alice", Role: model.RoleUser, CreatedAt: time.Now()},
-		{ID: uuid.New(), Username: "bob", Role: model.RoleAdmin, CreatedAt: time.Now()},
+		{ID: uuid.New(), Username: "alice", Roles: []string{model.RoleUser}, CreatedAt: time.Now()},
+		{ID: uuid.New(), Username: "bob", Roles: []string{model.RoleAdmin}, CreatedAt: time.Now()},
 	}
 	tc.MockUserService.On("ListUsers", mock.Anything).Return(users, nil)
 
@@ -190,7 +190,7 @@ func TestListCmdRunE_ServiceError(t *testing.T) {
 func TestListCmdRunE_NoFormatter(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, tc.MockContainer)
 	// No OutputFormatterKey.
@@ -264,8 +264,16 @@ func TestUpdateCmdRunE_InvalidRole(t *testing.T) {
 	cmd := newUpdateTestCmd()
 	cmd.SetContext(ctx)
 	cmd.SetArgs([]string{uuid.New().String(), "--new-role=superuser"})
+
+	// Role validation now lives in the service layer, not the CLI: updateCmd
+	// forwards --new-role verbatim and surfaces whatever error UpdateUser
+	// returns.
+	tc.MockUserService.On("UpdateUser", mock.Anything, mock.Anything).
+		Return(fmt.Errorf("invalid role: superuser"))
+
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid role")
+	tc.MockUserService.AssertExpectations(t)
 }
 
 func TestUpdateCmdRunE_Success(t *testing.T) {

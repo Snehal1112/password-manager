@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 // formatter and a logger — matching what the real middleware injects at runtime.
 func newUsersTestCtx(sc interface{}) context.Context {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, &logging.Logger{Logger: logrus.New()})
@@ -52,7 +52,7 @@ func newUsersTestCtx(sc interface{}) context.Context {
 // newUsersTestCtxWithRole is like newUsersTestCtx but lets the caller choose the
 // claims role and the callerID that appears inside the JWT claims.
 func newUsersTestCtxWithRole(sc interface{}, callerID uuid.UUID, role string) context.Context {
-	claims := &model.Claims{UserID: callerID, Role: role}
+	claims := &model.Claims{UserID: callerID, Roles: []string{role}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, &logging.Logger{Logger: logrus.New()})
@@ -149,7 +149,7 @@ func TestDeleteCmd_ServiceError(t *testing.T) {
 func TestDeleteCmd_NoServiceContainer(t *testing.T) {
 	// Claims present but no service container in context.
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 
 	cmd := &cobra.Command{Use: "delete", Args: cobra.ExactArgs(1), RunE: deleteCmd.RunE}
@@ -176,7 +176,7 @@ func TestGetCmd_NoClaims(t *testing.T) {
 
 func TestGetCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 
 	cmd := &cobra.Command{Use: "get", RunE: getCmd.RunE}
@@ -237,7 +237,7 @@ func TestGetCmd_Success(t *testing.T) {
 	user := &model.User{
 		ID:        targetID,
 		Username:  "alice",
-		Role:      model.RoleUser,
+		Roles:     []string{model.RoleUser},
 		CreatedAt: time.Now(),
 	}
 	tc.MockUserService.On("GetUser", mock.Anything, targetID).Return(user, nil)
@@ -256,7 +256,7 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 
 	// Build context without the OutputFormatterKey.
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, tc.MockContainer)
@@ -264,7 +264,7 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 	user := &model.User{
 		ID:        targetID,
 		Username:  "alice",
-		Role:      model.RoleUser,
+		Roles:     []string{model.RoleUser},
 		CreatedAt: time.Now(),
 	}
 	tc.MockUserService.On("GetUser", mock.Anything, targetID).Return(user, nil)
@@ -353,7 +353,7 @@ func TestLoginCmd_Success(t *testing.T) {
 		Token:    "jwt-token-abc",
 		UserID:   uuid.New(),
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	tc.MockAuthService.On("AuthenticateUser", mock.Anything, "alice", "secret", "123456").
 		Return(authResult, nil)
