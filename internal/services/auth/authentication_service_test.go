@@ -675,3 +675,49 @@ func TestListActiveSessions_ReturnsSessionsFromRepo(t *testing.T) {
 	assert.Equal(t, want, got)
 	sessionRepo.AssertExpectations(t)
 }
+
+// TestRefreshAccessToken_UsesFreshRolesFromDB pins RefreshAccessToken's
+// invariant that it re-derives roles from userRepo.Read on every refresh
+// rather than carrying forward any role value from elsewhere. The seeded
+// roles here are distinct from every other role fixture in this package,
+// so if a future change ever threaded an old token's claims into this
+// path instead of reading the user fresh, this test would catch it.
+func TestRefreshAccessToken_UsesFreshRolesFromDB(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	sessionID := uuid.New()
+	freshRoles := []string{"admin", "secrets_manager"}
+
+	session := &model.Session{
+		ID:        sessionID,
+		UserID:    userID,
+		Revoked:   false,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	user := &model.User{ID: userID, Username: "carol", Roles: freshRoles}
+
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	jwtSvc := &MockJWTService{}
+
+	sessionRepo.On("GetSessionByRefreshToken", ctx, mock.AnythingOfType("string")).Return(session, nil)
+	userRepo.On("Read", ctx, userID).Return(user, nil)
+	jwtSvc.On("GenerateToken", userID, "carol", freshRoles, sessionID).Return("new-access-token", nil)
+	sessionRepo.On("UpdateSessionLastUsed", ctx, sessionID, mock.AnythingOfType("time.Time")).Return(nil)
+
+	svc := NewAuthenticationService(AuthenticationConfig{
+		UserRepository:    userRepo,
+		SessionRepository: sessionRepo,
+		PasswordService:   &MockPasswordService{},
+		TOTPService:       &MockTOTPService{},
+		JWTService:        jwtSvc,
+		Logger:            logging.InitLogger(),
+	})
+
+	result, err := svc.RefreshAccessToken(ctx, "refresh-token-value")
+
+	require.NoError(t, err)
+	assert.Equal(t, freshRoles, result.Roles)
+	jwtSvc.AssertExpectations(t)
+	userRepo.AssertExpectations(t)
+}
