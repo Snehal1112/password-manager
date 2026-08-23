@@ -70,7 +70,7 @@ func TestWithLogger_SetsLoggerField(t *testing.T) {
 func auditAdminCtx(mc *testutils.MockServiceContainer) *Context {
 	return &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{Role: string(model.RoleAdmin)},
+		Claims: RequestClaims{Roles: []string{model.RoleAdmin}},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -79,7 +79,7 @@ func auditAdminCtx(mc *testutils.MockServiceContainer) *Context {
 func TestGetAuditLogs_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: RequestClaims{Role: "viewer"},
+		Claims: RequestClaims{Roles: []string{"viewer"}},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1144,7 +1144,7 @@ func TestUpdateSecret_TagsChange_Returns200(t *testing.T) {
 func TestGetAuditConfig_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: RequestClaims{Role: "viewer"},
+		Claims: RequestClaims{Roles: []string{"viewer"}},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1162,7 +1162,7 @@ func TestGetAuditConfig_NonAdmin_Returns403(t *testing.T) {
 func TestPatchAuditConfig_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: RequestClaims{Role: "viewer"},
+		Claims: RequestClaims{Roles: []string{"viewer"}},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1180,7 +1180,7 @@ func TestPatchAuditConfig_NonAdmin_Returns403(t *testing.T) {
 func TestGetSOC2Report_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: RequestClaims{Role: "viewer"},
+		Claims: RequestClaims{Roles: []string{"viewer"}},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()
@@ -1198,7 +1198,7 @@ func TestGetSOC2Report_NonAdmin_Returns403(t *testing.T) {
 func TestGetGDPRReport_NonAdmin_Returns403(t *testing.T) {
 	c := &Context{
 		App:    &app.App{},
-		Claims: RequestClaims{Role: "viewer"},
+		Claims: RequestClaims{Roles: []string{"viewer"}},
 		Params: &ApiParams{},
 	}
 	w := httptest.NewRecorder()

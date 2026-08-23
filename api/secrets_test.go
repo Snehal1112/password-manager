@@ -51,7 +51,7 @@ func TestCreateSecret_ValueTooLarge_Returns400(t *testing.T) {
 	c := &Context{
 		// App is nil — the validation guard must fire before any App access.
 		Claims: RequestClaims{
-			Role:   model.RoleAdmin,
+			Roles:  []string{model.RoleAdmin},
 			UserID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}
@@ -79,7 +79,7 @@ func TestCreateSecret_InvalidName_Returns400(t *testing.T) {
 	c := &Context{
 		// App is nil — the validation guard must fire before any App access.
 		Claims: RequestClaims{
-			Role:   model.RoleAdmin,
+			Roles:  []string{model.RoleAdmin},
 			UserID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}
@@ -113,7 +113,7 @@ func TestCreateSecret_TooManyTags_Returns400(t *testing.T) {
 	c := &Context{
 		// App is nil — the validation guard must fire before any App access.
 		Claims: RequestClaims{
-			Role:   model.RoleAdmin,
+			Roles:  []string{model.RoleAdmin},
 			UserID: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
 		},
 	}

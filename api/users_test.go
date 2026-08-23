@@ -548,6 +548,27 @@ func TestCreateUser_EmptyRolesArray_Rejected(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+func TestCreateUser_DeprecatedRoleField_Rejected(t *testing.T) {
+	// The old "role" string field must be rejected outright, not silently
+	// ignored -- there is no dual-field transition period for this API.
+	svc := &mockUserService{}
+
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "x", "password": "password123", "role": "admin",
+	}))
+
+	createUser(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, c.Err.Message, "roles")
+	svc.AssertNotCalled(t, "CreateUser", mock.Anything, mock.Anything)
+}
+
 // ============================================================
 // listUsers
 // ============================================================
@@ -891,6 +912,27 @@ func TestUpdateUser_Success_Returns200(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	svc.AssertExpectations(t)
+}
+
+func TestUpdateUser_DeprecatedRoleField_Rejected(t *testing.T) {
+	// The old "role" string field must be rejected outright, not silently
+	// ignored -- there is no dual-field transition period for this API.
+	targetID := uuid.New()
+	svc := &mockUserService{}
+
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
+	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]any{"role": "admin"}))
+
+	updateUser(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, c.Err.Message, "roles")
+	svc.AssertNotCalled(t, "UpdateUser", mock.Anything, mock.Anything)
 }
 
 // ============================================================

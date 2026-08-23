@@ -329,7 +329,7 @@ func newKeyCtx(svc keyServices.KeyService) *Context {
 	a := &app.App{ServiceContainer: &keySvcTestContainer{keySvc: svc}}
 	return &Context{
 		App:    a,
-		Claims: RequestClaims{Role: string(model.RoleAdmin), UserID: keyTestUserID},
+		Claims: RequestClaims{Roles: []string{model.RoleAdmin}, UserID: keyTestUserID},
 		Params: &ApiParams{PerPage: 60},
 	}
 }
@@ -647,7 +647,7 @@ func TestGetKey_NotFound_Returns404(t *testing.T) {
 	svc.On("GetKey", mock.Anything, keyID, keyLegacyVaultScope()).Return(nil, keyServices.ErrKeyNotFound)
 
 	c := newKeyCtx(svc)
-	c.Claims = RequestClaims{Role: string(model.RoleUser), UserID: keyTestUserID}
+	c.Claims = RequestClaims{Roles: []string{model.RoleUser}, UserID: keyTestUserID}
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)
@@ -871,7 +871,7 @@ func TestGetKey_LifecycleDenied_Returns403(t *testing.T) {
 		Return(nil, keyServices.ErrKeyLifecycleDenied)
 
 	c := newKeyCtx(svc)
-	c.Claims = RequestClaims{Role: string(model.RoleUser), UserID: keyTestUserID}
+	c.Claims = RequestClaims{Roles: []string{model.RoleUser}, UserID: keyTestUserID}
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)
@@ -894,7 +894,7 @@ func TestGetKey_InternalError_Returns500(t *testing.T) {
 		Return(nil, errors.New("disk I/O"))
 
 	c := newKeyCtx(svc)
-	c.Claims = RequestClaims{Role: string(model.RoleUser), UserID: keyTestUserID}
+	c.Claims = RequestClaims{Roles: []string{model.RoleUser}, UserID: keyTestUserID}
 	c.Params = &ApiParams{KeyID: keyID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/keys/"+keyID.String(), nil)

@@ -83,6 +83,14 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The old "role" string field was replaced by "roles": [...] -- reject it
+	// explicitly rather than silently ignoring it (unknown JSON fields are
+	// dropped by default, which would otherwise turn this into a no-op).
+	if req.DeprecatedRole != "" {
+		c.SetInvalidParam(`the "role" field was replaced by "roles": [...] in this API version`)
+		return
+	}
+
 	if req.Username == "" || len(req.Username) < 3 || len(req.Username) > 50 {
 		c.SetInvalidParam("username: must be 3-50 characters")
 		return
@@ -241,6 +249,14 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	req, err := model.UpdateUserRequestFromJson(r.Body)
 	if err != nil {
 		c.SetInvalidParam("request body")
+		return
+	}
+
+	// The old "role" string field was replaced by "roles": [...] -- reject it
+	// explicitly rather than silently ignoring it (unknown JSON fields are
+	// dropped by default, which would otherwise turn this into a no-op).
+	if req.DeprecatedRole != "" {
+		c.SetInvalidParam(`the "role" field was replaced by "roles": [...] in this API version`)
 		return
 	}
 

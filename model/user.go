@@ -73,6 +73,10 @@ type CreateUserRequest struct {
 	Username string   `json:"username"`
 	Password string   `json:"password"`
 	Roles    []string `json:"roles"`
+	// DeprecatedRole detects the pre-multi-role "role" string field so the
+	// handler can reject it with a clear error. It is never read for its
+	// value -- the multi-role API has no dual-field transition period.
+	DeprecatedRole string `json:"role,omitempty"`
 }
 
 func CreateUserRequestFromJson(data io.Reader) (*CreateUserRequest, error) {
@@ -84,6 +88,10 @@ type UpdateUserRequest struct {
 	Username string   `json:"username,omitempty"`
 	Password string   `json:"password,omitempty"`
 	Roles    []string `json:"roles,omitempty"`
+	// DeprecatedRole detects the pre-multi-role "role" string field so the
+	// handler can reject it with a clear error. It is never read for its
+	// value -- the multi-role API has no dual-field transition period.
+	DeprecatedRole string `json:"role,omitempty"`
 }
 
 func UpdateUserRequestFromJson(data io.Reader) (*UpdateUserRequest, error) {

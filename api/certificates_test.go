@@ -302,7 +302,7 @@ func newCertCtx(svc certServices.CertificateService, claims RequestClaims) *Cont
 const certTestUserID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 func certAdminClaims() RequestClaims {
-	return RequestClaims{Role: model.RoleAdmin, UserID: certTestUserID}
+	return RequestClaims{Roles: []string{model.RoleAdmin}, UserID: certTestUserID}
 }
 
 // certLegacyVaultScope is the exact scope scopeFromRequest builds for a legacy
