@@ -261,11 +261,62 @@ Run: `go build ./... && go vet ./... && go test ./... 2>&1 | grep -v "^ok"`
 Expected: clean build, clean vet, zero failing tests, zero skipped tests
 that were previously passing.
 
+- [ ] **Step 6b: Release notes + admin-manual update**
+
+Added during Plan 06's final whole-plan review: the design spec's locked
+decisions require this breaking change to get release notes "same as other
+breaking API changes in this project (v4.0.0, v4.1.0)" — no task in this
+ten-plan series produced one, and this is the last plan, positioned after
+every wire-shape change has landed, so it's the natural place.
+
+Create `docs/release-notes/v4.4.0-multi-role-user-assignment.md` (check
+`docs/release-notes/` for the next unused version number — v4.3.0 exists as
+of this plan's writing; use the actual next one). Model its structure on
+`docs/release-notes/v4.3.0-api-secrets-passphrase.md` (title, "What
+changed", a "Breaking" or "Not breaking" section, migration guidance). It
+must cover, factually and specifically (no placeholders):
+
+- `POST /users` and `PUT /users/{id}` now require `"roles": [...]` (a JSON
+  array) instead of `"role": "x"` (a string) — same for the response shape
+  of `POST /users`, `GET /users`, `GET /users/{id}`, `POST /users/login`,
+  `POST /users/refresh` (all now return `"roles": [...]`).
+- This IS a breaking change, and callers must update client code — do not
+  write a "not breaking" section for this one, unlike the v4.3.0 precedent.
+- If Step 0's fix landed (a request still sending the old `"role"` field
+  now gets an explicit 400, per the fix dispatched after Plan 06's final
+  review) — describe that behavior precisely, including the exact error
+  message, so callers get an actionable upgrade signal rather than
+  discovering the break by trial and error.
+- The CLI's `rocketvault users create`/`update --new-role` flag behavior
+  (repeatable flag for multiple roles, per this whole plan series) if not
+  already documented elsewhere — check `docs/cli-guide.md` first and link
+  to it rather than duplicating if it already covers this.
+- A short migration example: an old-style request body next to its new
+  equivalent.
+
+Then fix `docs/admin-manual.html`'s stale `"role"`-shaped JSON examples —
+found during Plan 06's final review at (approximately, confirm each at edit
+time since earlier plans in this series may have shifted line numbers)
+lines 525, 755, 854, 942, 949, and 964. Line ~964 is the highest-priority
+fix: it documents `curl ... -d '{"role":"admin"}'` as the way to change a
+user's role via `PUT /users/{id}` — under this plan's new behavior that
+request is either a silent no-op or an explicit 400 (depending on whether
+Step 0's fix landed), and either way the documented example must change to
+`{"roles": ["admin"]}` or `{"roles": ["admin", ...]}` to remain correct.
+Change every one of the six sites' JSON examples from `"role": "x"` to
+`"roles": ["x"]` (or a multi-role example where it makes the doc clearer),
+and check the surrounding prose at each site for singular-role language
+("the user's role is...") that should become plural.
+
 - [ ] **Step 7: Commit**
 
 ```bash
-git add cmd/root.go cmd/root_test.go
-git commit -m "fix(cli): resolveAuthentication carries Roles through cache/refresh, completeness grep clean"
+git add cmd/root.go cmd/root_test.go docs/release-notes/v4.4.0-multi-role-user-assignment.md docs/admin-manual.html
+git commit -m "fix(cli): resolveAuthentication carries Roles through cache/refresh, completeness grep clean
+
+Also adds v4.4.0 release notes and fixes admin-manual.html's stale
+single-role API examples, per the design spec's locked release-notes
+requirement (not previously assigned to any task in this series)."
 ```
 
 ---
