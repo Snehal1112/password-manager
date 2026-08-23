@@ -65,7 +65,7 @@ func (c *Context) vaultSvc() vaultServices.VaultService {
 // the ability to create a new one. See the design doc §2 for why this is a
 // deliberately narrower interpretation than "any vault-scoped grant".
 func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
-	role, userID, ok := callerIdentity(c)
+	roles, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
@@ -74,7 +74,7 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
+	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return
 	}
@@ -109,7 +109,7 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 // soft-deleted ones. Like createVault, there is no single target vault, so
 // the check uses uuid.Nil (global grant only — see createVault's comment).
 func listVaults(c *Context, w http.ResponseWriter, r *http.Request) {
-	role, userID, ok := callerIdentity(c)
+	roles, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
@@ -118,7 +118,7 @@ func listVaults(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
+	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return
 	}
@@ -172,12 +172,12 @@ func getVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Authorize against the TARGET vault named in the path. These {name} routes
 	// bypass VaultResolutionMiddleware, so PolicyMiddleware only evaluated the
 	// default vault; re-check vaults:manage against this vault's own ID.
-	role, userID, ok := callerIdentity(c)
+	roles, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, vault.ID) {
+	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, vault.ID) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return
 	}
@@ -210,12 +210,12 @@ func updateVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(err)
 		return
 	}
-	role, userID, ok := callerIdentity(c)
+	roles, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
+	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return
 	}
@@ -267,12 +267,12 @@ func deleteVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(err)
 		return
 	}
-	role, userID, ok := callerIdentity(c)
+	roles, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
+	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return
 	}

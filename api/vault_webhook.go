@@ -51,12 +51,12 @@ func resolveAndAuthorizeVault(c *Context, r *http.Request) (*model.Vault, uuid.U
 		c.SetInternalError(err)
 		return nil, uuid.Nil, false
 	}
-	role, userID, ok := callerIdentity(c)
+	roles, userID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return nil, uuid.Nil, false
 	}
-	if !authzServices.CanManageVault(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
+	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, target.ID) {
 		c.SetPermissionError("admin or vaults/manage required")
 		return nil, uuid.Nil, false
 	}

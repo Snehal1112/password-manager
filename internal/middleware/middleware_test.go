@@ -803,6 +803,57 @@ func TestAuthMiddlewareDeprecated(t *testing.T) {
 	mockRBACService.AssertExpectations(t)
 }
 
+// TestAuthenticationAndAuthorizationMiddleware_MultiRoleGrantsViaNonFirstRole
+// proves the full multi-role chain end to end: AuthenticationMiddleware storing
+// every claimed role in context, AuthorizationMiddleware reading them back, and
+// a REAL (non-mocked) RBACService looping over all of them -- not just the
+// first. "user" alone has no users:list permission; "admin" does, but it is
+// the caller's SECOND role. Every other RBAC test in this package (and in
+// internal/services/authorization) either mocks ValidateEndpointAccess or
+// calls it directly with a single-role slice, so none of them would catch a
+// regression back to checking only roles[0].
+func TestAuthenticationAndAuthorizationMiddleware_MultiRoleGrantsViaNonFirstRole(t *testing.T) {
+	t.Parallel()
+	logger := &logging.Logger{Logger: logrus.New()}
+	logger.SetLevel(logrus.ErrorLevel)
+
+	mockContainer := &MockServiceContainer{logger: logger}
+	mockAuthService := &MockAuthenticationService{}
+	realRBACService := authzServices.NewRBACService(logger)
+
+	mockContainer.On("GetAuthenticationService").Return(mockAuthService)
+	mockContainer.On("GetRBACService").Return(realRBACService)
+
+	mw := NewMiddleware(mockContainer)
+
+	claims := &authServices.JWTClaims{
+		UserID:   uuid.New(),
+		Username: "multirole",
+		Roles:    []string{model.RoleUser, model.RoleAdmin},
+	}
+	mockAuthService.On("ValidateSession", mock.Anything, "valid-token").Return(claims, nil)
+
+	handlerReached := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handlerReached = true
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Same relative order production wires in api.go: authentication runs
+	// first, authorization last.
+	wrappedHandler := mw.AuthenticationMiddleware(mw.AuthorizationMiddleware(handler))
+
+	req := httptest.NewRequest("GET", "/api/v1/users", nil)
+	req.Header.Set("Authorization", "Bearer valid-token")
+	rr := httptest.NewRecorder()
+
+	wrappedHandler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.True(t, handlerReached, "request must reach the handler: admin, the caller's second role, grants users:list even though user (the first role) does not")
+	mockAuthService.AssertExpectations(t)
+}
+
 // TestResponseWriterStatusCode tests the custom ResponseWriter.
 func TestResponseWriterStatusCode(t *testing.T) {
 	t.Parallel()
