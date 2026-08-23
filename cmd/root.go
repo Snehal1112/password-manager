@@ -294,7 +294,7 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 			RefreshToken: result.RefreshToken,
 			UserID:       result.UserID,
 			Username:     result.Username,
-			Role:         result.Role,
+			Roles:        result.Roles,
 			ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
 		}); saveErr != nil {
 			logrus.WithError(saveErr).Warn("failed to cache CLI session")
@@ -324,7 +324,7 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 				RefreshToken: cached.RefreshToken,
 				UserID:       claims.UserID,
 				Username:     claims.Username,
-				Role:         claims.Role,
+				Roles:        claims.Roles,
 			}, nil
 		}
 		// The cache file's ExpiresAt is only a pre-filter — it can't see
@@ -343,7 +343,7 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 		RefreshToken: refreshed.RefreshToken,
 		UserID:       refreshed.UserID,
 		Username:     refreshed.Username,
-		Role:         refreshed.Role,
+		Roles:        refreshed.Roles,
 		ExpiresAt:    refreshed.ExpiresAt,
 	}); saveErr != nil {
 		logrus.WithError(saveErr).Warn("failed to cache refreshed CLI session")
@@ -354,7 +354,7 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 		RefreshToken: refreshed.RefreshToken,
 		UserID:       refreshed.UserID,
 		Username:     refreshed.Username,
-		Role:         refreshed.Role,
+		Roles:        refreshed.Roles,
 	}, nil
 }
 
@@ -481,7 +481,7 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	claims := &model.Claims{
 		UserID:   authResult.UserID,
 		Username: authResult.Username,
-		Role:     authResult.Role,
+		Roles:    authResult.Roles,
 	}
 
 	// Log successful authentication.

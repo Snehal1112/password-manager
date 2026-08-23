@@ -19,6 +19,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/model"
 )
 
 func newAuthTestCmd(username, password, totpCode string) *cobra.Command {
@@ -45,7 +46,7 @@ func TestResolveAuthentication_UsernamePassword_Success(t *testing.T) {
 	userID := uuid.New()
 	tc.MockAuthService.On("AuthenticateUser", mock.Anything, "admin", "admin123", "123456").
 		Return(&authServices.AuthenticationResult{
-			Token: "access-tok", RefreshToken: "refresh-tok", UserID: userID, Username: "admin", Role: "admin",
+			Token: "access-tok", RefreshToken: "refresh-tok", UserID: userID, Username: "admin", Roles: []string{"admin"},
 		}, nil)
 
 	c := newAuthTestCmd("admin", "admin123", "123456")
@@ -84,7 +85,7 @@ func TestResolveAuthentication_UsernameOnly_LoadsNamedCachedSession(t *testing.T
 		Token: "cached-tok", Username: "user14", ExpiresAt: time.Now().Add(time.Hour),
 	}))
 	tc.MockAuthService.On("ValidateSession", mock.Anything, "cached-tok").
-		Return(&authServices.JWTClaims{UserID: userID, Username: "user14", Role: "user"}, nil)
+		Return(&authServices.JWTClaims{UserID: userID, Username: "user14", Roles: []string{"user"}}, nil)
 
 	c := newAuthTestCmd("user14", "", "")
 	result, err := resolveAuthentication(c, tc.MockAuthService)
@@ -95,6 +96,38 @@ func TestResolveAuthentication_UsernameOnly_LoadsNamedCachedSession(t *testing.T
 	tc.MockAuthService.AssertNotCalled(t, "AuthenticateUser", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
+// TestResolveAuthentication_MultiRoleSession_RoundTripsToClaims verifies that
+// a cached session carrying multiple roles survives resolveAuthentication's
+// cached-session path into the returned *authServices.AuthenticationResult,
+// and that persistentPreRun's model.Claims{} construction (cmd/root.go) then
+// carries those roles through without loss.
+func TestResolveAuthentication_MultiRoleSession_RoundTripsToClaims(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	tc := testutils.NewTestContext(t)
+	userID := uuid.New()
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "cached-tok", Username: "multi-role-user", Roles: []string{"admin", "secrets_manager"},
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+	tc.MockAuthService.On("ValidateSession", mock.Anything, "cached-tok").
+		Return(&authServices.JWTClaims{UserID: userID, Username: "multi-role-user", Roles: []string{"admin", "secrets_manager"}}, nil)
+
+	c := newAuthTestCmd("multi-role-user", "", "")
+	result, err := resolveAuthentication(c, tc.MockAuthService)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"admin", "secrets_manager"}, result.Roles)
+
+	// Mirror persistentPreRun's Claims construction (cmd/root.go) to prove
+	// the multi-role result feeds model.Claims.Roles without loss.
+	claims := &model.Claims{
+		UserID:   result.UserID,
+		Username: result.Username,
+		Roles:    result.Roles,
+	}
+	assert.Equal(t, []string{"admin", "secrets_manager"}, claims.Roles)
+}
+
 func TestResolveAuthentication_NoFlags_UsesCurrentPointer(t *testing.T) {
 	common.SessionBaseDir = t.TempDir()
 	tc := testutils.NewTestContext(t)
@@ -103,7 +136,7 @@ func TestResolveAuthentication_NoFlags_UsesCurrentPointer(t *testing.T) {
 		Token: "cached-tok", Username: "user14", ExpiresAt: time.Now().Add(time.Hour),
 	}))
 	tc.MockAuthService.On("ValidateSession", mock.Anything, "cached-tok").
-		Return(&authServices.JWTClaims{UserID: userID, Username: "user14", Role: "user"}, nil)
+		Return(&authServices.JWTClaims{UserID: userID, Username: "user14", Roles: []string{"user"}}, nil)
 
 	c := newAuthTestCmd("", "", "")
 	result, err := resolveAuthentication(c, tc.MockAuthService)
@@ -130,7 +163,7 @@ func TestResolveAuthentication_CachedSessionRevokedServerSide(t *testing.T) {
 		Return(nil, assert.AnError)
 	tc.MockAuthService.On("RefreshAccessToken", mock.Anything, "old-refresh").
 		Return(&authServices.RefreshTokenResult{
-			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID, Username: "user14", Role: "user",
+			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID, Username: "user14", Roles: []string{"user"},
 			ExpiresAt: time.Now().Add(time.Hour),
 		}, nil)
 
@@ -161,7 +194,7 @@ func TestResolveAuthentication_ExpiredCache_RefreshesTransparently(t *testing.T)
 	}))
 	tc.MockAuthService.On("RefreshAccessToken", mock.Anything, "old-refresh").
 		Return(&authServices.RefreshTokenResult{
-			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID, Username: "user14", Role: "user",
+			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID, Username: "user14", Roles: []string{"user"},
 			ExpiresAt: time.Now().Add(time.Hour),
 		}, nil)
 

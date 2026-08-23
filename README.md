@@ -584,6 +584,11 @@ All list and get commands support a global `--output` flag:
 ./rocketvault --username admin --password admin123 --totp-code <code> \
   users create --new-username john --new-password pass123 --new-role secrets_manager
 
+# Create a user with more than one role -- repeat --new-role for each one
+./rocketvault --username admin --password admin123 --totp-code <code> \
+  users create --new-username jane --new-password pass123 \
+  --new-role admin --new-role secrets_manager
+
 # List all users
 ./rocketvault --username admin --password admin123 --totp-code <code> \
   users list

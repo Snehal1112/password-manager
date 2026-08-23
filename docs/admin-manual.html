@@ -522,7 +522,7 @@ curl -s $BASE/api/v1/health/live   # → {"status":"OK"}</pre>
   "refresh_token": "&lt;redacted-jwt&gt;",
   "user_id": "f99945c6-ded6-4d6d-96be-7a10a1fbe6fe",
   "username": "admin",
-  "role": "admin"
+  "roles": ["admin"]
 }</pre></div>
         </div>
       </div>
@@ -752,7 +752,7 @@ curl -s $BASE/api/v1/health/live</pre>
   "refresh_token": "&lt;redacted-jwt&gt;",
   "user_id": "f99945c6-ded6-4d6d-96be-7a10a1fbe6fe",
   "username": "admin",
-  "role": "admin"
+  "roles": ["admin"]
 }</pre></div>
     <details class="collapse"><summary>Errors</summary><div class="inner">401 bad credentials or TOTP · 429 rate-limited (5/min)</div></details>
   </div>
@@ -851,15 +851,15 @@ Set-Cookie: oidc_nonce=...; HttpOnly; Secure; SameSite=Lax</pre></div>
   "refresh_token": "&lt;redacted-jwt&gt;",
   "user_id": "219b78ec-089f-4c71-838d-d223910ba258",
   "username": "jdoe@example.com",
-  "role": "user"
+  "roles": ["user"]
 }</pre></div>
     <details class="collapse"><summary>Errors</summary><div class="inner">400 missing/expired state or nonce cookie, state mismatch, or missing code · 401 nonce mismatch, code exchange, or ID-token verification failed · 500 if user creation or session issuance fails · 503 if <code>oidc.enabled</code> is false, or if OIDC failed to initialise at startup</div></details>
   </div>
 
   <h3>First login vs. repeat login</h3>
   <ul>
-    <li>The first login for a given IdP subject creates a new user with the least-privilege <code>role: user</code> and zero vault access — an admin must grant a vault role separately, same as any other user (see <a href="#vault-rbac">Vault RBAC</a>).</li>
-    <li>Every later login for that same subject reuses the existing user row — it does not create a duplicate, and it does not reset a role an admin has since changed.</li>
+    <li>The first login for a given IdP subject creates a new user with the least-privilege <code>roles: ["user"]</code> and zero vault access — an admin must grant a vault role separately, same as any other user (see <a href="#vault-rbac">Vault RBAC</a>).</li>
+    <li>Every later login for that same subject reuses the existing user row — it does not create a duplicate, and it does not reset the roles an admin has since changed.</li>
     <li>RocketVault calls the provider's userinfo endpoint on every login (one extra round trip to the IdP) and uses it to fill in whichever of <code>name</code>/<code>email</code>/<code>preferred_username</code> the ID token left out (common with some providers) — falling back further to the IdP's raw subject claim if userinfo leaves them empty too.</li>
   </ul>
 
@@ -928,7 +928,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool</pre>
 <section id="users">
   <h2>User Management</h2>
   <h3>What it is</h3>
-  <p>Admins create, list, update, and delete users. Each user has a role and a TOTP secret issued at creation.</p>
+  <p>Admins create, list, update, and delete users. Each user has one or more roles and a TOTP secret issued at creation.</p>
   <h3>When to use it</h3>
   <ul>
     <li>Onboard human operators who need CLI or API access.</li>
@@ -939,14 +939,14 @@ echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool</pre>
     <div class="tab-bar"><button class="tab-btn active">cURL</button><button class="tab-btn">CLI</button><button class="tab-btn">Response</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X POST $BASE/api/v1/users -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"alicepassword123","role":"user"}'</pre></div>
+  -d '{"username":"alice","password":"alicepassword123","roles":["user"]}'</pre></div>
     <div class="tab-pane"><pre class="code">rocketvault users create \
   --username admin --password admin123 --totp-code 123456 \
   --new-username alice --new-password alicepassword123 --new-role user</pre></div>
     <div class="tab-pane"><pre class="code">{
   "id": "&lt;uuid&gt;",
   "username": "alice",
-  "role": "user",
+  "roles": ["user"],
   "totp_secret": "otpauth://totp/PasswordManager:alice?algorithm=SHA1&amp;digits=6&amp;issuer=PasswordManager&amp;period=30&amp;secret=&lt;32-char base32, unpadded&gt;"
 }</pre></div>
     <details class="collapse"><summary>Errors</summary><div class="inner">400 invalid role (one of secrets_manager, crypto_manager, certificate_manager, admin, user) · 401/403 non-admin caller</div></details>
@@ -961,7 +961,7 @@ echo $TOKEN | cut -d. -f2 | base64 -d | python3 -m json.tool</pre>
     <div class="tab-bar"><button class="tab-btn active">cURL</button></div>
     <div class="tab-pane active"><pre class="code">curl -s -X PUT $BASE/api/v1/users/&lt;id&gt; -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"role":"admin"}'</pre></div>
+  -d '{"roles":["admin","secrets_manager"]}'</pre></div>
   </div>
   <div class="ep">
     <div class="ep-hd"><span class="meth meth-delete">DELETE</span> <span class="ep-path">/api/v1/users/{id}</span> <span class="ep-auth">JWT · admin</span> <span class="ep-label">Delete a user</span></div>
