@@ -355,6 +355,16 @@ must cover, factually and specifically (no placeholders):
   string-only, and changing that interface to support a real array column
   is out of scope for this plan series. Machine consumers of this output
   must split on `", "` for now.
+- Framing correction (found during Plan 09's final review, applies to how
+  you describe the `RBACService.HasPermission`/`ValidateEndpointAccess` fix
+  specifically, NOT the breaking API-shape change above): do not describe
+  this as fixing a "previously-live" security gap. `internal/middleware`
+  did not even compile at Plan 09's starting commit (broken since an
+  earlier plan in this series), so there was no live production exposure
+  window, and separately the production role-permission table's only
+  RBAC-mapped route (`/users`) already grants admin-only regardless of this
+  bug. Describe it as a defense-in-depth fix discovered and closed during
+  the migration, not a disclosed vulnerability.
 
 Then fix `docs/admin-manual.html`'s stale `"role"`-shaped JSON examples —
 found during Plan 06's final review at (approximately, confirm each at edit
