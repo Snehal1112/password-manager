@@ -111,7 +111,7 @@ func TestPostgres_SecretRoundTrip_BinaryValue(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, secret))
 
-	got, err := repo.Read(ctx, secret.ID)
+	got, err := repo.Read(ctx, secret.ID, model.NewOwnerScope(secret.VaultID, userID))
 	require.NoError(t, err)
 	require.Equal(t, encoded, got.Value, "base64 value must round-trip exactly")
 
@@ -147,7 +147,7 @@ func TestPostgres_KeyWithTags_RoundTrip(t *testing.T) {
 
 	// Read exercises GetTags, which previously passed a raw uuid.UUID instead of
 	// id.String() and would silently return no tags on Postgres.
-	got, err := repo.Read(ctx, key.ID)
+	got, err := repo.Read(ctx, key.ID, model.NewOwnerScope(key.VaultID, userID))
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"prod", "signing"}, got.Tags,
 		"tags must round-trip on Postgres (guards the GetTags id.String fix)")
@@ -187,6 +187,89 @@ func TestPostgres_SecretTags_UpsertIgnore(t *testing.T) {
 	tags, err := tagRepo.GetTags(ctx, secret.ID)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"alpha", "beta", "gamma"}, tags)
+}
+
+// TestPostgres_UserRolesBackfill_PreExistingUser proves the user_roles
+// backfill's dialect-aware INSERT (Dialect.UpsertIgnore + Dialect.Rebind)
+// actually works against real PostgreSQL, not just SQLite's "?" placeholder
+// grammar. It seeds a legacy `users` row BEFORE SetupSchema (and therefore
+// migrateSchema) ever runs, so migrateSchema's own backfill loop -- not test
+// setup -- is what has to populate user_roles on Postgres.
+func TestPostgres_UserRolesBackfill_PreExistingUser(t *testing.T) {
+	ctx := context.Background()
+
+	container, err := tcpostgres.Run(ctx,
+		"postgres:16-alpine",
+		tcpostgres.WithDatabase("rocketvault"),
+		tcpostgres.WithUsername("rv"),
+		tcpostgres.WithPassword("rv-secret"),
+		tcpostgres.BasicWaitStrategies(),
+		tcpostgres.WithSQLDriver("postgres"),
+		testcontainers.WithAdditionalWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(60*time.Second),
+		),
+	)
+	require.NoError(t, err, "start postgres container")
+	defer func() { _ = container.Terminate(ctx) }()
+
+	dsn, err := container.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+
+	sqlDB, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	require.Eventually(t, func() bool {
+		return sqlDB.PingContext(ctx) == nil
+	}, 60*time.Second, 500*time.Millisecond, "postgres did not become ready")
+
+	// Hand-create a minimal legacy `users` table and seed a user directly --
+	// before SetupSchema/createOptimizedSchema/migrateSchema have run at all.
+	// createOptimizedSchema's "CREATE TABLE IF NOT EXISTS users" is then a
+	// no-op against this pre-existing table, so this row is exactly what an
+	// upgrading real deployment looks like: present before user_roles exists.
+	_, err = sqlDB.Exec(`CREATE TABLE users (
+		id            TEXT PRIMARY KEY,
+		username      TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		role          TEXT NOT NULL,
+		created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	require.NoError(t, err)
+
+	legacyUserID := uuid.New()
+	_, err = sqlDB.Exec(
+		"INSERT INTO users (id, username, password_hash, role) VALUES ($1, $2, $3, $4)",
+		legacyUserID.String(), "legacy-pg-admin", "hash", "admin",
+	)
+	require.NoError(t, err)
+
+	// SetupSchema runs createOptimizedSchema then migrateSchema -- the latter
+	// is what creates user_roles and backfills the pre-existing row above via
+	// the dialect-aware INSERT this test exists to prove.
+	repo := rvdb.NewRepository(logging.InitLogger())
+	require.NoError(t, repo.SetupSchema(sqlDB, rvdb.Postgres), "setup schema on postgres")
+
+	var role string
+	err = sqlDB.QueryRow(
+		"SELECT role FROM user_roles WHERE user_id = $1", legacyUserID.String(),
+	).Scan(&role)
+	require.NoError(t, err, "migrateSchema's backfill must have written a user_roles row on Postgres")
+	require.Equal(t, "admin", role)
+
+	// Running SetupSchema a second time must not error and must not
+	// duplicate the row -- proves ON CONFLICT DO NOTHING (this dialect's
+	// UpsertIgnore) actually fires, not a SQLite-only "INSERT OR IGNORE"
+	// that would have made this a hard Postgres syntax error instead.
+	require.NoError(t, repo.SetupSchema(sqlDB, rvdb.Postgres))
+	var count int
+	err = sqlDB.QueryRow(
+		"SELECT COUNT(*) FROM user_roles WHERE user_id = $1", legacyUserID.String(),
+	).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "a second SetupSchema run must not duplicate the backfilled row")
 }
 
 func TestPostgres_DefaultVaultSeeded(t *testing.T) {
