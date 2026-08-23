@@ -50,7 +50,7 @@ func requireBackupAdmin(cmd *cobra.Command) (*model.Claims, error) {
 	if !ok || claims == nil {
 		return nil, fmt.Errorf("unauthorized: missing authentication claims")
 	}
-	if claims.Role != model.RoleAdmin {
+	if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 		return nil, fmt.Errorf("forbidden: requires admin role")
 	}
 	return claims, nil

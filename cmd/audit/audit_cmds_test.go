@@ -496,7 +496,7 @@ func TestConfigCmd_NonAdmin_Forbidden(t *testing.T) {
 	mockSvc := &MockComplianceReportService{}
 	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc).Maybe()
 
-	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Roles: []string{model.RoleUser}})
 
 	cmd, _ := newConfigCmd()
 	cmd.SetContext(ctx)
@@ -554,7 +554,7 @@ func TestReportCmd_NonAdmin_Forbidden(t *testing.T) {
 	mockSvc := &MockComplianceReportService{}
 	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc).Maybe()
 
-	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Roles: []string{model.RoleUser}})
 
 	cmd, _ := newReportCmd()
 	cmd.SetContext(ctx)
@@ -593,7 +593,7 @@ func TestLogsCmd_NonAdmin_Forbidden(t *testing.T) {
 	mockSvc := &MockComplianceReportService{}
 	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc).Maybe()
 
-	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+	ctx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{Roles: []string{model.RoleUser}})
 
 	cmd, _ := newLogsCmd()
 	cmd.SetContext(ctx)
@@ -614,6 +614,26 @@ func TestLogsCmd_Admin_Allowed(t *testing.T) {
 
 	cmd, buf := newLogsCmd()
 	cmd.SetContext(buildAuditCtx(tc))
+	err := cmd.Execute()
+
+	assert.NoError(t, err)
+	assert.Contains(t, buf.String(), "Total matching: 0")
+	mockSvc.AssertExpectations(t)
+}
+
+// TestLogsCmd_MultiRoleWithAdmin_Allowed proves a caller holding multiple
+// roles, admin among them but not first, still reaches QueryLogs.
+func TestLogsCmd_MultiRoleWithAdmin_Allowed(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	mockSvc := &MockComplianceReportService{}
+	mockSvc.On("QueryLogs", mock.Anything, mock.Anything).
+		Return([]repositories.AuditLog{}, int64(0), true, nil)
+	tc.MockContainer.On("GetComplianceReportService").Return(mockSvc)
+
+	ctx := context.WithValue(buildAuditCtx(tc), common.ClaimsKey, &model.Claims{Roles: []string{model.RoleSecretsManager, model.RoleAdmin}})
+
+	cmd, buf := newLogsCmd()
+	cmd.SetContext(ctx)
 	err := cmd.Execute()
 
 	assert.NoError(t, err)

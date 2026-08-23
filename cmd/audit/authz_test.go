@@ -26,7 +26,7 @@ func TestRequireAuditAdmin_MissingClaims(t *testing.T) {
 // is rejected with the "forbidden" message.
 func TestRequireAuditAdmin_NonAdminRole(t *testing.T) {
 	cmd := &cobra.Command{}
-	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{Role: model.RoleUser})
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{Roles: []string{model.RoleUser}})
 	cmd.SetContext(ctx)
 
 	claims, err := requireAuditAdmin(cmd)
@@ -38,11 +38,35 @@ func TestRequireAuditAdmin_NonAdminRole(t *testing.T) {
 // their claims back.
 func TestRequireAuditAdmin_AdminRole(t *testing.T) {
 	cmd := &cobra.Command{}
-	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{Role: model.RoleAdmin, Username: "admin"})
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{Roles: []string{model.RoleAdmin}, Username: "admin"})
 	cmd.SetContext(ctx)
 
 	claims, err := requireAuditAdmin(cmd)
 	assert.NoError(t, err)
 	assert.NotNil(t, claims)
-	assert.Equal(t, model.RoleAdmin, claims.Role)
+	assert.Contains(t, claims.Roles, model.RoleAdmin)
+}
+
+// TestRequireAuditAdmin_MultiRoleWithAdmin proves a caller holding multiple
+// roles, admin among them but not first, still passes.
+func TestRequireAuditAdmin_MultiRoleWithAdmin(t *testing.T) {
+	cmd := &cobra.Command{}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{Roles: []string{model.RoleSecretsManager, model.RoleAdmin}, Username: "admin"})
+	cmd.SetContext(ctx)
+
+	claims, err := requireAuditAdmin(cmd)
+	assert.NoError(t, err)
+	assert.NotNil(t, claims)
+}
+
+// TestRequireAuditAdmin_MultiRoleWithoutAdmin proves a caller holding
+// multiple non-admin roles is still rejected.
+func TestRequireAuditAdmin_MultiRoleWithoutAdmin(t *testing.T) {
+	cmd := &cobra.Command{}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{Roles: []string{model.RoleSecretsManager}})
+	cmd.SetContext(ctx)
+
+	claims, err := requireAuditAdmin(cmd)
+	assert.Nil(t, claims)
+	assert.ErrorContains(t, err, "forbidden: requires admin role")
 }

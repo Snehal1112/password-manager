@@ -37,7 +37,7 @@ func TestRequireMasterKeyAdmin_NoClaims(t *testing.T) {
 func TestRequireMasterKeyAdmin_NonAdminRole(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{
-		UserID: uuid.New(), Username: "bob", Role: model.RoleUser,
+		UserID: uuid.New(), Username: "bob", Roles: []string{model.RoleSecretsManager},
 	}))
 
 	_, err := requireMasterKeyAdmin(cmd)
@@ -48,7 +48,20 @@ func TestRequireMasterKeyAdmin_NonAdminRole(t *testing.T) {
 func TestRequireMasterKeyAdmin_Admin(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{
-		UserID: uuid.New(), Username: "admin", Role: model.RoleAdmin,
+		UserID: uuid.New(), Username: "admin", Roles: []string{model.RoleAdmin},
+	}))
+
+	claims, err := requireMasterKeyAdmin(cmd)
+	require.NoError(t, err)
+	assert.Equal(t, "admin", claims.Username)
+}
+
+// TestRequireMasterKeyAdmin_MultiRoleWithAdmin proves a caller holding
+// multiple roles, admin among them but not first, still passes.
+func TestRequireMasterKeyAdmin_MultiRoleWithAdmin(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.WithValue(context.Background(), common.ClaimsKey, &model.Claims{
+		UserID: uuid.New(), Username: "admin", Roles: []string{model.RoleSecretsManager, model.RoleAdmin},
 	}))
 
 	claims, err := requireMasterKeyAdmin(cmd)

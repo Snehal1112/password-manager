@@ -55,14 +55,15 @@ func backupContext(db *sql.DB, logger *logging.Logger) context.Context {
 }
 
 // backupContextWithRole is like backupContext but lets the caller pick the
-// claims' role (or omit claims entirely by passing an empty role), so gate
-// rejection paths can be tested directly.
-func backupContextWithRole(db *sql.DB, logger *logging.Logger, role string) context.Context {
+// claims' roles (or omit claims entirely by passing none), so gate rejection
+// paths can be tested directly. Variadic so callers can pass zero, one, or
+// several roles.
+func backupContextWithRole(db *sql.DB, logger *logging.Logger, roles ...string) context.Context {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.DBKey, db)
 	ctx = context.WithValue(ctx, common.LogKey, logger)
-	if role != "" {
-		ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Username: "test", Role: role})
+	if len(roles) > 0 {
+		ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Username: "test", Roles: roles})
 	}
 	return ctx
 }
@@ -537,7 +538,7 @@ func TestRunBackupCreate_NoClaims(t *testing.T) {
 	cmd := &cobra.Command{Use: "create", RunE: backupCreateCmd.RunE}
 	cmd.Flags().StringVarP(&backupOutput, "output", "o", filepath.Join(t.TempDir(), "x.backup"), "")
 	cmd.Flags().BoolVar(&backupEncrypt, "encrypt", false, "")
-	cmd.SetContext(backupContextWithRole(sqlDB, logger, ""))
+	cmd.SetContext(backupContextWithRole(sqlDB, logger))
 
 	err := cmd.RunE(cmd, []string{})
 	assert.ErrorContains(t, err, "unauthorized")
@@ -562,7 +563,7 @@ func TestRunBackupList_NoClaims(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
 	cmd.Flags().StringVarP(&backupListDir, "dir", "d", t.TempDir(), "")
-	cmd.SetContext(backupContextWithRole(sqlDB, logger, ""))
+	cmd.SetContext(backupContextWithRole(sqlDB, logger))
 
 	err := cmd.RunE(cmd, []string{})
 	assert.ErrorContains(t, err, "unauthorized")
@@ -588,7 +589,7 @@ func TestRunBackupRestore_NoClaims(t *testing.T) {
 	cmd := &cobra.Command{Use: "restore", RunE: backupRestoreCmd.RunE}
 	cmd.Flags().StringVarP(&backupRestoreFile, "file", "f", filepath.Join(t.TempDir(), "missing.backup"), "")
 	cmd.Flags().BoolVar(&backupRestoreDecrypt, "decrypt", false, "")
-	cmd.SetContext(backupContextWithRole(sqlDB, logger, ""))
+	cmd.SetContext(backupContextWithRole(sqlDB, logger))
 
 	err := cmd.RunE(cmd, []string{})
 	assert.ErrorContains(t, err, "unauthorized")
@@ -605,4 +606,18 @@ func TestRunBackupRestore_NonAdmin(t *testing.T) {
 
 	err := cmd.RunE(cmd, []string{})
 	assert.ErrorContains(t, err, "forbidden")
+}
+
+// TestRunBackupList_MultiRoleWithAdmin proves a caller holding multiple
+// roles, admin among them but not first, still passes the gate.
+func TestRunBackupList_MultiRoleWithAdmin(t *testing.T) {
+	sqlDB := newTestDB(t)
+	logger := newTestLogger()
+
+	cmd := &cobra.Command{Use: "list", RunE: backupListCmd.RunE}
+	cmd.Flags().StringVarP(&backupListDir, "dir", "d", t.TempDir(), "")
+	cmd.SetContext(backupContextWithRole(sqlDB, logger, model.RoleSecretsManager, model.RoleAdmin))
+
+	err := cmd.RunE(cmd, []string{})
+	assert.NoError(t, err)
 }

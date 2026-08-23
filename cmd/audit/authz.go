@@ -2,9 +2,11 @@
 // audit CLI command. Audit logs and compliance reports span every vault, so
 // (like cmd/backup.go's requireBackupAdmin) there is no vault to scope this
 // to — the global admin role is the only applicable gate, mirroring the
-// identical claims.Role != model.RoleAdmin restriction api/audit.go enforces
-// on every audit HTTP route (getAuditLogs, getSOC2Report, getGDPRReport,
-// getAuditConfig, patchAuditConfig).
+// !common.HasAnyRole(claims.Roles, model.RoleAdmin) restriction api/audit.go
+// should enforce (as of this writing api/audit.go still uses the old
+// claims.Role != model.RoleAdmin strict-equality check and has not yet been
+// migrated) on every audit HTTP route (getAuditLogs, getSOC2Report,
+// getGDPRReport, getAuditConfig, patchAuditConfig).
 package audit
 
 import (
@@ -26,7 +28,7 @@ func requireAuditAdmin(cmd *cobra.Command) (*model.Claims, error) {
 	if !ok || claims == nil {
 		return nil, fmt.Errorf("unauthorized: missing authentication claims")
 	}
-	if claims.Role != model.RoleAdmin {
+	if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 		return nil, fmt.Errorf("forbidden: requires admin role")
 	}
 	return claims, nil
