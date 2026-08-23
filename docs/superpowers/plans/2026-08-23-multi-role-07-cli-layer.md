@@ -38,11 +38,49 @@ amendment, just noting here for whoever reads both documents side by side.
 ### Task 1: `cmd/users/create.go`
 
 **Files:**
+- Modify: `cmd/testutils/test_utils.go` (two stale `Role:` literals — added
+  during this plan's pre-flight scan: this shared test-fixture helper is
+  imported by essentially every `cmd/*` package's tests, including this
+  task's own `cmd/users/create_test.go`, and is broken since Plan 02/04
+  renamed `model.Claims.Role`/`model.User.Role`. No plan in this series
+  names it. Left unfixed, this task's own Step 2 could never distinguish
+  "the CLI change isn't done yet" from "the shared test helper doesn't
+  compile" — fix it first, before touching `create.go`.)
 - Modify: `cmd/users/create.go`
 - Test: `cmd/users/create_test.go`
 
 **Interfaces:**
 - Consumes: `userService.CreateUserRequest.Roles`/`CallerRoles` from Plan 05.
+
+- [ ] **Step 0: Fix `cmd/testutils/test_utils.go`**
+
+Two literals, both simple field renames with the value wrapped in a
+single-element slice:
+
+```go
+	testClaims := &model.Claims{
+		UserID:   testUserID,
+		Username: "testuser",
+		Roles:    []string{model.RoleAdmin},
+	}
+```
+
+and
+
+```go
+func CreateTestUser() *model.User {
+	return &model.User{
+		ID:           uuid.New(),
+		Username:     "testuser",
+		PasswordHash: "$2a$10$test.hash",
+		Roles:        []string{model.RoleUser},
+		TOTPSecret:   "testsecret",
+	}
+}
+```
+
+No other change to this file. Run `go build ./cmd/testutils/...` to confirm
+it compiles before moving to Step 1.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -152,8 +190,11 @@ Expected: all PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add cmd/users/create.go cmd/users/create_test.go
-git commit -m "feat(cli): --new-role is repeatable on 'users create'"
+git add cmd/testutils/test_utils.go cmd/users/create.go cmd/users/create_test.go
+git commit -m "feat(cli): --new-role is repeatable on 'users create'
+
+Also fixes cmd/testutils/test_utils.go's two stale Role literals, unowned
+by any plan and blocking this task's own tests from compiling."
 ```
 
 ---
@@ -306,30 +347,59 @@ git commit -m "feat(cli): --new-role is repeatable on 'users update', delete dup
 
 - [ ] **Step 1: Full package build and vet**
 
-Run: `go build ./... && go vet ./...`
-Expected: clean. This is the first point in the plan series where the CLI
-and API and service layers are all simultaneously updated — a real build
-failure here means an interface mismatch between plans that unit tests
-within a single package wouldn't have caught.
+Run: `go build ./... 2>&1`
 
-- [ ] **Step 2: Manual smoke test against a real local instance**
+Expected: **NOT clean** — corrected during this plan's pre-flight scan.
+Plan 08 (`cmd/keys`, `cmd/certificates`, `cmd/secrets`, and 4 more
+strict-equality gates) and Plan 09 (`api/oauth2.go`/`jwks.go`/
+`access_policies.go`/`audit.go`/`role_assignments.go`,
+`internal/services/authorization/vault_authz.go`,
+`internal/middleware/middleware.go`, `cmd/vaults`/`vault-access`/
+`vault-webhook` authz) haven't run yet, so those packages still fail to
+compile — that's expected, not a regression this task introduced. The real
+check is narrower: confirm the ONLY new-since-Plan-06 breakage is in files
+already known to be Plan 08/09 territory, and that nothing in
+`cmd/users/create.go`/`update.go` or their tests is broken. Cross-reference
+any error against Plan 08's and Plan 09's file lists; if something breaks
+in a file neither plan names, stop and flag it — that would be a real gap,
+same as several the controller already found and fixed earlier in this
+series (`api/oidc.go`, `model/model_test.go`, `api.RequestClaims`,
+`cmd/testutils`).
+
+Then run, scoped to what this plan actually touches: `go build
+./cmd/users/... && go vet ./cmd/users/...` — this MUST be clean.
+
+- [ ] **Step 2: Manual smoke test — deferred, not runnable yet**
+
+Corrected during this plan's pre-flight scan: `go build -o rocketvault-test .`
+builds the WHOLE binary, which transitively imports every `cmd/*`
+subpackage — including `cmd/keys`, `cmd/certificates`, `cmd/secrets`,
+`cmd/master_key.go`, `cmd/backup.go`, `cmd/audit`, `cmd/vaults`,
+`cmd/vault-access`, `cmd/vault-webhook`, all still broken (Plan 08/09
+territory, not yet run). A real running-binary smoke test of
+`--new-role`'s repeatable behavior is genuinely not possible until Plan 09
+completes — do NOT attempt it, and do not treat a failed `go build -o
+rocketvault-test .` as a bug in this task's own work.
+
+Plan 10's own Task 3 ("End-to-end multi-role verification") already
+performs this exact smoke test and more (creates a multi-role user via
+`--new-role` repeated flags, then exercises secrets/keys/certificates
+operations gated by different roles from that same account) once the whole
+binary can build. This task's verification is scoped instead to what's
+actually achievable now: confirm via `go doc` or direct inspection that
+`createCmd`/`updateCmd`'s flag is genuinely registered as `StringArray`
+(not `String`) on the real command objects, not just in test scaffolding:
 
 ```bash
-go build -o rocketvault-test .
-export RV_MASTER_KEY=$(openssl rand -base64 32)
-export RV_BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
-# ... use whatever this repo's existing local dev config setup is
-# (.rocketvault.yaml.example) to get a scratch instance running, per
-# CLAUDE.md's "Development" section.
-./rocketvault-test users admin --admin-username=admin --admin-password=Testpass123! --bootstrap-token="$RV_BOOTSTRAP_TOKEN"
-./rocketvault-test users login --username admin --password Testpass123! --totp-code <code-from-authenticator>
-./rocketvault-test users create --new-username=multi --new-password=Testpass123! --new-role=secrets_manager --new-role=crypto_manager
-./rocketvault-test users get multi
+grep -n 'Flags().StringArray("new-role"' cmd/users/create.go cmd/users/update.go
 ```
 
-Expected: the `get` output shows both roles. Clean up the scratch instance
-and binary afterward (`rm rocketvault-test`, remove the scratch DB file) —
-do not leave test artifacts in the repo.
+Expected: one match in each file. This is a cheap, real confirmation that
+the actual Cobra command definition (not just a test's inline flag
+registration) was updated — the two are easy to conflate since the tests in
+Tasks 1/2 register their own inline `StringArray` flags on a throwaway
+`*cobra.Command`, which would pass even if the real `create.go`/`update.go`
+still declared `String`.
 
 - [ ] **Step 3: No commit for this task**
 
