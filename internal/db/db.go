@@ -356,6 +356,11 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 			role       TEXT NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE (user_id, role),
+			-- ON DELETE CASCADE only fires on Postgres: SQLite's foreign_keys
+			-- PRAGMA is off project-wide (see the audit_logs note further down
+			-- this file), so a SQLite deployment must delete user_roles rows
+			-- manually on user deletion, the way vault_service.go:497 already
+			-- does for its own SQLite-inert cascades.
 			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 		);
 		CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
@@ -985,6 +990,10 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 
 	// Feature: multi-role users (idempotent). users.role is left in place,
 	// unused by new code — see docs/superpowers/specs/2026-08-23-multi-role-user-assignment-design.md.
+	// ON DELETE CASCADE only fires on Postgres: SQLite's foreign_keys PRAGMA
+	// is off project-wide (see the audit_logs note above), so a SQLite
+	// deployment must delete user_roles rows manually on user deletion, the
+	// way vault_service.go:497 already does for its own SQLite-inert cascades.
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_roles (
 		id         TEXT PRIMARY KEY,
 		user_id    TEXT NOT NULL,
@@ -1001,27 +1010,39 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 
 	// Backfill: split every existing users.role value (including legacy
 	// comma-joined strings from the pre-normalization multi-role feature)
-	// into user_roles. INSERT OR IGNORE makes this idempotent -- safe to
-	// run on every startup, not just once.
-	rows, err := db.Query(`SELECT id, role FROM users`)
+	// into user_roles. INSERT OR IGNORE (ON CONFLICT DO NOTHING on Postgres)
+	// makes each insert idempotent, and the NOT EXISTS guard below skips any
+	// user who already has at least one user_roles row, so this does not
+	// re-scan and rewrite every user on every startup once it has run once.
+	rows, err := db.Query(`SELECT u.id, u.role FROM users u
+		WHERE NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id)`)
 	if err != nil {
 		return fmt.Errorf("read users for role backfill: %w", err)
 	}
 	type userRoleRow struct{ userID, role string }
 	var toBackfill []userRoleRow
 	for rows.Next() {
-		var id, role string
+		var id string
+		var role sql.NullString
 		if err := rows.Scan(&id, &role); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan user for role backfill: %w", err)
 		}
-		toBackfill = append(toBackfill, userRoleRow{id, role})
+		toBackfill = append(toBackfill, userRoleRow{id, role.String})
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return fmt.Errorf("iterate users for role backfill: %w", err)
 	}
 	rows.Close()
+
+	// Rebound once, outside the loop, per dialect: SQLite uses "INSERT OR
+	// IGNORE" with "?" placeholders; Postgres needs "ON CONFLICT DO NOTHING"
+	// with "$1, $2, $3" placeholders. Mirrors the key_rotation_policies
+	// backfill above.
+	insertSQL := d.dialect.Rebind(d.dialect.UpsertIgnore(
+		"user_roles", "id, user_id, role", "?, ?, ?", "user_id, role",
+	))
 
 	for _, u := range toBackfill {
 		seen := map[string]bool{}
@@ -1035,9 +1056,9 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			roles = append(roles, r)
 		}
 		// Defensive guard: an empty or unparseable role column (empty string,
-		// bare comma, whitespace-only) must not silently leave a user with
-		// zero user_roles rows. No current write path persists a user this
-		// way (CLI and service-layer validation both reject it), but the
+		// NULL, bare comma, whitespace-only) must not silently leave a user
+		// with zero user_roles rows. No current write path persists a user
+		// this way (CLI and service-layer validation both reject it), but the
 		// migration's own invariant is "every users row gets at least one
 		// user_roles row" -- fall back to the least-privilege default, same
 		// as FindOrCreateExternalUser does for external users of unknown role.
@@ -1048,10 +1069,7 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			}).Warn("User role column was empty or unparseable during user_roles backfill; defaulting to 'user'")
 		}
 		for _, r := range roles {
-			if _, err := db.Exec(
-				`INSERT OR IGNORE INTO user_roles (id, user_id, role) VALUES (?, ?, ?)`,
-				uuid.New().String(), u.userID, r,
-			); err != nil {
+			if _, err := db.Exec(insertSQL, uuid.New().String(), u.userID, r); err != nil {
 				return fmt.Errorf("backfill user_roles for user %s: %w", u.userID, err)
 			}
 		}

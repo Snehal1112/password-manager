@@ -25,8 +25,13 @@ rollout) but never read by this new code.
   `model/user.go:18`.
 - Role-set replace must be transactional (`Create`/`Update` are NOT
   transactional today except `Delete` — this plan adds transactions to both).
-- `user_roles` rows cascade-delete via the existing `ON DELETE CASCADE` FK —
-  do not add manual cleanup in `UserRepository.Delete`.
+- The `user_roles.user_id` FK's `ON DELETE CASCADE` only fires on Postgres.
+  SQLite (this project's default and Railway-deployed driver) runs with the
+  `foreign_keys` PRAGMA off project-wide, so the cascade is inert there —
+  `UserRepository.Delete` MUST manually delete the deleted user's
+  `user_roles` rows on SQLite, or they leak. Follow the precedent at
+  `internal/services/vaults/vault_service.go:497`, which already works around
+  this exact same inert-cascade issue for a different table.
 
 ---
 
