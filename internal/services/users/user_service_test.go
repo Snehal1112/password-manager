@@ -363,6 +363,60 @@ func TestCreateUser_MultipleRoles_AllStored(t *testing.T) {
 	assert.ElementsMatch(t, []string{"secrets_manager", "crypto_manager"}, result.Roles)
 }
 
+// TestCreateUser_RolesTrimmedAndDeduped proves whitespace is trimmed and
+// duplicates are collapsed before storage: " admin " and "admin" collapse to
+// a single "admin" entry.
+func TestCreateUser_RolesTrimmedAndDeduped(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	key := realTOTPKey(t)
+	pw.On("HashPassword", "pw12345678").Return("hashed", nil)
+	totpSvc.On("GenerateSecret", "PasswordManager", "newuser").Return(key, nil)
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return len(u.Roles) == 1 && u.Roles[0] == model.RoleAdmin
+	})).Return(nil)
+
+	req := CreateUserRequest{
+		Username:    "newuser",
+		Password:    "pw12345678",
+		Roles:       []string{" admin ", "admin"},
+		CallerRoles: []string{model.RoleAdmin},
+	}
+	result, err := svc.CreateUser(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{model.RoleAdmin}, result.Roles)
+	repo.AssertExpectations(t)
+}
+
+// TestCreateUser_WhitespaceOnlyRoles_Rejected is the Finding-1 regression
+// test: a Roles list containing only whitespace must not silently produce a
+// role-less user. The pre-loop len(req.Roles) == 0 check alone would miss
+// this, since len([]string{"  "}) == 1.
+func TestCreateUser_WhitespaceOnlyRoles_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	req := CreateUserRequest{
+		Username:    "newuser",
+		Password:    "pw12345678",
+		Roles:       []string{"  "},
+		CallerRoles: []string{model.RoleAdmin},
+	}
+	result, err := svc.CreateUser(context.Background(), req)
+
+	assert.Nil(t, result)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid role")
+	repo.AssertNotCalled(t, "Create")
+}
+
 // ---------------------------------------------------------------------------
 // UpdateUser tests
 // ---------------------------------------------------------------------------
@@ -611,6 +665,29 @@ func TestUpdateUser_InvalidRoleInList_Rejected(t *testing.T) {
 		Roles:       []string{model.RoleAdmin, "not_a_real_role"},
 	}
 	err := svc.UpdateUser(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid role")
+	repo.AssertNotCalled(t, "Update")
+}
+
+// TestUpdateUser_WhitespaceOnlyRoles_Rejected is the Finding-1 regression
+// test for UpdateUser: a Roles list containing only whitespace must not
+// silently strip all of the user's existing roles. The roles-empty check
+// runs before repo.Read, so Read is never reached either.
+func TestUpdateUser_WhitespaceOnlyRoles_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	req := UpdateUserRequest{
+		UserID:      uuid.New(),
+		CallerRoles: []string{model.RoleAdmin},
+		Roles:       []string{"  "},
+	}
+	err := svc.UpdateUser(context.Background(), req)
+
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid role")
 	repo.AssertNotCalled(t, "Update")

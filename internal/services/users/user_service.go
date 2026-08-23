@@ -126,9 +126,6 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 		return nil, fmt.Errorf("forbidden: caller must have admin role to create users")
 	}
 
-	if len(req.Roles) == 0 {
-		return nil, fmt.Errorf("invalid role: at least one role is required")
-	}
 	seen := map[string]bool{}
 	var roles []string
 	for _, r := range req.Roles {
@@ -145,6 +142,9 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 		}
 		seen[r] = true
 		roles = append(roles, r)
+	}
+	if len(roles) == 0 {
+		return nil, fmt.Errorf("invalid role: at least one role is required")
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -255,9 +255,6 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 
 	var newRoles []string
 	if req.Roles != nil {
-		if len(req.Roles) == 0 {
-			return fmt.Errorf("invalid role: at least one role is required")
-		}
 		seen := map[string]bool{}
 		for _, r := range req.Roles {
 			// Same trimming requirement as CreateUser above -- see its comment.
@@ -270,6 +267,9 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 			}
 			seen[r] = true
 			newRoles = append(newRoles, r)
+		}
+		if len(newRoles) == 0 {
+			return fmt.Errorf("invalid role: at least one role is required")
 		}
 	}
 
