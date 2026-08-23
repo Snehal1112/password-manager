@@ -350,6 +350,16 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		-- databases. Creating it here would fail on upgraded DBs where those columns
 		-- do not yet exist (see the audit_logs precedent below for the same trap).
 
+		CREATE TABLE IF NOT EXISTS user_roles (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			role       TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (user_id, role),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
+
 		CREATE TABLE IF NOT EXISTS vaults (
 			id                 TEXT PRIMARY KEY,
 			name               TEXT UNIQUE NOT NULL,
@@ -972,6 +982,23 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_role_assignments_principal_vault ON role_assignments(principal_id, vault_id)`); err != nil {
 		return fmt.Errorf("index role_assignments principal/vault: %w", err)
 	}
+
+	// Feature: multi-role users (idempotent). users.role is left in place,
+	// unused by new code — see docs/superpowers/specs/2026-08-23-multi-role-user-assignment-design.md.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS user_roles (
+		id         TEXT PRIMARY KEY,
+		user_id    TEXT NOT NULL,
+		role       TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE (user_id, role),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	)`); err != nil {
+		return fmt.Errorf("create user_roles: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id)`); err != nil {
+		return fmt.Errorf("index user_roles user: %w", err)
+	}
+
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id)`); err != nil {
 		return fmt.Errorf("index access_policies assignment: %w", err)
 	}
