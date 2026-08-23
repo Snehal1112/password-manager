@@ -38,9 +38,23 @@ field-rename sites, then verification only.
   struct as `model.Claims`/`model.User`/`common.SessionCache`, so the
   Task 2 completeness grep in this plan does not catch it — fix it here,
   explicitly, alongside `SessionCache`, which it feeds directly.)
+- Modify: `cmd/users/login.go` (`performPasswordLogin`'s
+  `SessionCache{..., Role: result.Role, ...}` literal — added during Plan
+  07's own execution: this is the password-login counterpart to
+  `login_oidc.go` above, feeding the same `SessionCache` struct, and was
+  likewise missed by every earlier plan's file list. Plan 07 deliberately
+  left it untouched — `SessionCache.Roles` doesn't exist until this task
+  creates it, so Plan 07 couldn't have fixed it even if it tried. Change
+  `Role: result.Role` to `Roles: result.Roles` — `result` here is
+  `*authServices.AuthenticationResult`, whose `.Roles` field Plan 04 already
+  added.)
 - Test: `internal/services/users/user_service_test.go`,
   `common/session_test.go` (check it exists first),
-  `cmd/users/login_oidc_test.go` (check it exists first)
+  `cmd/users/login_oidc_test.go` (check it exists first),
+  `cmd/users/login_password_test.go` (check for a test covering
+  `performPasswordLogin`'s `SessionCache` construction; fix any stale
+  `Role:` fixture the same mechanical way if Plan 07 didn't already reach
+  it)
 
 **Interfaces:**
 - Produces: `common.SessionCache.Roles []string` (was `Role string`).
@@ -123,6 +137,27 @@ type SessionCache struct {
 }
 ```
 
+- [ ] **Step 4b: Fix `cmd/users/login.go`'s `SessionCache` construction**
+
+`performPasswordLogin` builds a `SessionCache{..., Role: result.Role, ...}`
+literal from `*authServices.AuthenticationResult` (Plan 04 already added
+`.Roles` there). Change:
+
+```go
+	session := &common.SessionCache{
+		Token:        result.Token,
+		RefreshToken: result.RefreshToken,
+		UserID:       result.UserID,
+		Username:     result.Username,
+		Roles:        result.Roles,
+		ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
+	}
+```
+
+Check `cmd/users/login_password_test.go` for a test covering
+`performPasswordLogin` and fix any stale `Role:` fixture literal the same
+mechanical way.
+
 - [ ] **Step 5: Fix `cmd/users/login_oidc.go`'s hand-duplicated wire shape**
 
 This file defines its own local struct for decoding the OIDC exchange
@@ -170,13 +205,15 @@ exists in this package).
 Run: `go test ./internal/services/users/... -run TestFindOrCreateExternalUser_NewUser_GetsLeastPrivilegeRole -v`
 Expected: PASS
 
-Also run whatever test you added/extended in Step 5 and confirm it passes.
+Also run whatever tests you added/extended in Steps 4b and 5 and confirm
+they pass, plus `go test ./cmd/users/... ./common/... -v` for the two
+packages this task's `SessionCache` change ripples into.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add internal/services/users/user_service.go common/session.go cmd/users/login_oidc.go internal/services/users/user_service_test.go
-git commit -m "fix(users): FindOrCreateExternalUser, SessionCache, and OIDC CLI exchange use Roles []string"
+git add internal/services/users/user_service.go common/session.go cmd/users/login.go cmd/users/login_oidc.go internal/services/users/user_service_test.go cmd/users/login_password_test.go
+git commit -m "fix(users): FindOrCreateExternalUser, SessionCache, and both CLI login paths use Roles []string"
 ```
 
 ---

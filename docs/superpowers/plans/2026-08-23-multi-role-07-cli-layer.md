@@ -336,40 +336,150 @@ git commit -m "feat(cli): --new-role is repeatable on 'users update', delete dup
 
 ---
 
-### Task 3: End-to-end CLI verification
+### Task 3: Remaining `cmd/users` gates + response formatting + verification
 
 **Files:**
-- No new source files — this task is a manual/scripted verification pass,
-  not new test code.
+- Modify: `cmd/users/delete.go:68`, `cmd/users/get.go:70,92`,
+  `cmd/users/list.go:64,88`, `cmd/users/admin.go:82-83` — added during Task
+  1's own build-verification: these five files reference the pre-rename
+  `claims.Role`/`user.Role`/`CreateUserRequest.Role`/`CallerRole` fields
+  and are named in NO plan's file list (not Task 1, not Task 2, not Plan
+  08, not Plan 09 — confirmed by checking both plans' file lists directly).
+  Left unfixed, this task's own verification step could never distinguish
+  "Tasks 1-2 are done" from "the rest of `cmd/users` was never touched" —
+  fix them here, in the same package Tasks 1-2 already own.
+- Test: `cmd/users/admin_test.go`, `cmd/users/list_test.go`,
+  `cmd/users/users_cmd_test.go`, `cmd/users/login_password_test.go`,
+  `cmd/users/service_test.go`, `cmd/users/cmd_rune_test.go` (also found
+  during Task 1's build-verification — same gap, test-file side; ALL still
+  reference the pre-rename fields, and `cmd_rune_test.go`'s
+  `newCreateTestCmd()` helper additionally registers `new-role` as
+  `Flags().String(...)` instead of `StringArray`, which must also change or
+  it silently diverges from the real `createCmd` flag definition once this
+  file compiles again)
+
+**NOT in this task's scope — do not touch:**
+`cmd/users/login.go`'s `performPasswordLogin` builds a
+`common.SessionCache{..., Role: result.Role, ...}` literal. `SessionCache`
+itself is not renamed to `Roles []string` until Plan 10 Task 1 — fixing
+`login.go` here would require a field that doesn't exist yet. This has been
+flagged as a gap in Plan 10's own file list (a sibling correction alongside
+this one); leave `login.go` exactly as-is.
 
 **Interfaces:**
-- Consumes: everything from Tasks 1-2, plus the full stack from Plans 01-06.
+- Consumes: `common.HasAnyRole`, `userService.CreateUserRequest.Roles`/
+  `CallerRoles` (Plan 05), `model.Claims.Roles` (Plan 04), `model.User.Roles`
+  (Plan 02).
 
-- [ ] **Step 1: Full package build and vet**
+- [ ] **Step 1: Write the failing test**
+
+Pick one representative case per file — e.g. extend or add a test in
+`cmd/users/list_test.go` asserting a caller with `Roles: []string{"user",
+"admin"}` (admin present but not sole role) can list users, and one in
+`cmd/users/service_test.go`/`admin_test.go` covering the bootstrap admin
+creation path. Match each file's existing test conventions.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./cmd/users/... -v 2>&1 | head -80`
+Expected: FAIL — compile errors across the whole package (this file group
+has been broken since Plan 02/04 landed; that's the starting state this
+task fixes).
+
+- [ ] **Step 3: Fix the two remaining strict-equality gates**
+
+`delete.go:68` and `get.go:70` share the identical shape:
+
+```go
+	if claims.UserID != id && !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
+```
+
+`list.go:64`:
+
+```go
+	if !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
+```
+
+- [ ] **Step 4: Fix the two display-formatting sites**
+
+`list.go`'s table-row loop and `get.go`'s single-row output both print a
+`Role` column sourced from `u.Role`/`user.Role` (now `Roles []string`).
+Render as a comma-joined string — add `"strings"` to each file's imports if
+not already present:
+
+```go
+			rows[i] = []string{
+				u.ID.String(),
+				u.Username,
+				strings.Join(u.Roles, ", "),
+				u.CreatedAt.Format(time.RFC3339),
+			}
+```
+
+(and the equivalent single-row change in `get.go`, keeping the header label
+`"Role"` as-is — this is a column header string, not a field name, and
+changing it is optional polish, not required for correctness).
+
+- [ ] **Step 5: Fix `admin.go`'s bootstrap request literal**
+
+```go
+		result, err := userSvc.CreateUser(ctx, userService.CreateUserRequest{
+			Username:    username,
+			Password:    password,
+			Roles:       []string{model.RoleAdmin},
+			CallerRoles: []string{model.RoleAdmin}, // Bootstrap is pre-authorised.
+		})
+```
+
+- [ ] **Step 6: Fix the six test files' remaining literals**
+
+Every `Role:`/`.Role`/`CallerRole:` reference in `admin_test.go`,
+`list_test.go`, `users_cmd_test.go`, `login_password_test.go`,
+`service_test.go`, `cmd_rune_test.go` is a mechanical rename to the
+`Roles`/`CallerRoles []string` shape, same pattern used throughout this
+plan series (wrap single values in a one-element slice, preserve exact
+values, no logic changes). Additionally, in `cmd_rune_test.go`, change
+`newCreateTestCmd()`'s `Flags().String("new-role", "", "")` to
+`Flags().StringArray("new-role", []string{}, "")` so it matches the real
+`createCmd` definition Task 1 already changed — otherwise this helper
+silently drifts from what it's meant to be testing against.
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `go test ./cmd/users/... -v`
+Expected: all PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add cmd/users/delete.go cmd/users/get.go cmd/users/list.go cmd/users/admin.go cmd/users/admin_test.go cmd/users/list_test.go cmd/users/users_cmd_test.go cmd/users/login_password_test.go cmd/users/service_test.go cmd/users/cmd_rune_test.go
+git commit -m "fix(cli): migrate remaining cmd/users gates and response formatting to Roles []string"
+```
+
+- [ ] **Step 9: Full package build and vet**
 
 Run: `go build ./... 2>&1`
 
-Expected: **NOT clean** — corrected during this plan's pre-flight scan.
-Plan 08 (`cmd/keys`, `cmd/certificates`, `cmd/secrets`, and 4 more
-strict-equality gates) and Plan 09 (`api/oauth2.go`/`jwks.go`/
-`access_policies.go`/`audit.go`/`role_assignments.go`,
-`internal/services/authorization/vault_authz.go`,
+Expected: **NOT clean** — Plan 08 (`cmd/keys`, `cmd/certificates`,
+`cmd/secrets`, and 4 more strict-equality gates) and Plan 09
+(`api/oauth2.go`/`jwks.go`/`access_policies.go`/`audit.go`/
+`role_assignments.go`, `internal/services/authorization/vault_authz.go`,
 `internal/middleware/middleware.go`, `cmd/vaults`/`vault-access`/
 `vault-webhook` authz) haven't run yet, so those packages still fail to
-compile — that's expected, not a regression this task introduced. The real
-check is narrower: confirm the ONLY new-since-Plan-06 breakage is in files
-already known to be Plan 08/09 territory, and that nothing in
-`cmd/users/create.go`/`update.go` or their tests is broken. Cross-reference
+compile — expected, not a regression this task introduced. Cross-reference
 any error against Plan 08's and Plan 09's file lists; if something breaks
 in a file neither plan names, stop and flag it — that would be a real gap,
 same as several the controller already found and fixed earlier in this
-series (`api/oidc.go`, `model/model_test.go`, `api.RequestClaims`,
-`cmd/testutils`).
+series.
 
-Then run, scoped to what this plan actually touches: `go build
-./cmd/users/... && go vet ./cmd/users/...` — this MUST be clean.
+Then run, scoped to what this plan now fully owns: `go build
+./cmd/users/... && go vet ./cmd/users/... && go test ./cmd/users/... -v`
+— this MUST be fully clean (the one known exception is `login.go`, whose
+fix is deliberately deferred to Plan 10 per this task's own scope note
+above — its package still compiles fine since `common.SessionCache.Role`
+itself hasn't been renamed yet, only its future rename is deferred).
 
-- [ ] **Step 2: Manual smoke test — deferred, not runnable yet**
+- [ ] **Step 10: Manual smoke test — deferred, not runnable yet**
 
 Corrected during this plan's pre-flight scan: `go build -o rocketvault-test .`
 builds the WHOLE binary, which transitively imports every `cmd/*`
@@ -401,9 +511,10 @@ Tasks 1/2 register their own inline `StringArray` flags on a throwaway
 `*cobra.Command`, which would pass even if the real `create.go`/`update.go`
 still declared `String`.
 
-- [ ] **Step 3: No commit for this task**
+- [ ] **Step 11: No further commit**
 
-This task is verification only — nothing to commit. If Step 1 or Step 2
-surfaces a bug, fix it as part of whichever earlier task's file it belongs
-to and amend that task's commit (or add a small fix-up commit referencing
-which task it corrects), not a new unrelated commit here.
+Steps 9-10 are verification only — the task's real work is already
+committed in Step 8. If Step 9 or Step 10 surfaces a bug, fix it as part of
+whichever earlier step's file it belongs to and amend that fix into a new
+small commit referencing which step it corrects, not silently folded back
+into Step 8's already-made commit.
