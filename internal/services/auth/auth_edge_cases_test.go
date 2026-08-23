@@ -184,7 +184,7 @@ func TestAuthenticateUser_TOTPValidationError(t *testing.T) {
 		Username:     "dave",
 		PasswordHash: "hashed",
 		TOTPSecret:   "secret",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	userRepo.On("ReadByUsername", ctx, "dave").Return(user, nil)
@@ -228,7 +228,7 @@ func TestAuthenticateUser_SessionCreationFails(t *testing.T) {
 		Username:     "eve",
 		PasswordHash: "hashed",
 		TOTPSecret:   "secret",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	userRepo.On("ReadByUsername", ctx, "eve").Return(user, nil)
@@ -274,7 +274,7 @@ func TestAuthenticateUser_JWTGenerationFails(t *testing.T) {
 		Username:     "frank",
 		PasswordHash: "hashed",
 		TOTPSecret:   "secret",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	userRepo.On("ReadByUsername", ctx, "frank").Return(user, nil)
@@ -282,7 +282,7 @@ func TestAuthenticateUser_JWTGenerationFails(t *testing.T) {
 	totp.On("ValidateCode", "123456", "secret", mock.AnythingOfType("time.Time")).
 		Return(true, nil)
 	sessionRepo.On("CreateSession", ctx, mock.AnythingOfType("*model.Session")).Return(nil)
-	jwt.On("GenerateToken", userID, "frank", model.RoleUser, mock.AnythingOfType("uuid.UUID")).
+	jwt.On("GenerateToken", userID, "frank", []string{model.RoleUser}, mock.AnythingOfType("uuid.UUID")).
 		Return("", errors.New("signing error"))
 
 	svc := NewAuthenticationService(AuthenticationConfig{
@@ -347,7 +347,7 @@ func TestRefreshAccessToken_JWTGenerationFails(t *testing.T) {
 		Revoked:   false,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
-	user := &model.User{ID: userID, Username: "greta", Role: model.RoleUser}
+	user := &model.User{ID: userID, Username: "greta", Roles: []string{model.RoleUser}}
 
 	userRepo := &MockUserRepository{}
 	sessionRepo := &MockSessionRepository{}
@@ -357,7 +357,7 @@ func TestRefreshAccessToken_JWTGenerationFails(t *testing.T) {
 
 	sessionRepo.On("GetSessionByRefreshToken", ctx, mock.AnythingOfType("string")).Return(session, nil)
 	userRepo.On("Read", ctx, userID).Return(user, nil)
-	jwt.On("GenerateToken", userID, "greta", model.RoleUser, sessionID).
+	jwt.On("GenerateToken", userID, "greta", []string{model.RoleUser}, sessionID).
 		Return("", errors.New("signing error"))
 
 	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt, nil)
@@ -401,7 +401,7 @@ func TestValidateSession_ExpiredServiceAccount_Rejected(t *testing.T) {
 	ctx := context.Background()
 	clientID := uuid.New()
 
-	claims := &JWTClaims{UserID: clientID, Username: "my-app", Role: model.RoleServiceAccount}
+	claims := &JWTClaims{UserID: clientID, Username: "my-app", Roles: []string{model.RoleServiceAccount}}
 	claims.ID = clientID.String()
 
 	userRepo := &MockUserRepository{}

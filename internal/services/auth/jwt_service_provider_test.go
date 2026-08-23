@@ -60,7 +60,7 @@ func TestJWTService_Provider_GenerateAndValidate_ES256(t *testing.T) {
 
 	userID := uuid.New()
 	sessionID := uuid.New()
-	token, err := svc.GenerateToken(userID, "alice", "admin", sessionID)
+	token, err := svc.GenerateToken(userID, "alice", []string{"admin"}, sessionID)
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 
@@ -68,7 +68,7 @@ func TestJWTService_Provider_GenerateAndValidate_ES256(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, userID, claims.UserID)
 	assert.Equal(t, "alice", claims.Username)
-	assert.Equal(t, "admin", claims.Role)
+	assert.Equal(t, []string{"admin"}, claims.Roles)
 	assert.Equal(t, sessionID.String(), claims.ID, "jti must match the session ID")
 }
 
@@ -78,7 +78,7 @@ func TestJWTService_Provider_ExpiredToken_Rejected(t *testing.T) {
 	})
 
 	userID := uuid.New()
-	token, err := svc.GenerateToken(userID, "bob", "user", uuid.New())
+	token, err := svc.GenerateToken(userID, "bob", []string{"user"}, uuid.New())
 	require.NoError(t, err)
 
 	time.Sleep(2 * time.Millisecond)
@@ -99,7 +99,7 @@ func TestJWTService_Provider_UnknownKid_Rejected(t *testing.T) {
 	}, otherProvider)
 
 	userID := uuid.New()
-	token, err := otherSvc.GenerateToken(userID, "eve", "user", uuid.New())
+	token, err := otherSvc.GenerateToken(userID, "eve", []string{"user"}, uuid.New())
 	require.NoError(t, err)
 
 	// Our service has a different kid — unknown-kid won't be in its PublicKeys().
@@ -126,7 +126,7 @@ func forgedHS256Token(t *testing.T, secret string) string {
 	claims := auth.JWTClaims{
 		UserID:   uuid.New(),
 		Username: "vaultuser1",
-		Role:     "admin",
+		Roles:    []string{"admin"},
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(),
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
@@ -160,7 +160,7 @@ func TestJWTService_Provider_ParseToken(t *testing.T) {
 	svc := newProviderJWT(t)
 
 	userID := uuid.New()
-	token, err := svc.GenerateToken(userID, "alice", "user", uuid.New())
+	token, err := svc.GenerateToken(userID, "alice", []string{"user"}, uuid.New())
 	require.NoError(t, err)
 
 	// ParseToken must succeed without signature verification.
@@ -191,7 +191,7 @@ func TestJWTService_Provider_ValidateToken_WrongIssuer(t *testing.T) {
 		Expiry:   time.Hour,
 	}, provider)
 
-	token, err := signer.GenerateToken(uuid.New(), "alice", "user", uuid.New())
+	token, err := signer.GenerateToken(uuid.New(), "alice", []string{"user"}, uuid.New())
 	require.NoError(t, err)
 
 	_, err = validator.ValidateToken(token)
@@ -211,7 +211,7 @@ func TestJWTService_Provider_ValidateToken_WrongAudience(t *testing.T) {
 		Expiry:   time.Hour,
 	}, provider)
 
-	token, err := signer.GenerateToken(uuid.New(), "alice", "user", uuid.New())
+	token, err := signer.GenerateToken(uuid.New(), "alice", []string{"user"}, uuid.New())
 	require.NoError(t, err)
 
 	_, err = validator.ValidateToken(token)
@@ -233,7 +233,7 @@ func TestJWTService_Provider_ValidateToken_WrongSigningKey(t *testing.T) {
 	signer := auth.NewJWTServiceWithProvider(cfg, signerProvider)
 	validator := auth.NewJWTServiceWithProvider(cfg, validatorProvider)
 
-	token, err := signer.GenerateToken(uuid.New(), "alice", "user", uuid.New())
+	token, err := signer.GenerateToken(uuid.New(), "alice", []string{"user"}, uuid.New())
 	require.NoError(t, err)
 
 	_, err = validator.ValidateToken(token)

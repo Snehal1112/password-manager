@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ type AuthenticationResult struct {
 	RefreshToken string // Refresh token
 	UserID       uuid.UUID
 	Username     string
-	Role         string
+	Roles        []string
 }
 
 // RefreshTokenResult represents the result of a successful token refresh.
@@ -32,7 +33,7 @@ type RefreshTokenResult struct {
 	RefreshToken string // New refresh token (if rotation is enabled)
 	UserID       uuid.UUID
 	Username     string
-	Role         string
+	Roles        []string
 	ExpiresAt    time.Time
 }
 
@@ -184,7 +185,7 @@ func (s *authenticationService) AuthenticateUser(ctx context.Context, username, 
 	s.logger.WithFields(logrus.Fields{
 		"username": username,
 		"user_id":  user.ID.String(),
-		"role":     user.Role,
+		"roles":    user.Roles,
 	}).Info("User authenticated successfully with session")
 
 	return result, nil
@@ -222,7 +223,7 @@ func (s *authenticationService) issueSession(ctx context.Context, user *model.Us
 	}
 
 	// Generate access token (short-lived) with session.ID as jti for revocation checks.
-	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role, session.ID)
+	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Roles, session.ID)
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), auditAction, "failed", "Failed to generate JWT token", err)
 		s.logger.WithError(err).Error("Failed to generate JWT token")
@@ -243,7 +244,7 @@ func (s *authenticationService) issueSession(ctx context.Context, user *model.Us
 		RefreshToken: refreshToken,
 		UserID:       user.ID,
 		Username:     user.Username,
-		Role:         user.Role,
+		Roles:        user.Roles,
 	}, nil
 }
 
@@ -279,7 +280,7 @@ func (s *authenticationService) ValidateSession(ctx context.Context, token strin
 		return nil, fmt.Errorf("invalid session: malformed jti")
 	}
 
-	if claims.Role == model.RoleServiceAccount {
+	if slices.Contains(claims.Roles, model.RoleServiceAccount) {
 		// For service accounts, verify the client still exists and is active.
 		// sessionID equals client.ID, set as jti in IssueToken.
 		if s.oauth2ClientRepo != nil {
@@ -363,7 +364,7 @@ func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshT
 	}
 
 	// Generate new access token with the existing session.ID as jti.
-	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Role, session.ID)
+	accessToken, err := s.jwtService.GenerateToken(user.ID, user.Username, user.Roles, session.ID)
 	if err != nil {
 		s.logger.LogAuditError(user.ID.String(), "refresh_access_token", "failed", "Failed to generate access token", err)
 		s.logger.WithError(err).Error("Token refresh failed: could not generate access token")
@@ -393,7 +394,7 @@ func (s *authenticationService) RefreshAccessToken(ctx context.Context, refreshT
 		RefreshToken: refreshToken, // Same refresh token for now
 		UserID:       user.ID,
 		Username:     user.Username,
-		Role:         user.Role,
+		Roles:        user.Roles,
 		ExpiresAt:    time.Now().Add(time.Hour), // 1 hour from now
 	}, nil
 }

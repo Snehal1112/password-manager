@@ -163,8 +163,8 @@ type MockJWTService struct {
 	mock.Mock
 }
 
-func (m *MockJWTService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
-	args := m.Called(userID, username, role, sessionID)
+func (m *MockJWTService) GenerateToken(userID uuid.UUID, username string, roles []string, sessionID uuid.UUID) (string, error) {
+	args := m.Called(userID, username, roles, sessionID)
 	return args.String(0), args.Error(1)
 }
 
@@ -269,7 +269,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	// Setup expectations
@@ -277,7 +277,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	mockPasswordService.On("ValidatePassword", "password123", "hashedpassword").Return(nil)
 	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
 	mockSessionRepo.On("CreateSession", ctx, mock.AnythingOfType("*model.Session")).Return(nil)
-	mockJWTService.On("GenerateToken", userID, "testuser", model.RoleUser, mock.AnythingOfType("uuid.UUID")).Return("jwt_token", nil)
+	mockJWTService.On("GenerateToken", userID, "testuser", []string{model.RoleUser}, mock.AnythingOfType("uuid.UUID")).Return("jwt_token", nil)
 
 	// Create service
 	service := NewAuthenticationService(AuthenticationConfig{
@@ -299,7 +299,7 @@ func TestAuthenticationService_AuthenticateUser_Success(t *testing.T) {
 	assert.NotEmpty(t, result.RefreshToken) // Should have refresh token
 	assert.Equal(t, userID, result.UserID)
 	assert.Equal(t, "testuser", result.Username)
-	assert.Equal(t, model.RoleUser, result.Role)
+	assert.Equal(t, []string{model.RoleUser}, result.Roles)
 
 	// Verify all mocks were called
 	mockUserRepo.AssertExpectations(t)
@@ -317,10 +317,10 @@ func TestIssueSessionForUser_Success(t *testing.T) {
 	sessionRepo := &MockSessionRepository{}
 	jwtSvc := &MockJWTService{}
 
-	user := &model.User{ID: uuid.New(), Username: "oidc-user", Role: model.RoleUser}
+	user := &model.User{ID: uuid.New(), Username: "oidc-user", Roles: []string{model.RoleUser}}
 
 	sessionRepo.On("CreateSession", mock.Anything, mock.AnythingOfType("*model.Session")).Return(nil)
-	jwtSvc.On("GenerateToken", user.ID, user.Username, user.Role, mock.AnythingOfType("uuid.UUID")).
+	jwtSvc.On("GenerateToken", user.ID, user.Username, user.Roles, mock.AnythingOfType("uuid.UUID")).
 		Return("access-token", nil)
 
 	svc := NewAuthenticationService(AuthenticationConfig{
@@ -337,6 +337,36 @@ func TestIssueSessionForUser_Success(t *testing.T) {
 	assert.Equal(t, "access-token", result.Token)
 	assert.NotEmpty(t, result.RefreshToken)
 	assert.Equal(t, user.ID, result.UserID)
+	sessionRepo.AssertExpectations(t)
+	jwtSvc.AssertExpectations(t)
+}
+
+// TestIssueSession_EmbedsAllUserRoles is the regression test for issueSession
+// forwarding the user's full multi-role list (not just a single role) into
+// both the JWT and the returned AuthenticationResult.
+func TestIssueSession_EmbedsAllUserRoles(t *testing.T) {
+	userRepo := &MockUserRepository{}
+	sessionRepo := &MockSessionRepository{}
+	jwtSvc := &MockJWTService{}
+
+	user := &model.User{ID: uuid.New(), Username: "multi-role-user", Roles: []string{"admin", "crypto_manager"}}
+
+	sessionRepo.On("CreateSession", mock.Anything, mock.AnythingOfType("*model.Session")).Return(nil)
+	jwtSvc.On("GenerateToken", user.ID, user.Username, user.Roles, mock.AnythingOfType("uuid.UUID")).
+		Return("access-token", nil)
+
+	svc := NewAuthenticationService(AuthenticationConfig{
+		UserRepository:    userRepo,
+		SessionRepository: sessionRepo,
+		PasswordService:   &MockPasswordService{},
+		TOTPService:       &MockTOTPService{},
+		JWTService:        jwtSvc,
+		Logger:            &logging.Logger{Logger: logrus.New()},
+	})
+
+	result, err := svc.IssueSessionForUser(context.Background(), user)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"admin", "crypto_manager"}, result.Roles)
 	sessionRepo.AssertExpectations(t)
 	jwtSvc.AssertExpectations(t)
 }
@@ -362,7 +392,7 @@ func TestAuthenticationService_AuthenticateUser_InvalidPassword(t *testing.T) {
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	// Setup expectations
@@ -415,7 +445,7 @@ func TestAuthenticationService_AuthenticateUser_InvalidTOTP(t *testing.T) {
 		Username:     "testuser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	// Setup expectations
@@ -492,7 +522,7 @@ func TestAuthenticateUser_RecordsRichAuditOutcomeOnSuccessAndFailure(t *testing.
 		Username:     "gooduser",
 		PasswordHash: "hashedpassword",
 		TOTPSecret:   "secret123",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	mockUserRepo.On("ReadByUsername", mock.Anything, "gooduser").Return(user, nil)
@@ -500,7 +530,7 @@ func TestAuthenticateUser_RecordsRichAuditOutcomeOnSuccessAndFailure(t *testing.
 	mockPasswordService.On("ValidatePassword", "wrongpass", "hashedpassword").Return(errors.New("invalid password"))
 	mockTOTPService.On("ValidateCode", "123456", "secret123", mock.AnythingOfType("time.Time")).Return(true, nil)
 	mockSessionRepo.On("CreateSession", mock.Anything, mock.AnythingOfType("*model.Session")).Return(nil)
-	mockJWTService.On("GenerateToken", userID, "gooduser", model.RoleUser, mock.AnythingOfType("uuid.UUID")).Return("jwt_token", nil)
+	mockJWTService.On("GenerateToken", userID, "gooduser", []string{model.RoleUser}, mock.AnythingOfType("uuid.UUID")).Return("jwt_token", nil)
 
 	svc := NewAuthenticationService(AuthenticationConfig{
 		UserRepository:    mockUserRepo,
@@ -573,7 +603,7 @@ func TestAuthenticateUser_FailedTOTP_DoesNotLogCode(t *testing.T) {
 		Username:     "alice",
 		PasswordHash: "$2a$10$test",
 		TOTPSecret:   "JBSWY3DPEHPK3PXP",
-		Role:         model.RoleUser,
+		Roles:        []string{model.RoleUser},
 	}
 
 	mockUserRepo.On("ReadByUsername", mock.Anything, "alice").Return(testUser, nil)

@@ -95,7 +95,7 @@ func TestRefreshAccessToken_HappyPath(t *testing.T) {
 		Revoked:   false,
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
-	user := &model.User{ID: userID, Username: "bob", Role: model.RoleUser}
+	user := &model.User{ID: userID, Username: "bob", Roles: []string{model.RoleUser}}
 
 	userRepo := &MockUserRepository{}
 	sessionRepo := &MockSessionRepository{}
@@ -105,7 +105,7 @@ func TestRefreshAccessToken_HappyPath(t *testing.T) {
 
 	sessionRepo.On("GetSessionByRefreshToken", ctx, mock.AnythingOfType("string")).Return(session, nil)
 	userRepo.On("Read", ctx, userID).Return(user, nil)
-	jwt.On("GenerateToken", userID, "bob", model.RoleUser, sessionID).Return("new-token", nil)
+	jwt.On("GenerateToken", userID, "bob", []string{model.RoleUser}, sessionID).Return("new-token", nil)
 	sessionRepo.On("UpdateSessionLastUsed", ctx, sessionID, mock.AnythingOfType("time.Time")).Return(nil)
 
 	svc := newAuthService(userRepo, sessionRepo, pwd, totp, jwt, nil)
@@ -237,7 +237,7 @@ func TestValidateSession_RevokedSession(t *testing.T) {
 	claims := &JWTClaims{
 		UserID:   userID,
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	claims.ID = sessionID.String()
 
@@ -267,7 +267,7 @@ func TestValidateSession_ActiveSession(t *testing.T) {
 	claims := &JWTClaims{
 		UserID:   userID,
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	claims.ID = sessionID.String()
 
@@ -294,7 +294,7 @@ func TestValidateSession_RevocationCheckError(t *testing.T) {
 	sessionID := uuid.New()
 	userID := uuid.New()
 
-	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
+	claims := &JWTClaims{UserID: userID, Username: "alice", Roles: []string{model.RoleUser}}
 	claims.ID = sessionID.String()
 
 	userRepo := &MockUserRepository{}
@@ -320,7 +320,7 @@ func TestValidateSession_DeletedServiceAccount_Rejected(t *testing.T) {
 	clientID := uuid.New()
 
 	// Service-account token uses client.ID as jti.
-	claims := &JWTClaims{UserID: clientID, Username: "my-app", Role: model.RoleServiceAccount}
+	claims := &JWTClaims{UserID: clientID, Username: "my-app", Roles: []string{model.RoleServiceAccount}}
 	claims.ID = clientID.String()
 
 	userRepo := &MockUserRepository{}
@@ -348,7 +348,7 @@ func TestValidateSession_DisabledServiceAccount_Rejected(t *testing.T) {
 	ctx := context.Background()
 	clientID := uuid.New()
 
-	claims := &JWTClaims{UserID: clientID, Username: "my-app", Role: model.RoleServiceAccount}
+	claims := &JWTClaims{UserID: clientID, Username: "my-app", Roles: []string{model.RoleServiceAccount}}
 	claims.ID = clientID.String()
 
 	userRepo := &MockUserRepository{}
@@ -378,7 +378,7 @@ func TestValidateSession_ActiveServiceAccount_Allowed(t *testing.T) {
 	ctx := context.Background()
 	clientID := uuid.New()
 
-	claims := &JWTClaims{UserID: clientID, Username: "my-app", Role: model.RoleServiceAccount}
+	claims := &JWTClaims{UserID: clientID, Username: "my-app", Roles: []string{model.RoleServiceAccount}}
 	claims.ID = clientID.String()
 
 	userRepo := &MockUserRepository{}
@@ -408,7 +408,7 @@ func TestValidateSession_MalformedJti(t *testing.T) {
 	ctx := context.Background()
 	userID := uuid.New()
 
-	claims := &JWTClaims{UserID: userID, Username: "alice", Role: model.RoleUser}
+	claims := &JWTClaims{UserID: userID, Username: "alice", Roles: []string{model.RoleUser}}
 	claims.ID = "not-a-uuid"
 
 	userRepo := &MockUserRepository{}
