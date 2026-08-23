@@ -452,3 +452,93 @@ the ones this plan wrote.
 git add internal/repositories/user_repository.go internal/repositories/missing_coverage_test.go
 git commit -m "feat(repositories): populate Roles on all UserRepository read paths"
 ```
+
+---
+
+### Task 3: `Delete` manually cleans up `user_roles` on SQLite
+
+**Files:**
+- Modify: `internal/repositories/user_repository.go` — `Delete`
+- Test: `internal/repositories/missing_coverage_test.go`
+
+**Interfaces:**
+- Consumes: nothing new — `Delete` already runs inside its own transaction.
+
+Added per this plan's Global Constraints (added during Plan 01's final
+review): `user_roles.user_id`'s `ON DELETE CASCADE` is inert on SQLite (the
+`foreign_keys` PRAGMA is off project-wide), so `Delete` must remove
+`user_roles` rows explicitly or they leak. `internal/services/vaults/vault_service.go:496-503`
+has the exact precedent — `vault_webhook_configs` has the identical
+inert-cascade issue and is purged explicitly, with a comment recording why.
+
+- [ ] **Step 1: Write the failing test**
+
+```go
+func TestUserRepository_Delete_RemovesUserRoles(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	u := &model.User{
+		ID:           uuid.New(),
+		Username:     "frank",
+		PasswordHash: "hashed-password",
+		Roles:        []string{"admin", "secrets_manager"},
+		CreatedAt:    time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, u))
+
+	require.NoError(t, repo.Delete(ctx, u.ID))
+
+	var count int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM user_roles WHERE user_id = ?`, u.ID.String()).Scan(&count))
+	assert.Equal(t, 0, count, "user_roles rows must not survive user deletion on SQLite")
+}
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `go test ./internal/repositories/... -run TestUserRepository_Delete_RemovesUserRoles -v`
+Expected: FAIL — `user_roles` rows remain (SQLite's `foreign_keys` PRAGMA is
+off, so the DDL-level `ON DELETE CASCADE` never fires)
+
+- [ ] **Step 3: Add the explicit cleanup to `Delete`**
+
+Add one `tx.ExecContext` call before the existing `DELETE FROM users`,
+inside the same transaction:
+
+```go
+		// user_roles' ON DELETE CASCADE is inert on SQLite (the foreign_keys
+		// PRAGMA is off here), so the rows must be removed explicitly or
+		// they strand role grants for a user that no longer exists. Harmless
+		// no-op on Postgres, where the DB-level cascade already handles it.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM user_roles WHERE user_id = ?", id.String()); err != nil {
+			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user_roles", err)
+			return fmt.Errorf("failed to delete user_roles: %w", err)
+		}
+
+		// Delete the user - cascading will handle most other related data
+		result, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id.String())
+```
+
+(The comment on the `DELETE FROM users` line changes from "cascading will
+handle related data" to "cascading will handle most other related data" —
+`user_roles` is now the one documented exception, explicitly handled above.)
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `go test ./internal/repositories/... -run TestUserRepository_Delete_RemovesUserRoles -v`
+Expected: PASS
+
+- [ ] **Step 5: Run the full repository test suite**
+
+Run: `go test ./internal/repositories/... -v`
+Expected: all PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add internal/repositories/user_repository.go internal/repositories/missing_coverage_test.go
+git commit -m "fix(repositories): Delete removes user_roles rows explicitly (SQLite cascade is inert)"
+```
