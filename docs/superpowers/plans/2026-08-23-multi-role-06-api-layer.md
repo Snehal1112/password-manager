@@ -355,7 +355,8 @@ git commit -m "feat(api): createUser/updateUser accept roles arrays, delegate va
 - Test: `api/users_test.go`, `api/oidc_test.go` (two pre-existing
   `model.User{Role: ...}`/`model.LoginResponse{Role: ...}` literals need the
   same mechanical `Role:` → `Roles: []string{...}` fix Step 6 below already
-  asks you to apply package-wide)
+  asks you to apply package-wide), `model/model_test.go` (also unowned by
+  any plan — see Step 6's note below)
 
 **Interfaces:**
 - Consumes: `common.HasAnyRole`, `model.Claims.Roles`.
@@ -443,6 +444,16 @@ Expected: PASS
 Run: `go test ./api/... -v`
 Expected: all PASS. Fix any remaining `.Role`/`Role:` compile errors in this
 package's other test files mechanically, same pattern as Plan 05's Step 5.
+
+Also run: `go test ./model/... -v`. `model/model_test.go` (same package as
+the structs Task 1 changed, but its own test-file fixes weren't in Task 1's
+scope, and no other plan in this series names this file either — found
+during this task's own build-check) will have compile errors on the same
+five structs Task 1 touched: `CreateUserRequest{Role: ...}` →
+`Roles: []string{...}`, `UpdateUserRequest{Role: ...}` likewise,
+`UserResponse{Role: ...}`, `LoginResponse{Role: ...}`,
+`RefreshTokenResponse{Role: ...}` literals. Fix each mechanically, same
+pattern. Expected after fixes: all PASS.
 
 - [ ] **Step 7: Commit**
 
