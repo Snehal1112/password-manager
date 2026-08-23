@@ -17,13 +17,13 @@ import (
 type JWTClaims struct {
 	UserID   uuid.UUID `json:"user_id"`
 	Username string    `json:"username"`
-	Role     string    `json:"role"`
+	Roles    []string  `json:"roles"`
 	jwt.RegisteredClaims
 }
 
 // JWTService handles JWT token creation and validation operations.
 type JWTService interface {
-	GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error)
+	GenerateToken(userID uuid.UUID, username string, roles []string, sessionID uuid.UUID) (string, error)
 	ValidateToken(tokenString string) (*JWTClaims, error)
 	ParseToken(tokenString string) (*JWTClaims, error)
 }
@@ -63,12 +63,12 @@ func NewJWTServiceWithProvider(config JWTConfig, provider signing.SigningKeyProv
 }
 
 // GenerateToken signs a new JWT using the asymmetric provider (RS256 or ES256).
-func (s *jwtService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
+func (s *jwtService) GenerateToken(userID uuid.UUID, username string, roles []string, sessionID uuid.UUID) (string, error) {
 	now := time.Now()
 	claims := JWTClaims{
 		UserID:   userID,
 		Username: username,
-		Role:     role,
+		Roles:    roles,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        sessionID.String(),
 			ExpiresAt: jwt.NewNumericDate(now.Add(s.expiry)),
