@@ -48,8 +48,12 @@ level up.
 - Test: each file's corresponding `_test.go`
 
 **Interfaces:**
-- Consumes: `common.HasAnyRole` (Plan 03), `c.Claims.Roles` (Plan 04, once
-  `model.Claims.Roles` exists — `c.Claims` is a `*model.Claims`).
+- Consumes: `common.HasAnyRole` (Plan 03), `c.Claims.Roles` (Plan 06 Task 3
+  — corrected: `c.Claims` is `api.RequestClaims`, a small hand-rolled struct
+  in `api/context.go`, NOT `*model.Claims`. Plan 06 Task 3 already renamed
+  its `Role string` field to `Roles []string` before this plan runs, so the
+  code below is correct as written — this note only fixes an earlier wrong
+  assumption about the type, found during Plan 06's own execution).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -354,11 +358,32 @@ func (s *rbacService) ValidateEndpointAccess(roles []string, method, path string
 
 - [ ] **Step 5: Change `api/context.go`'s consumer**
 
+`api.RequestClaims.Roles []string` already exists (Plan 06 Task 3 renamed
+it from `Role string`) — this step does NOT touch that struct definition,
+only two things: the `RoleKey` read at line ~172, and the `RequestClaims{}`
+construction a few lines below it, which Plan 06 Task 3 left as a
+documented interim shim (`Roles: []string{role}`, wrapping the
+still-single-valued `role` variable) pending this exact fix.
+
 ```go
 		roles, _ := r.Context().Value(common.RoleKey).([]string)
 
 		if a.ServiceContainer != nil {
 			if err := a.ServiceContainer.GetRBACService().ValidateEndpointAccess(roles, r.Method, r.URL.Path); err != nil {
+```
+
+A few lines further down in the same function, find the `Context{...}`
+construction (`Claims: RequestClaims{UserID: userIDStr, Roles:
+[]string{role}}`) and drop the wrapping, since `roles` above is now the
+genuine multi-valued slice:
+
+```go
+		ctx := &Context{
+			App: a,
+			Claims: RequestClaims{
+				UserID: userIDStr,
+				Roles:  roles,
+			},
 ```
 
 - [ ] **Step 6: Run test to verify it passes**
