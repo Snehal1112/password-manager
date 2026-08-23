@@ -670,6 +670,43 @@ func TestUpdateUser_InvalidRoleInList_Rejected(t *testing.T) {
 	repo.AssertNotCalled(t, "Update")
 }
 
+// TestUpdateUser_RoleSubstringBypass_Rejected verifies that a garbage role
+// string sharing a substring with a real role name (e.g. "min" is a substring
+// of "admin", "_manager" is a substring of "secrets_manager") is rejected by
+// exact-match validation, not accidentally accepted by a substring check.
+// This case moved here from cmd/users/update_test.go once role validation
+// moved from the CLI layer into UserService.
+func TestUpdateUser_RoleSubstringBypass_Rejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		role string
+	}{
+		{name: "min substring of admin", role: "min"},
+		{name: "_manager substring of secrets_manager", role: "_manager"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockUserRepository{}
+			pw := &mockPasswordService{}
+			totpSvc := &mockTOTPService{}
+			svc := newService(repo, pw, totpSvc)
+
+			req := UpdateUserRequest{
+				UserID:      uuid.New(),
+				CallerRoles: []string{model.RoleAdmin},
+				Roles:       []string{tt.role},
+			}
+			err := svc.UpdateUser(context.Background(), req)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "invalid role")
+			repo.AssertNotCalled(t, "Update")
+		})
+	}
+}
+
 // TestUpdateUser_WhitespaceOnlyRoles_Rejected is the Finding-1 regression
 // test for UpdateUser: a Roles list containing only whitespace must not
 // silently strip all of the user's existing roles. The roles-empty check

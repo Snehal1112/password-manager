@@ -74,7 +74,7 @@ a vault-scoped resource.`,
 			return fmt.Errorf("invalid user ID: %w", err)
 		}
 
-		if claims.UserID != id && claims.Role != model.RoleAdmin {
+		if claims.UserID != id && !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: cannot update other users", nil)
 			return fmt.Errorf("forbidden: cannot update other users")
@@ -83,58 +83,45 @@ a vault-scoped resource.`,
 		// Read flags directly so tests work without viper binding.
 		newUsername, _ := cmd.Flags().GetString("new-username")
 		newPassword, _ := cmd.Flags().GetString("new-password")
-		newRole, _ := cmd.Flags().GetString("new-role")
+		roles, _ := cmd.Flags().GetStringArray("new-role")
 
-		if newUsername == "" && newPassword == "" && newRole == "" {
+		if newUsername == "" && newPassword == "" && len(roles) == 0 {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "at least one field must be provided", nil)
 			return fmt.Errorf("at least one field (new-username, new-password, new-role) must be provided")
 		}
 
 		// Only admins may change roles — including changing their own role.
-		if newRole != "" && claims.Role != model.RoleAdmin {
+		if len(roles) > 0 && !common.HasAnyRole(claims.Roles, model.RoleAdmin) {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "forbidden: only admins can change roles", nil)
 			return fmt.Errorf("forbidden: only admins can change roles")
-		}
-
-		// Validate role is an exact known value (not a substring match).
-		validRoles := map[string]bool{
-			model.RoleAdmin:              true,
-			model.RoleUser:               true,
-			model.RoleSecretsManager:     true,
-			model.RoleCryptoManager:      true,
-			model.RoleCertificateManager: true,
-			model.RoleServiceAccount:     true,
-		}
-		if newRole != "" && !validRoles[newRole] {
-			logger := serviceContainer.GetLogger()
-			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", "invalid role", nil)
-			return fmt.Errorf("invalid role: must be one of admin, secrets_manager, crypto_manager, certificate_manager, user, service_account")
 		}
 
 		// Use user service for update.
 		userSvc := serviceContainer.GetUserService()
 
 		// Convert string values to pointers for optional fields.
-		var usernamePtr, passwordPtr, rolePtr *string
+		var usernamePtr, passwordPtr *string
 		if newUsername != "" {
 			usernamePtr = &newUsername
 		}
 		if newPassword != "" {
 			passwordPtr = &newPassword
 		}
-		if newRole != "" {
-			rolePtr = &newRole
+
+		var rolesArg []string
+		if len(roles) > 0 {
+			rolesArg = roles
 		}
 
 		if err := userSvc.UpdateUser(ctx, userService.UpdateUserRequest{
-			UserID:     id,
-			CallerID:   claims.UserID,
-			CallerRole: claims.Role,
-			Username:   usernamePtr,
-			Password:   passwordPtr,
-			Role:       rolePtr,
+			UserID:      id,
+			CallerID:    claims.UserID,
+			CallerRoles: claims.Roles,
+			Username:    usernamePtr,
+			Password:    passwordPtr,
+			Roles:       rolesArg,
 		}); err != nil {
 			logger := serviceContainer.GetLogger()
 			logger.LogAuditError(claims.UserID.String(), "update_user", "failed", fmt.Sprintf("failed to update user: %s", err), err)
@@ -171,7 +158,7 @@ func InitUsersUpdate(usersCmd *cobra.Command) *cobra.Command {
 
 	updateCmd.Flags().String("new-username", "", "New username for the user")
 	updateCmd.Flags().String("new-password", "", "New password for the user")
-	updateCmd.Flags().String("new-role", "", "New role for the user (admin, secrets_manager, crypto_manager, certificate_manager)")
+	updateCmd.Flags().StringArray("new-role", []string{}, "New role(s) for the user (repeatable, e.g. --new-role admin --new-role secrets_manager)")
 	viper.BindPFlag("new-username", updateCmd.Flags().Lookup("new-username")) //nolint:errcheck,gosec
 	viper.BindPFlag("new-password", updateCmd.Flags().Lookup("new-password")) //nolint:errcheck,gosec
 	viper.BindPFlag("new-role", updateCmd.Flags().Lookup("new-role"))         //nolint:errcheck,gosec
