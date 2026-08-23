@@ -200,7 +200,7 @@ func (m *mockAccessPolicyService) DeletePolicy(context.Context, uuid.UUID) error
 // global vaults:manage policy cannot create a vault via the CLI.
 func TestVaultsCreate_ForbiddenWithoutGlobalGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 
 	policySvc := &mockAccessPolicyService{decision: authzServices.AccessFallback}
 	tc.MockContainer.AccessPolicyService = policySvc

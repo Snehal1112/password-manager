@@ -24,12 +24,12 @@ import (
 // cmd/root.go. Returns an error if claims are missing — a command reaching
 // this far without prior authentication indicates a wiring bug, not a
 // permission denial.
-func callerIdentity(ctx context.Context) (role string, principalID uuid.UUID, err error) {
+func callerIdentity(ctx context.Context) (roles []string, principalID uuid.UUID, err error) {
 	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 	if !ok || claims == nil {
-		return "", uuid.Nil, fmt.Errorf("authenticated claims not available in context")
+		return nil, uuid.Nil, fmt.Errorf("authenticated claims not available in context")
 	}
-	return claims.Role, claims.UserID, nil
+	return claims.Roles, claims.UserID, nil
 }
 
 // requireCanManageVault authorizes a webhook-config operation on vaultID with
@@ -44,11 +44,11 @@ func callerIdentity(ctx context.Context) (role string, principalID uuid.UUID, er
 // it, so a command that discards this value produces an audit record naming
 // nobody.
 func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInterface, vaultID uuid.UUID, vaultName string) (uuid.UUID, error) {
-	role, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := callerIdentity(ctx)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if !authz.CanManageVault(ctx, role, sc.GetAccessPolicyService(), principalID, vaultID) {
+	if !authz.CanManageVault(ctx, roles, sc.GetAccessPolicyService(), principalID, vaultID) {
 		return uuid.Nil, fmt.Errorf("permission denied: managing webhook config for vault %q requires admin or vaults/manage", vaultName)
 	}
 	return principalID, nil

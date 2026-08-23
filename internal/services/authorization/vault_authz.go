@@ -20,8 +20,8 @@ import (
 // admin account role, or an access-policy allow on (vaults, manage) scoped
 // to vaultID or global. A nil policies service, a service error, or any
 // decision other than AccessAllowed denies — this function fails closed.
-func CanManageVault(ctx context.Context, accountRole string, policies AccessPolicyService, principalID, vaultID uuid.UUID) bool {
-	if common.HasRequiredRole(accountRole, string(model.RoleAdmin)) {
+func CanManageVault(ctx context.Context, accountRoles []string, policies AccessPolicyService, principalID, vaultID uuid.UUID) bool {
+	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
 		return true
 	}
 	if policies == nil {
@@ -38,8 +38,8 @@ func CanManageVault(ctx context.Context, accountRole string, policies AccessPoli
 // the global admin account role, or a Key Vault Purge Operator role
 // assignment held in vaultID. A nil roles service, a service error, or no
 // matching assignment denies — this function fails closed.
-func CanPurgeVault(ctx context.Context, accountRole string, roles RoleAssignmentService, principalID, vaultID uuid.UUID) bool {
-	if common.HasRequiredRole(accountRole, string(model.RoleAdmin)) {
+func CanPurgeVault(ctx context.Context, accountRoles []string, roles RoleAssignmentService, principalID, vaultID uuid.UUID) bool {
+	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
 		return true
 	}
 	if roles == nil {
@@ -64,8 +64,8 @@ func CanPurgeVault(ctx context.Context, accountRole string, roles RoleAssignment
 // never outvoted by a role grant, matching PolicyMiddleware's stated invariant
 // (see internal/middleware/middleware.go). Only AccessFallback (no matching
 // policy row) falls through to the role-assignment check.
-func CanManageRoleAssignments(ctx context.Context, accountRole string, policies AccessPolicyService, roles RoleAssignmentService, principalID, vaultID uuid.UUID, write bool) bool {
-	if common.HasRequiredRole(accountRole, string(model.RoleAdmin)) {
+func CanManageRoleAssignments(ctx context.Context, accountRoles []string, policies AccessPolicyService, roles RoleAssignmentService, principalID, vaultID uuid.UUID, write bool) bool {
+	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
 		return true
 	}
 	if policies != nil {

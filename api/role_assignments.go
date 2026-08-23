@@ -45,9 +45,9 @@ func buildRoleAssignmentResponse(c *Context, r *http.Request, ra *model.RoleAssi
 // from the session claims. Returns ok=false if either is missing or
 // malformed, in which case the caller must treat this as an internal error,
 // not a permission denial — a malformed claim is a bug, not a 403.
-func callerIdentity(c *Context) (role string, principalID uuid.UUID, ok bool) {
+func callerIdentity(c *Context) (roles []string, principalID uuid.UUID, ok bool) {
 	principalID, err := uuid.Parse(c.Claims.UserID)
-	return c.Claims.Role, principalID, err == nil
+	return c.Claims.Roles, principalID, err == nil
 }
 
 // createRoleAssignment grants a built-in role to a principal within a vault.
@@ -62,17 +62,17 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	role, callerID, ok := callerIdentity(c)
+	roles, callerID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+	if !authzServices.CanManageRoleAssignments(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(),
 		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, true) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
-	isGlobalAdmin := common.HasRequiredRole(role, string(model.RoleAdmin))
+	isGlobalAdmin := common.HasAnyRole(roles, string(model.RoleAdmin))
 
 	req, err := model.AssignRoleRequestFromJson(r.Body)
 	if err != nil {
@@ -131,12 +131,12 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	role, callerID, ok := callerIdentity(c)
+	roles, callerID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+	if !authzServices.CanManageRoleAssignments(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(),
 		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
@@ -170,12 +170,12 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	role, callerID, ok := callerIdentity(c)
+	roles, callerID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+	if !authzServices.CanManageRoleAssignments(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(),
 		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
@@ -213,17 +213,17 @@ func deleteRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("vault")
 		return
 	}
-	role, callerID, ok := callerIdentity(c)
+	roles, callerID, ok := callerIdentity(c)
 	if !ok {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageRoleAssignments(r.Context(), role, c.App.ServiceContainer.GetAccessPolicyService(),
+	if !authzServices.CanManageRoleAssignments(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(),
 		c.App.ServiceContainer.GetRoleAssignmentService(), callerID, vaultID, false) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
-	isGlobalAdmin := common.HasRequiredRole(role, string(model.RoleAdmin))
+	isGlobalAdmin := common.HasAnyRole(roles, string(model.RoleAdmin))
 	id, err := uuid.Parse(c.Params.AssignmentID)
 	if err != nil {
 		c.SetInvalidParam("assignment_id")

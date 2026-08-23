@@ -61,7 +61,7 @@ func newRoleAssignmentCtx(role string, policySvc authzServices.AccessPolicyServi
 		App: a,
 		Claims: RequestClaims{
 			UserID: "00000000-0000-0000-0000-000000000001",
-			Role:   role,
+			Roles:  []string{role},
 		},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
@@ -113,7 +113,7 @@ func TestListRoleAssignments_ReturnsEnrichedResponse(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: "00000000-0000-0000-0000-000000000001", Role: string(model.RoleAdmin)},
+		Claims: RequestClaims{UserID: "00000000-0000-0000-0000-000000000001", Roles: []string{string(model.RoleAdmin)}},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
 	w := httptest.NewRecorder()
@@ -161,7 +161,7 @@ func TestRoleAssignments_GrantAllowedForDataAccessAdministrator(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
 	body := []byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)
@@ -204,7 +204,7 @@ func TestRoleAssignments_GrantDeniedRoleNotGrantable_Returns403(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 		Params: &ApiParams{VaultName: "prod", PerPage: 60},
 	}
 	body := []byte(`{"principal":"alice","role":"Key Vault Data Access Administrator"}`)
@@ -248,7 +248,7 @@ func TestRoleAssignments_RevokeDeniedRoleNotGrantable_Returns403(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID.String(), PerPage: 60},
 	}
 	r := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/role-assignments/"+assignmentID.String(), nil)
@@ -286,7 +286,7 @@ func TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault(t *te
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 		Params: &ApiParams{VaultName: "other", PerPage: 60},
 	}
 	body := []byte(`{"principal":"alice","role":"Key Vault Secrets User"}`)
@@ -326,7 +326,7 @@ func TestRoleAssignments_RevokeAllowedForDataAccessAdministrator(t *testing.T) {
 
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID.String(), PerPage: 60},
 	}
 	r := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/role-assignments/"+assignmentID.String(), nil)
@@ -372,7 +372,7 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 	newCtx := func(vaultName string) *Context {
 		return &Context{
 			App:    &app.App{ServiceContainer: mc},
-			Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+			Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 			Params: &ApiParams{VaultName: vaultName, AssignmentID: assignmentID.String(), PerPage: 60},
 		}
 	}
@@ -435,7 +435,7 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 func newReadRoleAssignmentCtx(mc *testutils.MockServiceContainer, callerID, vaultID uuid.UUID, assignmentID, method, path string) (*Context, *http.Request) {
 	c := &Context{
 		App:    &app.App{ServiceContainer: mc},
-		Claims: RequestClaims{UserID: callerID.String(), Role: "user"},
+		Claims: RequestClaims{UserID: callerID.String(), Roles: []string{"user"}},
 		Params: &ApiParams{VaultName: "prod", AssignmentID: assignmentID, PerPage: 60},
 	}
 	r := httptest.NewRequest(method, path, nil)

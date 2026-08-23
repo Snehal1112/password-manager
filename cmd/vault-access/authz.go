@@ -22,23 +22,23 @@ import (
 // cmd/root.go. Returns an error if claims are missing — a command reaching
 // this far without prior authentication indicates a wiring bug, not a
 // permission denial.
-func callerIdentity(ctx context.Context) (role string, principalID uuid.UUID, err error) {
+func callerIdentity(ctx context.Context) (roles []string, principalID uuid.UUID, err error) {
 	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 	if !ok || claims == nil {
-		return "", uuid.Nil, fmt.Errorf("authenticated claims not available in context")
+		return nil, uuid.Nil, fmt.Errorf("authenticated claims not available in context")
 	}
-	return claims.Role, claims.UserID, nil
+	return claims.Roles, claims.UserID, nil
 }
 
 // requireCanManageRoleAssignments authorizes granting (write=true) or revoking
 // (write=false) a role assignment in vaultID, using the same shared primitive
 // as the HTTP handlers so CLI and API cannot drift apart.
 func requireCanManageRoleAssignments(ctx context.Context, sc container.ServiceContainerInterface, vaultID uuid.UUID, write bool) error {
-	role, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := callerIdentity(ctx)
 	if err != nil {
 		return err
 	}
-	if !authz.CanManageRoleAssignments(ctx, role, sc.GetAccessPolicyService(), sc.GetRoleAssignmentService(), principalID, vaultID, write) {
+	if !authz.CanManageRoleAssignments(ctx, roles, sc.GetAccessPolicyService(), sc.GetRoleAssignmentService(), principalID, vaultID, write) {
 		return fmt.Errorf("permission denied: admin, vaults/manage, or Key Vault Data Access Administrator required for this vault")
 	}
 	return nil

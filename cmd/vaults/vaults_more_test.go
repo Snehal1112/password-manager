@@ -407,7 +407,7 @@ func TestVaultsUpdate_WithPurgeAndRetention(t *testing.T) {
 // vaults:manage policy on the target vault cannot delete it via the CLI.
 func TestVaultsDelete_ForbiddenWithoutGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
 	tc.MockVaultService.On("ListVaults", mock.Anything, true).
 		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
@@ -425,7 +425,7 @@ func TestVaultsDelete_ForbiddenWithoutGrant(t *testing.T) {
 // TestVaultsRecover_ForbiddenWithoutGrant mirrors the delete case for recover.
 func TestVaultsRecover_ForbiddenWithoutGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
 	tc.MockVaultService.On("ListVaults", mock.Anything, true).
 		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
@@ -466,7 +466,7 @@ func (s *stubRoleAssignmentService) HasDataAction(context.Context, uuid.UUID, uu
 // no authorization check of any kind.
 func TestVaultsPurge_ForbiddenWithoutGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.RoleAssignmentService = &stubRoleAssignmentService{allowed: false}
 	tc.MockVaultService.On("ListVaults", mock.Anything, true).
 		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
@@ -485,7 +485,7 @@ func TestVaultsPurge_ForbiddenWithoutGrant(t *testing.T) {
 // Key Vault Purge Operator in the target vault CAN purge it via the CLI.
 func TestVaultsPurge_AllowedWithPurgeOperatorGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.RoleAssignmentService = &stubRoleAssignmentService{allowed: true}
 	tc.MockVaultService.On("ListVaults", mock.Anything, true).
 		Return([]model.Vault{{ID: uuid.New(), Name: "my-vault"}}, nil)
@@ -503,7 +503,7 @@ func TestVaultsPurge_AllowedWithPurgeOperatorGrant(t *testing.T) {
 
 func TestVaultsGet_ForbiddenWithoutGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
 	tc.MockVaultService.On("ListVaults", mock.Anything, true).
 		Return([]model.Vault{{ID: uuid.New(), Name: "guarded-vault"}}, nil)
@@ -520,7 +520,7 @@ func TestVaultsGet_ForbiddenWithoutGrant(t *testing.T) {
 
 func TestVaultsList_ForbiddenWithoutGlobalGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
 
 	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}

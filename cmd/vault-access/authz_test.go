@@ -91,7 +91,7 @@ func nonAdminCtx(tc *testutils.TestContext, policySvc authzServices.AccessPolicy
 	tc.MockContainer.AccessPolicyService = policySvc
 	tc.MockContainer.RoleAssignmentService = roleSvc
 	return context.WithValue(tc.Ctx, common.ClaimsKey,
-		&model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+		&model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 }
 
 // TestVaultAccessGrant_DeniedWithoutGrant is the privilege-escalation

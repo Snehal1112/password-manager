@@ -62,11 +62,11 @@ variable, then config, then "default" if none of those is set.
 			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, true); err != nil {
 				return err
 			}
-			callerRole, _, err := callerIdentity(ctx)
+			callerRoles, _, err := callerIdentity(ctx)
 			if err != nil {
 				return err
 			}
-			isGlobalAdmin := common.HasRequiredRole(callerRole, string(model.RoleAdmin))
+			isGlobalAdmin := common.HasAnyRole(callerRoles, string(model.RoleAdmin))
 			ra, err := sc.GetRoleAssignmentService().AssignRole(ctx, authz.AssignRoleInput{
 				Principal:           principal,
 				PrincipalType:       model.PrincipalType(ptype),

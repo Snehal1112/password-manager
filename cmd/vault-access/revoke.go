@@ -47,11 +47,11 @@ assignment did not exist.`,
 			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, false); err != nil {
 				return err
 			}
-			callerRole, _, err := callerIdentity(ctx)
+			callerRoles, _, err := callerIdentity(ctx)
 			if err != nil {
 				return err
 			}
-			isGlobalAdmin := common.HasRequiredRole(callerRole, string(model.RoleAdmin))
+			isGlobalAdmin := common.HasAnyRole(callerRoles, string(model.RoleAdmin))
 			if err := sc.GetRoleAssignmentService().RevokeAssignment(ctx, id, vaultID, isGlobalAdmin); err != nil {
 				return fmt.Errorf("revoke failed: %w", err)
 			}

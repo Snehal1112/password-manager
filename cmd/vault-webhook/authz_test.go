@@ -40,7 +40,7 @@ func (f *fakePolicySvc) DeletePolicy(context.Context, uuid.UUID) error          
 func nonAdminCtx(tc *testutils.TestContext, policySvc authzServices.AccessPolicyService) context.Context {
 	tc.MockContainer.AccessPolicyService = policySvc
 	return context.WithValue(tc.Ctx, common.ClaimsKey,
-		&model.Claims{UserID: tc.TestUserID, Role: model.RoleUser})
+		&model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 }
 
 // TestRequireCanManageVault_DeniedWithoutGrant proves a non-admin with no
