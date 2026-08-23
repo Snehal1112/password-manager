@@ -1982,3 +1982,61 @@ func TestUserRepository_Create_WritesMultipleRoles(t *testing.T) {
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"admin", "secrets_manager"}, got.Roles)
 }
+
+func TestUserRepository_ReadPaths_PopulateRoles(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	u := &model.User{
+		ID:           uuid.New(),
+		Username:     "erin",
+		PasswordHash: "hashed-password",
+		Roles:        []string{"crypto_manager", "certificate_manager"},
+		CreatedAt:    time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, u))
+
+	byID, err := repo.Read(ctx, u.ID)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, u.Roles, byID.Roles, "Read")
+
+	byUsername, err := repo.ReadByUsername(ctx, "erin")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, u.Roles, byUsername.Roles, "ReadByUsername")
+
+	list, err := repo.List(ctx)
+	require.NoError(t, err)
+	var found bool
+	for _, lu := range list {
+		if lu.ID == u.ID {
+			found = true
+			assert.ElementsMatch(t, u.Roles, lu.Roles, "List")
+		}
+	}
+	require.True(t, found, "created user must appear in List")
+}
+
+func TestUserRepository_Update_ReplacesMultipleRolesAtOnce(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	u := &model.User{
+		ID:           uuid.New(),
+		Username:     "frankie",
+		PasswordHash: "hashed-password",
+		Roles:        []string{"admin", "secrets_manager"},
+		CreatedAt:    time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, u))
+
+	u.Roles = []string{"user"}
+	require.NoError(t, repo.Update(ctx, u))
+
+	got, err := repo.Read(ctx, u.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"user"}, got.Roles, "Roles must be exactly [\"user\"] after replacing both admin and secrets_manager")
+}
