@@ -200,6 +200,11 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 	seen := map[string]bool{}
 	var roles []string
 	for _, r := range req.Roles {
+		// HasAnyRole (Plan 03) requires pre-trimmed input -- it does no
+		// trimming itself, unlike the comma-string helper it replaced. Trim
+		// here, at the write boundary, or a role stored with stray
+		// whitespace silently fails every future authorization check.
+		r = strings.TrimSpace(r)
 		if r == "" || seen[r] {
 			continue
 		}
@@ -254,8 +259,9 @@ func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*C
 }
 ```
 
-Add `"rocketvault/common"` to this file's imports if not already present
-(for `common.HasAnyRole`).
+Add `"rocketvault/common"` and `"strings"` to this file's imports if not
+already present (for `common.HasAnyRole` and the `strings.TrimSpace` calls
+in both role-parsing loops).
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -387,6 +393,8 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 		}
 		seen := map[string]bool{}
 		for _, r := range req.Roles {
+			// Same trimming requirement as CreateUser above -- see its comment.
+			r = strings.TrimSpace(r)
 			if r == "" || seen[r] {
 				continue
 			}
