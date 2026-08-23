@@ -999,6 +999,47 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 		return fmt.Errorf("index user_roles user: %w", err)
 	}
 
+	// Backfill: split every existing users.role value (including legacy
+	// comma-joined strings from the pre-normalization multi-role feature)
+	// into user_roles. INSERT OR IGNORE makes this idempotent -- safe to
+	// run on every startup, not just once.
+	rows, err := db.Query(`SELECT id, role FROM users`)
+	if err != nil {
+		return fmt.Errorf("read users for role backfill: %w", err)
+	}
+	type userRoleRow struct{ userID, role string }
+	var toBackfill []userRoleRow
+	for rows.Next() {
+		var id, role string
+		if err := rows.Scan(&id, &role); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan user for role backfill: %w", err)
+		}
+		toBackfill = append(toBackfill, userRoleRow{id, role})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate users for role backfill: %w", err)
+	}
+	rows.Close()
+
+	for _, u := range toBackfill {
+		seen := map[string]bool{}
+		for _, part := range strings.Split(u.role, ",") {
+			r := strings.TrimSpace(part)
+			if r == "" || seen[r] {
+				continue
+			}
+			seen[r] = true
+			if _, err := db.Exec(
+				`INSERT OR IGNORE INTO user_roles (id, user_id, role) VALUES (?, ?, ?)`,
+				uuid.New().String(), u.userID, r,
+			); err != nil {
+				return fmt.Errorf("backfill user_roles for user %s: %w", u.userID, err)
+			}
+		}
+	}
+
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_access_policies_assignment ON access_policies(assignment_id)`); err != nil {
 		return fmt.Errorf("index access_policies assignment: %w", err)
 	}

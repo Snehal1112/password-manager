@@ -36,3 +36,51 @@ func TestUserRolesTable_CreatedOnFreshInstall(t *testing.T) {
 	_, err = conn.Exec(`INSERT INTO user_roles (id, user_id, role) VALUES ('r3', 'u1', 'secrets_manager')`)
 	require.NoError(t, err, "a second, different role for the same user must be allowed")
 }
+
+func TestUserRolesBackfill_SplitsLegacyCommaJoinedRoles(t *testing.T) {
+	conn, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer conn.Close()
+
+	repo := NewRepository(logging.InitLogger())
+	require.NoError(t, repo.createOptimizedSchema(conn))
+
+	// Seed users the way pre-migration data actually looks: a plain single
+	// role, a legacy comma-joined pair (the exact historical shape from the
+	// Oct 2025 commit), and a messy-whitespace duplicate-laden variant.
+	seed := []struct{ id, username, role string }{
+		{"u1", "alice", "admin"},
+		{"u2", "bob", "secrets_manager, crypto_manager"},
+		{"u3", "carol", "user,  user , admin"},
+	}
+	for _, u := range seed {
+		_, err := conn.Exec(
+			`INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, 'h', ?)`,
+			u.id, u.username, u.role,
+		)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, repo.migrateSchema(conn))
+
+	assertRoles := func(userID string, want []string) {
+		rows, err := conn.Query(`SELECT role FROM user_roles WHERE user_id = ? ORDER BY role`, userID)
+		require.NoError(t, err)
+		defer rows.Close()
+		var got []string
+		for rows.Next() {
+			var r string
+			require.NoError(t, rows.Scan(&r))
+			got = append(got, r)
+		}
+		require.ElementsMatch(t, want, got, "user_id=%s", userID)
+	}
+
+	assertRoles("u1", []string{"admin"})
+	assertRoles("u2", []string{"crypto_manager", "secrets_manager"})
+	assertRoles("u3", []string{"admin", "user"}) // deduped
+
+	// Idempotency: running migrateSchema() again must not error or duplicate rows.
+	require.NoError(t, repo.migrateSchema(conn))
+	assertRoles("u3", []string{"admin", "user"})
+}
