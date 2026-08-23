@@ -1025,12 +1025,29 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 
 	for _, u := range toBackfill {
 		seen := map[string]bool{}
+		roles := []string{}
 		for _, part := range strings.Split(u.role, ",") {
 			r := strings.TrimSpace(part)
 			if r == "" || seen[r] {
 				continue
 			}
 			seen[r] = true
+			roles = append(roles, r)
+		}
+		// Defensive guard: an empty or unparseable role column (empty string,
+		// bare comma, whitespace-only) must not silently leave a user with
+		// zero user_roles rows. No current write path persists a user this
+		// way (CLI and service-layer validation both reject it), but the
+		// migration's own invariant is "every users row gets at least one
+		// user_roles row" -- fall back to the least-privilege default, same
+		// as FindOrCreateExternalUser does for external users of unknown role.
+		if len(roles) == 0 {
+			roles = []string{model.RoleUser}
+			d.log.WithFields(map[string]interface{}{
+				"user_id": u.userID,
+			}).Warn("User role column was empty or unparseable during user_roles backfill; defaulting to 'user'")
+		}
+		for _, r := range roles {
 			if _, err := db.Exec(
 				`INSERT OR IGNORE INTO user_roles (id, user_id, role) VALUES (?, ?, ?)`,
 				uuid.New().String(), u.userID, r,

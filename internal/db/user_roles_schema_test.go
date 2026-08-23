@@ -52,6 +52,8 @@ func TestUserRolesBackfill_SplitsLegacyCommaJoinedRoles(t *testing.T) {
 		{"u1", "alice", "admin"},
 		{"u2", "bob", "secrets_manager, crypto_manager"},
 		{"u3", "carol", "user,  user , admin"},
+		{"u4", "dave", ""},
+		{"u5", "erin", ",  , "},
 	}
 	for _, u := range seed {
 		_, err := conn.Exec(
@@ -80,7 +82,15 @@ func TestUserRolesBackfill_SplitsLegacyCommaJoinedRoles(t *testing.T) {
 	assertRoles("u2", []string{"crypto_manager", "secrets_manager"})
 	assertRoles("u3", []string{"admin", "user"}) // deduped
 
+	// Empty / comma-only role columns must not leave a user with zero
+	// user_roles rows -- the migration falls back to the least-privilege
+	// "user" role rather than silently producing no row at all.
+	assertRoles("u4", []string{"user"})
+	assertRoles("u5", []string{"user"})
+
 	// Idempotency: running migrateSchema() again must not error or duplicate rows.
 	require.NoError(t, repo.migrateSchema(conn))
 	assertRoles("u3", []string{"admin", "user"})
+	assertRoles("u4", []string{"user"})
+	assertRoles("u5", []string{"user"})
 }
