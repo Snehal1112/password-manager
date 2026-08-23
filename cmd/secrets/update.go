@@ -85,7 +85,7 @@ passed, and can be set either way.`,
 		}
 		userID := claims.UserID
 
-		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleSecretsManager) {
 			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
 

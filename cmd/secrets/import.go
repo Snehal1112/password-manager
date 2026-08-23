@@ -96,7 +96,7 @@ Imported, skipped, and failed counts are all printed when the run finishes.`,
 		}
 		userID := claims.UserID
 
-		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleSecretsManager) {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleSecretsManager) {
 			return fmt.Errorf("forbidden: requires admin or secrets_manager role")
 		}
 

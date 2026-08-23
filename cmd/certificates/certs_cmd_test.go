@@ -163,7 +163,7 @@ func newCertFmtr() formatter.Formatter {
 // given service container, and an output formatter.
 func buildCertAdminCtx(sc interface{}) context.Context {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
@@ -175,7 +175,7 @@ func buildCertAdminCtx(sc interface{}) context.Context {
 // buildCertRoleCtx creates a context with the specified role.
 func buildCertRoleCtx(sc interface{}, role string) context.Context {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Username: "user", Role: role}
+	claims := &model.Claims{UserID: userID, Username: "user", Roles: []string{role}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
@@ -239,7 +239,7 @@ func TestCertCreateCmd_NoServiceContainer(t *testing.T) {
 		"cert-name": "mycert", "cert-key-id": uuid.New().String(), "cert-validity-days": 365,
 	})
 	defer cleanup()
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No ServiceContainerKey in context.
@@ -329,7 +329,7 @@ func TestCertCreateCmd_SelfSignedSuccess(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -371,7 +371,7 @@ func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -398,7 +398,7 @@ func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
 func TestCertCreateCmd_InvalidCACertID(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	sc := &certsTestContainer{MockServiceContainer: tc.MockContainer}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -429,7 +429,7 @@ func TestCertCreateCmd_ServiceError(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -464,7 +464,7 @@ func TestCertCreateCmd_NoFormatter(t *testing.T) {
 		certSvc:              certSvc,
 	}
 	// Build context WITHOUT formatter.
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -498,7 +498,7 @@ func TestCertCreateCmd_CertificateManagerRoleAllowed(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "user", Role: model.RoleCertificateManager}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "user", Roles: []string{model.RoleCertificateManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -535,7 +535,7 @@ func TestCertCreateCmd_Denied(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -581,7 +581,7 @@ func TestCertCreateCmd_Authorized(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -628,7 +628,7 @@ func TestCertDeleteCmd_ForbiddenRole(t *testing.T) {
 }
 
 func TestCertDeleteCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	cmd, _ := newCertCmd(deleteCmd.RunE, []string{"not-a-uuid"})
@@ -639,7 +639,7 @@ func TestCertDeleteCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestCertDeleteCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
@@ -660,7 +660,7 @@ func TestCertDeleteCmd_Success(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -683,7 +683,7 @@ func TestCertDeleteCmd_ServiceError(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -710,7 +710,7 @@ func TestCertDeleteCmd_Denied(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -742,7 +742,7 @@ func TestCertDeleteCmd_Authorized(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -769,7 +769,7 @@ func TestCertGetCmd_NoClaims(t *testing.T) {
 }
 
 func TestCertGetCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	cmd, _ := newCertCmd(getCmd.RunE, []string{"bad-uuid"})
@@ -780,7 +780,7 @@ func TestCertGetCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestCertGetCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
@@ -807,7 +807,7 @@ func TestCertGetCmd_Success(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -832,7 +832,7 @@ func TestCertGetCmd_ServiceError(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -860,7 +860,7 @@ func TestCertGetCmd_NoFormatter(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -888,7 +888,7 @@ func TestCertGetCmd_Denied(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -924,7 +924,7 @@ func TestCertGetCmd_Authorized(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -951,7 +951,7 @@ func TestCertListCmd_NoClaims(t *testing.T) {
 }
 
 func TestCertListCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
@@ -974,7 +974,7 @@ func TestCertListCmd_SuccessTwoCerts(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -997,7 +997,7 @@ func TestCertListCmd_EmptyList(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1019,7 +1019,7 @@ func TestCertListCmd_ServiceError(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleSecretsManager}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleSecretsManager}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1041,7 +1041,7 @@ func TestCertListCmd_NoFormatter(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleUser}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1067,7 +1067,7 @@ func TestCertListCmd_Denied(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1101,7 +1101,7 @@ func TestCertListCmd_Authorized(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1138,7 +1138,7 @@ func TestCertRenewCmd_ForbiddenRole(t *testing.T) {
 }
 
 func TestCertRenewCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
@@ -1151,7 +1151,7 @@ func TestCertRenewCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestCertRenewCmd_InvalidValidityDays(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 0})
@@ -1164,7 +1164,7 @@ func TestCertRenewCmd_InvalidValidityDays(t *testing.T) {
 }
 
 func TestCertRenewCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
@@ -1192,7 +1192,7 @@ func TestCertRenewCmd_Success(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1218,7 +1218,7 @@ func TestCertRenewCmd_ServiceError(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1248,7 +1248,7 @@ func TestCertRenewCmd_Denied(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1288,7 +1288,7 @@ func TestCertRenewCmd_Authorized(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1338,7 +1338,7 @@ func TestCertUpdateCmd_ForbiddenRole(t *testing.T) {
 }
 
 func TestCertUpdateCmd_InvalidUUID(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "", "cert-update-tags": ""})
@@ -1355,7 +1355,7 @@ func TestCertUpdateCmd_InvalidUUID(t *testing.T) {
 }
 
 func TestCertUpdateCmd_NoServiceContainer(t *testing.T) {
-	claims := &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
@@ -1384,7 +1384,7 @@ func TestCertUpdateCmd_SuccessWithNameUpdate(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1421,7 +1421,7 @@ func TestCertUpdateCmd_SuccessWithAutoRenewFlagChanged(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1458,7 +1458,7 @@ func TestCertUpdateCmd_SuccessWithRenewalDaysFlagChanged(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1492,7 +1492,7 @@ func TestCertUpdateCmd_ServiceError(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1530,7 +1530,7 @@ func TestCertUpdateCmd_Denied(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1575,7 +1575,7 @@ func TestCertUpdateCmd_Authorized(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1634,7 +1634,7 @@ func TestCertCreateCmd_IsCAFlagOptsIn(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
@@ -1679,7 +1679,7 @@ func TestCertCreateCmd_WithoutIsCAFlagRequestsALeaf(t *testing.T) {
 		MockServiceContainer: tc.MockContainer,
 		certSvc:              certSvc,
 	}
-	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: tc.TestUserID, Username: "admin", Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)

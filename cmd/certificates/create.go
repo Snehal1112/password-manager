@@ -71,7 +71,7 @@ sent only when the flag is passed explicitly.`,
 		}
 
 		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasRequiredRole(claims.Role, model.RoleAdmin, model.RoleCertificateManager) {
+		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCertificateManager) {
 			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "forbidden: requires admin or certificate_manager role", nil)
 			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
 		}

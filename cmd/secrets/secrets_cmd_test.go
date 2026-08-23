@@ -52,7 +52,7 @@ func newSecFmtr() formatter.Formatter {
 
 // buildSecCtx builds a fully populated context for secrets tests.
 func buildSecCtx(sc interface{}, userID uuid.UUID) context.Context {
-	claims := &model.Claims{UserID: userID, Username: "testuser", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Username: "testuser", Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
@@ -64,7 +64,7 @@ func buildSecCtx(sc interface{}, userID uuid.UUID) context.Context {
 
 // buildSecCtxNoFormatter builds a context without an output formatter.
 func buildSecCtxNoFormatter(sc interface{}, userID uuid.UUID) context.Context {
-	claims := &model.Claims{UserID: userID, Username: "testuser", Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Username: "testuser", Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
@@ -86,7 +86,7 @@ func newSecTestCmd(runE func(*cobra.Command, []string) error, args []string) (*c
 
 func TestGetCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
@@ -232,7 +232,7 @@ func TestDeleteCmd_InvalidUUID(t *testing.T) {
 func TestDeleteCmd_NoServiceContainer(t *testing.T) {
 	secretID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Role: model.RoleAdmin})
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -339,7 +339,7 @@ func TestDeleteCmd_Forbidden(t *testing.T) {
 
 func TestListCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
-	claims := &model.Claims{UserID: userID, Role: model.RoleAdmin}
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.UserIDKey, userID)
@@ -456,7 +456,7 @@ func TestCreateCmd_NoClaims(t *testing.T) {
 
 func TestCreateCmd_ForbiddenRole(t *testing.T) {
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Role: model.RoleUser})
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleUser}})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
@@ -472,7 +472,7 @@ func TestCreateCmd_ForbiddenRole(t *testing.T) {
 func TestCreateCmd_NoServiceContainer_FullRunE(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -538,7 +538,7 @@ func TestCreateCmd_NoFormatter_FullRunE(t *testing.T) {
 func TestUpdateCmd_NoServiceContainer_FullRunE(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -660,7 +660,7 @@ func TestExportCmd_NoClaims(t *testing.T) {
 func TestExportCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
@@ -745,7 +745,7 @@ func TestImportCmd_NoClaims(t *testing.T) {
 func TestImportCmd_NoServiceContainer(t *testing.T) {
 	userID := uuid.New()
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Role: model.RoleAdmin})
+	ctx = context.WithValue(ctx, common.ClaimsKey, &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}})
 	ctx = context.WithValue(ctx, common.LogKey, newSecLogger())
 	// No ServiceContainerKey.
 
