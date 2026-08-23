@@ -2,13 +2,17 @@
 // user_repository.go, secret_repository.go, session_repository.go,
 // tag_repository.go, versioning_repository.go, and vault_repository.go.
 //
-// Every test uses an in-memory SQLite database so no disk I/O or external
-// services are required.
+// Most tests use an in-memory SQLite database so no disk I/O or external
+// services are required. One exception is
+// TestUserRepository_Create_DuplicateUsername_DoesNotStallAuditLog, which
+// needs a file-backed database so a second real pooled connection can
+// contend for its lock.
 package repositories_test
 
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -226,6 +230,102 @@ func TestUserRepository_Create_DuplicateUsername(t *testing.T) {
 	assert.Contains(t, err.Error(), "already exists")
 }
 
+// auditPersisterFunc adapts a plain function to logging.AuditPersister, so
+// tests can observe exactly when/whether a durable audit write is attempted
+// and what happens when it runs.
+type auditPersisterFunc func(userID, action, details string) error
+
+func (f auditPersisterFunc) PersistAudit(userID, action, details string) error {
+	return f(userID, action, details)
+}
+
+// TestUserRepository_Create_DuplicateUsername_DoesNotStallAuditLog guards
+// against a regression of the finding fixed in the final code review:
+// LogAuditError used to run while Create's transaction was still open. On
+// SQLite, a second pooled connection writing to the database file while
+// another connection holds a lock from an open (uncommitted) transaction
+// blocks until that transaction ends; with no busy_timeout configured
+// (this project's default), that manifests as an immediate "database is
+// locked" error rather than the ~5s stall production sees (production's
+// driver-level busy handling waits before giving up) -- either way, the
+// write must not contend at all once the fix is in place, which is what
+// this test checks deterministically instead of relying on a timing
+// threshold.
+//
+// This wires a real second connection into the audit persister (mirroring
+// AuditRepository.PersistAudit, which really does write via a separate
+// pooled connection) against a file-backed SQLite database, so contention
+// is real, not simulated. If Create regresses to logging before rolling
+// back its own transaction, the persister's write below observes lock
+// contention and the test fails.
+func TestUserRepository_Create_DuplicateUsername_DoesNotStallAuditLog(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "audit-lock.db")
+	sqlDB, err := sql.Open("sqlite3", dbPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
+	sqlDB.SetMaxOpenConns(4)            // Give the audit persister's write a distinct connection from tx's.
+
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id                   TEXT PRIMARY KEY,
+			username             TEXT UNIQUE NOT NULL,
+			password_hash        TEXT NOT NULL,
+			totp_secret          TEXT NOT NULL DEFAULT '',
+			role                 TEXT NOT NULL,
+			auth_provider        TEXT NOT NULL DEFAULT 'local',
+			external_idp_subject TEXT,
+			created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_idp ON users(auth_provider, external_idp_subject) WHERE external_idp_subject IS NOT NULL;
+		CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+			token TEXT PRIMARY KEY,
+			used  BOOLEAN NOT NULL DEFAULT FALSE
+		);
+		CREATE TABLE IF NOT EXISTS user_roles (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			role       TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (user_id, role),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
+		CREATE TABLE IF NOT EXISTS audit_probe (id TEXT PRIMARY KEY);
+	`)
+	require.NoError(t, err)
+
+	log := newLogger()
+	var persistErr error
+	var persistCalled bool
+	log.SetAuditPersister(auditPersisterFunc(func(userID, action, details string) error {
+		persistCalled = true
+		// Mirrors AuditRepository.PersistAudit: a write via a pooled
+		// connection distinct from whichever connection the caller's own
+		// (possibly still-open) transaction is using.
+		_, err := sqlDB.Exec("INSERT INTO audit_probe (id) VALUES (?)", uuid.NewString())
+		persistErr = err
+		return err
+	}))
+
+	repo := repositories.NewUserRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	u1 := newUser("lock-check", model.RoleUser)
+	u2 := newUser("lock-check", model.RoleUser) // Same username -> duplicate-username error path.
+	require.NoError(t, repo.Create(ctx, u1))
+
+	start := time.Now()
+	err = repo.Create(ctx, u2)
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+	require.True(t, persistCalled, "audit persister must have been invoked for the duplicate-username failure")
+	assert.NoError(t, persistErr, "audit persister's write must not contend for the SQLite lock -- Create's tx must already be rolled back before logging")
+	assert.Less(t, elapsed, 1*time.Second, "duplicate-username Create should fail fast, not stall on a locked audit write")
+}
+
 func TestUserRepository_Read_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupUserDB(t)
@@ -357,6 +457,7 @@ func TestUserRepository_CreateAndReadByExternalSubject(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, user.ID, loaded.ID)
 	require.Equal(t, "sub-123", loaded.ExternalIDPSubject)
+	assert.ElementsMatch(t, []string{model.RoleUser}, loaded.Roles)
 }
 
 func TestUserRepository_ReadByExternalSubject_NotFound(t *testing.T) {

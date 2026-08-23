@@ -103,13 +103,22 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// NOTE on every error branch below: LogAuditError/LogAuditInfo persist a row
+	// via auditPersister on a DIFFERENT pooled DB connection than the one tx is
+	// using. On SQLite, calling it while tx is still open blocks that second
+	// connection on the lock tx holds -- a ~5s stall that times out and silently
+	// drops the audit record (see internal/logging.Logger.LogAuditError). So each
+	// error branch rolls tx back explicitly (rather than relying on the deferred
+	// rollback, which only runs after this function returns) before logging.
 	var existingUserID string
 	err = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE username = ?", user.Username).Scan(&existingUserID)
 	if err == nil {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Username already exists", nil)
 		return fmt.Errorf("username already exists")
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to check existing username", err)
 		return fmt.Errorf("failed to check existing username: %w", err)
 	}
@@ -122,19 +131,27 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	if user.ExternalIDPSubject != "" {
 		externalSubject = user.ExternalIDPSubject
 	}
+	// Normalize once so the legacy comma-joined users.role column and the
+	// user_roles table are always built from the same deduped, non-empty
+	// role list -- otherwise they can diverge (e.g. Roles: []string{"admin",
+	// "", "admin"} would yield user_roles = {admin} but users.role =
+	// "admin,,admin").
+	normalizedRoles := normalizeRoles(user.Roles)
 	// users.role kept in sync (comma-joined) as a legacy/defense-in-depth
 	// copy -- not read by any new code, see the design spec.
 	_, err = tx.ExecContext(
 		ctx,
 		"INSERT INTO users (id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		user.ID.String(), user.Username, user.PasswordHash, user.TOTPSecret, strings.Join(user.Roles, ","), authProvider, externalSubject, user.CreatedAt,
+		user.ID.String(), user.Username, user.PasswordHash, user.TOTPSecret, strings.Join(normalizedRoles, ","), authProvider, externalSubject, user.CreatedAt,
 	)
 	if err != nil {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to insert user", err)
 		return fmt.Errorf("failed to insert user: %w", err)
 	}
 
-	if err := r.replaceUserRoles(ctx, tx, user.ID, user.Roles); err != nil {
+	if err := r.replaceUserRoles(ctx, tx, user.ID, normalizedRoles); err != nil {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to insert user_roles", err)
 		return fmt.Errorf("failed to insert user_roles: %w", err)
 	}
@@ -213,25 +230,37 @@ func (r *UserRepository) Update(ctx context.Context, user *model.User) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// Normalize once, see the identical comment in Create -- keeps users.role
+	// and user_roles from diverging on duplicate/empty role entries.
+	normalizedRoles := normalizeRoles(user.Roles)
+
+	// NOTE on every error branch below: see the explanation in Create -- tx is
+	// rolled back explicitly before logging so the audit write (which uses a
+	// different pooled DB connection) never blocks on the lock this tx holds.
 	result, err := tx.ExecContext(
 		ctx,
 		"UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?",
-		user.Username, user.PasswordHash, strings.Join(user.Roles, ","), user.ID.String(),
+		user.Username, user.PasswordHash, strings.Join(normalizedRoles, ","), user.ID.String(),
 	)
 	if err != nil {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to update user", err)
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
+		_ = tx.Rollback()
+		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to get rows affected", err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "User not found for update", nil)
 		return fmt.Errorf("user not found")
 	}
 
-	if err := r.replaceUserRoles(ctx, tx, user.ID, user.Roles); err != nil {
+	if err := r.replaceUserRoles(ctx, tx, user.ID, normalizedRoles); err != nil {
+		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to replace user_roles", err)
 		return fmt.Errorf("failed to replace user_roles: %w", err)
 	}
@@ -261,16 +290,25 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 		tx, err := r.db.BeginTx(ctx, nil)
 		if err != nil {
+			// No transaction was opened here, so this log doesn't contend with
+			// an open tx's lock -- safe to log immediately.
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to begin transaction", err)
 			return fmt.Errorf("failed to begin transaction: %w", err)
 		}
 		defer tx.Rollback() //nolint:errcheck
+
+		// NOTE on every error branch below: LogAuditError persists a row via a
+		// different pooled DB connection than tx. On SQLite, logging while tx
+		// is still open blocks that connection on tx's lock for ~5s and then
+		// silently drops the audit record (see internal/logging.Logger). Each
+		// branch rolls tx back explicitly before logging to avoid that.
 
 		// user_roles' ON DELETE CASCADE is inert on SQLite (the foreign_keys
 		// PRAGMA is off here), so the rows must be removed explicitly or
 		// they strand role grants for a user that no longer exists. Harmless
 		// no-op on Postgres, where the DB-level cascade already handles it.
 		if _, err := tx.ExecContext(ctx, "DELETE FROM user_roles WHERE user_id = ?", id.String()); err != nil {
+			_ = tx.Rollback()
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user_roles", err)
 			return fmt.Errorf("failed to delete user_roles: %w", err)
 		}
@@ -278,21 +316,26 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		// Delete the user - cascading will handle most other related data
 		result, err := tx.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id.String())
 		if err != nil {
+			_ = tx.Rollback()
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to delete user", err)
 			return fmt.Errorf("failed to delete user: %w", err)
 		}
 
 		rowsAffected, err := result.RowsAffected()
 		if err != nil {
+			_ = tx.Rollback()
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to get rows affected", err)
 			return fmt.Errorf("failed to get rows affected: %w", err)
 		}
 		if rowsAffected == 0 {
+			_ = tx.Rollback()
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "User not found for deletion", nil)
 			return fmt.Errorf("user not found")
 		}
 
 		if err := tx.Commit(); err != nil {
+			// Commit itself resolves tx either way (success or failure), so no
+			// open tx/lock remains here -- safe to log immediately.
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "Failed to commit transaction", err)
 			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
@@ -302,6 +345,25 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 		return nil
 	})
+}
+
+// normalizeRoles returns roles with empty strings and duplicates removed,
+// preserving first-seen order. Callers must build both the legacy
+// comma-joined users.role column and the user_roles table from the same
+// normalized slice -- otherwise the two can silently diverge (e.g.
+// []string{"admin", "", "admin"} would yield user_roles = {admin} but a
+// naive strings.Join of the raw slice into users.role = "admin,,admin").
+func normalizeRoles(roles []string) []string {
+	seen := make(map[string]bool, len(roles))
+	normalized := make([]string, 0, len(roles))
+	for _, role := range roles {
+		if role == "" || seen[role] {
+			continue
+		}
+		seen[role] = true
+		normalized = append(normalized, role)
+	}
+	return normalized
 }
 
 // replaceUserRoles deletes every existing user_roles row for userID and
@@ -318,6 +380,16 @@ func (r *UserRepository) replaceUserRoles(ctx context.Context, tx *db.Tx, userID
 		if role == "" || seen[role] {
 			continue
 		}
+		// A comma in a role name would corrupt the legacy comma-joined
+		// users.role sync (strings.Join/strings.Split round-trip breaks).
+		// No current caller can produce this -- role names all come from a
+		// small hardcoded allowlist elsewhere -- but skip rather than trust
+		// callers on this one representation detail, since a bad role name
+		// merely fails to grant that one role instead of corrupting the
+		// legacy column for every role on the user.
+		if strings.Contains(role, ",") {
+			continue
+		}
 		seen[role] = true
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO user_roles (id, user_id, role) VALUES (?, ?, ?)`,
@@ -329,10 +401,12 @@ func (r *UserRepository) replaceUserRoles(ctx context.Context, tx *db.Tx, userID
 	return nil
 }
 
-// fetchUserRoles returns every role currently assigned to userID, in no
-// particular order.
+// fetchUserRoles returns every role currently assigned to userID, ordered
+// alphabetically for deterministic output (cheap on an indexed
+// single-user lookup, and avoids nondeterministic ordering flowing into
+// JWT payloads and API responses).
 func (r *UserRepository) fetchUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT role FROM user_roles WHERE user_id = ?`, userID.String())
+	rows, err := r.db.QueryContext(ctx, `SELECT role FROM user_roles WHERE user_id = ? ORDER BY role`, userID.String())
 	if err != nil {
 		return nil, fmt.Errorf("query user_roles: %w", err)
 	}
@@ -458,6 +532,11 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 			logrus.WithError(err).Error("Failed to list users")
 			return fmt.Errorf("failed to list users: %w", err)
 		}
+		// Belt-and-suspenders alongside the manual rows.Close() calls below:
+		// sql.Rows.Close() is idempotent, so keeping this defer costs nothing
+		// and closes rows on any future early-return added inside the loop
+		// that forgets to close manually.
+		defer rows.Close() //nolint:errcheck
 
 		// Pre-allocate slice for better memory performance
 		users = make([]model.User, 0, 100) // Assume max 100 users initially
