@@ -339,11 +339,24 @@ git commit -m "feat(api): createUser/updateUser accept roles arrays, delegate va
 
 ---
 
-### Task 3: Remaining gates (`listUsers`, `getUser`, `deleteUser`) + response mapping + full suite
+### Task 3: `RequestClaims` role field + remaining gates (`listUsers`, `getUser`, `deleteUser`) + response mapping + full suite
 
 **Files:**
+- Modify: `api/context.go` (`RequestClaims.Role` field — added during Task
+  2's own implementation: Task 2's brief assumed `c.Claims.Roles` already
+  existed, but `Context.Claims` is `api.RequestClaims`, a small hand-rolled
+  struct in this file — NOT `*model.Claims` — with only `UserID string` and
+  `Role string`. Task 2's implementer correctly caught this, kept
+  `api/context.go` out of its own file scope, and worked around it with
+  `common.HasAnyRole([]string{c.Claims.Role}, ...)`. That shim is not the
+  real fix: `RequestClaims.Role` must become `Roles []string` so every
+  consumer — this task's own `listUsers`/`getUser`/`deleteUser` gates below,
+  which already assume `c.Claims.Roles` — actually compiles. Fix it here,
+  first, before the other steps.)
 - Modify: `api/users.go` (`listUsers`, `getUser`, `deleteUser`, `loginUser`,
-  `refreshToken`)
+  `refreshToken`, and — simplifying Task 2's now-unnecessary shim once
+  `RequestClaims.Roles` is real — `createUser`/`updateUser`'s
+  `[]string{c.Claims.Role}` call sites)
 - Modify: `api/oidc.go` (`handleOIDCCallback`'s `model.LoginResponse{...}`
   literal — added during this plan's pre-flight scan: `api/oidc.go` builds
   its own `model.LoginResponse` from `AuthenticationResult.Role`, a field
@@ -352,14 +365,56 @@ git commit -m "feat(api): createUser/updateUser accept roles arrays, delegate va
   same wire-response-mapping fix as `loginUser`/`refreshToken` below, just
   in a different file of the same `api` package — fix it here rather than
   leaving a gap.)
-- Test: `api/users_test.go`, `api/oidc_test.go` (two pre-existing
-  `model.User{Role: ...}`/`model.LoginResponse{Role: ...}` literals need the
-  same mechanical `Role:` → `Roles: []string{...}` fix Step 6 below already
-  asks you to apply package-wide), `model/model_test.go` (also unowned by
-  any plan — see Step 6's note below)
+- Test: `api/users_test.go`, `api/oidc_test.go`, `api/oidc_cli_test.go`
+  (three pre-existing `model.User{Role: ...}`/`model.LoginResponse{Role:
+  ...}` literals — one in `oidc_test.go`, two in `oidc_cli_test.go`, found
+  during Task 2's own build verification and not previously tracked — need
+  the same mechanical `Role:` → `Roles: []string{...}` fix Step 6 below
+  already asks you to apply package-wide), `model/model_test.go` (also
+  unowned by any plan — see Step 6's note below)
 
 **Interfaces:**
-- Consumes: `common.HasAnyRole`, `model.Claims.Roles`.
+- Consumes: `common.HasAnyRole`.
+- Produces: `api.RequestClaims.Roles []string` (was `Role string`) —
+  Plan 09 Task 3 depends on this field already existing; it only fixes the
+  underlying `RoleKey` context-value type and one construction line, not
+  this struct itself.
+
+- [ ] **Step 0: Fix `RequestClaims` and simplify Task 2's shim**
+
+In `api/context.go`:
+
+```go
+type RequestClaims struct {
+	UserID string
+	Roles  []string
+}
+```
+
+In `ApiSessionRequired`, the construction site currently reads
+`Claims: RequestClaims{UserID: userIDStr, Role: role}` where `role` is a
+single `string` pulled from `r.Context().Value(common.RoleKey).(string)`
+(line ~172). Change the literal to:
+
+```go
+		Claims: RequestClaims{
+			UserID: userIDStr,
+			Roles:  []string{role},
+		},
+```
+
+This is a deliberate, documented interim state: `RoleKey`'s underlying
+context value is still a single role string at this point in the plan
+sequence (Plan 09 Task 3 changes `RoleKey` itself to carry `[]string` and
+will update this exact construction to `Roles: roles` — no other change
+needed there once this field exists). Leave `role, _ :=
+...Value(common.RoleKey).(string)` at line 172 untouched; do not attempt to
+fix `RoleKey`'s type here, that's out of this task's scope.
+
+Then, in `api/users.go`, simplify Task 2's three `[]string{c.Claims.Role}`
+call sites (in `createUser`, and `updateUser`'s two: the guard check and the
+`CallerRoles` field) to use `c.Claims.Roles` directly — the wrapping is no
+longer needed now that the field is natively a slice.
 
 - [ ] **Step 1: Write the failing test**
 
