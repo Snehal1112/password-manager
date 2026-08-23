@@ -348,6 +348,13 @@ must cover, factually and specifically (no placeholders):
   to it rather than duplicating if it already covers this.
 - A short migration example: an old-style request body next to its new
   equivalent.
+- A short note (found during Plan 07's final review): `rocketvault users
+  list`/`get -o json`/`-o yaml` now emit the `Role` column as a single
+  comma-joined string (e.g. `"admin, secrets_manager"`), not a JSON array —
+  `internal/formatter`'s `Write(headers []string, rows [][]string)` is
+  string-only, and changing that interface to support a real array column
+  is out of scope for this plan series. Machine consumers of this output
+  must split on `", "` for now.
 
 Then fix `docs/admin-manual.html`'s stale `"role"`-shaped JSON examples —
 found during Plan 06's final review at (approximately, confirm each at edit
@@ -363,15 +370,25 @@ Change every one of the six sites' JSON examples from `"role": "x"` to
 and check the surrounding prose at each site for singular-role language
 ("the user's role is...") that should become plural.
 
+Also check `README.md:585,594` — found during Plan 07's final whole-plan
+review, unowned by any plan: these lines show `rocketvault users create`/
+`update` examples using the single-flag `--new-role user` form only. The
+old single-flag syntax stays valid under the new `StringArray` flag (Plan
+07 made it repeatable, not exclusive), so nothing there is factually wrong
+— but add a second example showing `--new-role admin --new-role
+secrets_manager` so the repeatable form is discoverable from the README,
+not just `docs/cli-guide.md`.
+
 - [ ] **Step 7: Commit**
 
 ```bash
-git add cmd/root.go cmd/root_test.go docs/release-notes/v4.4.0-multi-role-user-assignment.md docs/admin-manual.html
+git add cmd/root.go cmd/root_test.go docs/release-notes/v4.4.0-multi-role-user-assignment.md docs/admin-manual.html README.md
 git commit -m "fix(cli): resolveAuthentication carries Roles through cache/refresh, completeness grep clean
 
-Also adds v4.4.0 release notes and fixes admin-manual.html's stale
-single-role API examples, per the design spec's locked release-notes
-requirement (not previously assigned to any task in this series)."
+Also adds v4.4.0 release notes, fixes admin-manual.html's stale single-role
+API examples, and adds a repeatable --new-role example to README.md, per
+the design spec's locked release-notes requirement (not previously
+assigned to any task in this series)."
 ```
 
 ---
