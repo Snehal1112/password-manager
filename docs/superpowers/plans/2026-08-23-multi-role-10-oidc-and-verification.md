@@ -31,8 +31,16 @@ field-rename sites, then verification only.
 - Modify: `internal/services/users/user_service.go`
   (`FindOrCreateExternalUser`)
 - Modify: `common/session.go` (`SessionCache.Role` field)
+- Modify: `cmd/users/login_oidc.go` (`oidcExchangeResponse.Role` field and
+  its use at the `SessionCache{...}` literal — added during Plan 04's final
+  review: this file hand-duplicates the OIDC exchange response's wire shape
+  and was missed by every earlier plan's file list. It is NOT the same
+  struct as `model.Claims`/`model.User`/`common.SessionCache`, so the
+  Task 2 completeness grep in this plan does not catch it — fix it here,
+  explicitly, alongside `SessionCache`, which it feeds directly.)
 - Test: `internal/services/users/user_service_test.go`,
-  `common/session_test.go` (check it exists first)
+  `common/session_test.go` (check it exists first),
+  `cmd/users/login_oidc_test.go` (check it exists first)
 
 **Interfaces:**
 - Produces: `common.SessionCache.Roles []string` (was `Role string`).
@@ -115,16 +123,60 @@ type SessionCache struct {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 5: Fix `cmd/users/login_oidc.go`'s hand-duplicated wire shape**
+
+This file defines its own local struct for decoding the OIDC exchange
+response — a separate type from `model.Claims`/`model.User`, so it does not
+show up in Task 2's completeness grep. Find the struct (grep
+`oidcExchangeResponse` in `cmd/users/login_oidc.go`) and change:
+
+```go
+type oidcExchangeResponse struct {
+	// ... unchanged fields ...
+	Role         string `json:"role"`
+}
+```
+
+to:
+
+```go
+type oidcExchangeResponse struct {
+	// ... unchanged fields ...
+	Roles        []string `json:"roles"`
+}
+```
+
+Then find the `SessionCache{...}` literal built from `exchanged` (search for
+`exchanged.Role`) and change the assignment from `Role: exchanged.Role` to
+`Roles: exchanged.Roles`. Do not wrap `exchanged.Role` in a
+`[]string{exchanged.Role}` literal — that compiles and looks like a fix but
+silently produces a single-role session forever for every OIDC CLI login,
+since `exchanged.Role` itself no longer exists as a populated field once the
+struct's own field is renamed. The server-side OIDC callback response this
+struct decodes already emits `"roles": [...]` (Plan 06 changes
+`model.LoginResponse.Role` → `Roles []string` with `json:"roles"`, and the
+OIDC HTTP handler reuses that same response type) — so the JSON tag rename
+here is what makes decoding actually populate the field, not cosmetic.
+
+Add or extend a test in `cmd/users/login_oidc_test.go` (check whether this
+file exists first — if there's no existing test infrastructure for this
+command, a minimal JSON-unmarshal test proving `{"roles":["admin","secrets_manager"]}`
+decodes into `oidcExchangeResponse.Roles` as `[]string{"admin","secrets_manager"}`
+is sufficient; don't build new CLI test scaffolding beyond what already
+exists in this package).
+
+- [ ] **Step 6: Run test to verify it passes**
 
 Run: `go test ./internal/services/users/... -run TestFindOrCreateExternalUser_NewUser_GetsLeastPrivilegeRole -v`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+Also run whatever test you added/extended in Step 5 and confirm it passes.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add internal/services/users/user_service.go common/session.go internal/services/users/user_service_test.go
-git commit -m "fix(users): FindOrCreateExternalUser and SessionCache use Roles []string"
+git add internal/services/users/user_service.go common/session.go cmd/users/login_oidc.go internal/services/users/user_service_test.go
+git commit -m "fix(users): FindOrCreateExternalUser, SessionCache, and OIDC CLI exchange use Roles []string"
 ```
 
 ---
