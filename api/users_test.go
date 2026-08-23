@@ -359,8 +359,8 @@ func encodeBody(v any) *bytes.Reader {
 func TestCreateUser_NonAdmin_Returns403(t *testing.T) {
 	c := newUserCtx(nil, nil, uViewerClaims("aaa"))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "bob", "password": "password123", "role": model.RoleUser,
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "bob", "password": "password123", "roles": []string{model.RoleUser},
 	}))
 
 	createUser(c, w, r)
@@ -375,8 +375,8 @@ func TestCreateUser_InvalidUsername_Returns400(t *testing.T) {
 	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	// Username shorter than 3 chars.
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "ab", "password": "password123", "role": model.RoleUser,
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "ab", "password": "password123", "roles": []string{model.RoleUser},
 	}))
 
 	createUser(c, w, r)
@@ -391,8 +391,8 @@ func TestCreateUser_InvalidPassword_Returns400(t *testing.T) {
 	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
 	// Password shorter than 8 chars.
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "validuser", "password": "short", "role": model.RoleUser,
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "validuser", "password": "short", "roles": []string{model.RoleUser},
 	}))
 
 	createUser(c, w, r)
@@ -404,10 +404,16 @@ func TestCreateUser_InvalidPassword_Returns400(t *testing.T) {
 }
 
 func TestCreateUser_InvalidRole_Returns400(t *testing.T) {
-	c := newUserCtx(nil, nil, uAdminClaims("aaa"))
+	// Role validation now happens entirely in UserService; the handler must
+	// classify the service's "invalid role" error as a 400, not a 500.
+	svc := &mockUserService{}
+	svc.On("CreateUser", mock.Anything, mock.Anything).
+		Return(nil, errors.New("invalid role: superadmin"))
+
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "validuser", "password": "password123", "role": "superadmin",
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "validuser", "password": "password123", "roles": []string{"superadmin"},
 	}))
 
 	createUser(c, w, r)
@@ -416,6 +422,7 @@ func TestCreateUser_InvalidRole_Returns400(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertExpectations(t)
 }
 
 func TestCreateUser_NilServiceContainer_Returns500(t *testing.T) {
@@ -427,8 +434,8 @@ func TestCreateUser_NilServiceContainer_Returns500(t *testing.T) {
 		Logger: userTestLog(),
 	}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "validuser", "password": "password123", "role": model.RoleUser,
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "validuser", "password": "password123", "roles": []string{model.RoleUser},
 	}))
 
 	createUser(c, w, r)
@@ -445,8 +452,8 @@ func TestCreateUser_ServiceError_Returns500(t *testing.T) {
 
 	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "newuser", "password": "password123", "role": model.RoleUser,
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "newuser", "password": "password123", "roles": []string{model.RoleUser},
 	}))
 
 	createUser(c, w, r)
@@ -463,15 +470,15 @@ func TestCreateUser_Success_Returns201(t *testing.T) {
 	svc.On("CreateUser", mock.Anything, mock.Anything).Return(&userServices.CreateUserResult{
 		UserID:     uuid.New(),
 		Username:   "newuser",
-		Role:       model.RoleUser,
+		Roles:      []string{model.RoleUser},
 		TOTPSecret: "otpauth://totp/...",
 		CreatedAt:  time.Now(),
 	}, nil)
 
 	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]string{
-		"username": "newuser", "password": "password123", "role": model.RoleUser,
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "newuser", "password": "password123", "roles": []string{model.RoleUser},
 	}))
 
 	createUser(c, w, r)
@@ -480,6 +487,64 @@ func TestCreateUser_Success_Returns201(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestCreateUser_MultipleRolesInRequestBody_Accepted(t *testing.T) {
+	svc := &mockUserService{}
+	svc.On("CreateUser", mock.Anything, userServices.CreateUserRequest{
+		Username:    "newuser",
+		Password:    "pw12345678",
+		Roles:       []string{"secrets_manager", "crypto_manager"},
+		CallerRoles: []string{model.RoleAdmin},
+	}).Return(&userServices.CreateUserResult{
+		UserID:     uuid.New(),
+		Username:   "newuser",
+		Roles:      []string{"secrets_manager", "crypto_manager"},
+		TOTPSecret: "otpauth://totp/...",
+		CreatedAt:  time.Now(),
+	}, nil)
+
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "newuser", "password": "pw12345678", "roles": []string{"secrets_manager", "crypto_manager"},
+	}))
+
+	createUser(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	roles, ok := body["roles"].([]any)
+	require.True(t, ok)
+	assert.ElementsMatch(t, []any{"secrets_manager", "crypto_manager"}, roles)
+	svc.AssertExpectations(t)
+}
+
+func TestCreateUser_EmptyRolesArray_Rejected(t *testing.T) {
+	// An explicit "roles": [] decodes to a non-nil empty slice; UserService
+	// rejects it (no role is not a valid state), and the handler must
+	// surface that as a client error rather than a 500.
+	svc := &mockUserService{}
+	svc.On("CreateUser", mock.Anything, mock.Anything).
+		Return(nil, errors.New("invalid role: at least one role is required"))
+
+	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/users", encodeBody(map[string]any{
+		"username": "newuser", "password": "pw12345678", "roles": []string{},
+	}))
+
+	createUser(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 	svc.AssertExpectations(t)
 }
 
@@ -538,8 +603,8 @@ func TestListUsers_ServiceError_Returns500(t *testing.T) {
 func TestListUsers_Success_Returns200(t *testing.T) {
 	svc := &mockUserService{}
 	users := []model.User{
-		{ID: uuid.New(), Username: "alice", Role: model.RoleAdmin, CreatedAt: time.Now()},
-		{ID: uuid.New(), Username: "bob", Role: model.RoleUser, CreatedAt: time.Now()},
+		{ID: uuid.New(), Username: "alice", Roles: []string{model.RoleAdmin}, CreatedAt: time.Now()},
+		{ID: uuid.New(), Username: "bob", Roles: []string{model.RoleUser}, CreatedAt: time.Now()},
 	}
 	svc.On("ListUsers", mock.Anything).Return(users, nil)
 
@@ -562,7 +627,7 @@ func TestListUsers_Success_Returns200(t *testing.T) {
 func TestListUsers_PaginationBeyondEnd_Returns200EmptyPage(t *testing.T) {
 	svc := &mockUserService{}
 	users := []model.User{
-		{ID: uuid.New(), Username: "alice", Role: model.RoleAdmin, CreatedAt: time.Now()},
+		{ID: uuid.New(), Username: "alice", Roles: []string{model.RoleAdmin}, CreatedAt: time.Now()},
 	}
 	svc.On("ListUsers", mock.Anything).Return(users, nil)
 
@@ -641,7 +706,7 @@ func TestGetUser_Success_Returns200(t *testing.T) {
 	svc := &mockUserService{}
 	targetID := uuid.New()
 	svc.On("GetUser", mock.Anything, targetID).Return(&model.User{
-		ID: targetID, Username: "alice", Role: model.RoleAdmin, CreatedAt: time.Now(),
+		ID: targetID, Username: "alice", Roles: []string{model.RoleAdmin}, CreatedAt: time.Now(),
 	}, nil)
 
 	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
@@ -713,7 +778,7 @@ func TestUpdateUser_NonAdminChangingRole_Returns403(t *testing.T) {
 	c := newUserCtx(nil, nil, uViewerClaims(targetID.String()))
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]string{"role": model.RoleAdmin}))
+	r := httptest.NewRequest(http.MethodPut, "/users/"+targetID.String(), encodeBody(map[string]any{"roles": []string{model.RoleAdmin}}))
 
 	updateUser(c, w, r)
 	if c.Err != nil {
@@ -763,7 +828,7 @@ func TestUpdateUser_Success_Returns200(t *testing.T) {
 	targetID := uuid.New()
 	svc.On("UpdateUser", mock.Anything, mock.Anything).Return(nil)
 	svc.On("GetUser", mock.Anything, targetID).Return(&model.User{
-		ID: targetID, Username: "newname", Role: model.RoleAdmin, CreatedAt: time.Now(),
+		ID: targetID, Username: "newname", Roles: []string{model.RoleAdmin}, CreatedAt: time.Now(),
 	}, nil)
 
 	c := newUserCtx(svc, nil, uAdminClaims("aaa"))
@@ -938,7 +1003,7 @@ func TestLoginUser_Success_Returns200(t *testing.T) {
 			RefreshToken: "rtok",
 			UserID:       uuid.New(),
 			Username:     "alice",
-			Role:         model.RoleAdmin,
+			Roles:        []string{model.RoleAdmin},
 		}, nil)
 
 	c := newUserCtx(nil, authSvc, RequestClaims{})
@@ -1005,7 +1070,7 @@ func TestRefreshToken_Success_Returns200(t *testing.T) {
 			RefreshToken: "newrtok",
 			UserID:       uuid.New(),
 			Username:     "alice",
-			Role:         model.RoleAdmin,
+			Roles:        []string{model.RoleAdmin},
 			ExpiresAt:    time.Now().Add(time.Hour),
 		}, nil)
 

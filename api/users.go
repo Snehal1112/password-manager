@@ -30,6 +30,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"rocketvault/common"
 	userService "rocketvault/internal/services/users"
 	"rocketvault/model"
 )
@@ -67,57 +68,29 @@ func (api *API) InitUsers() {
 }
 
 // createUser handles the creation of a new user.
-// Only users with admin role can create new users.
+// Only users with admin role can create new users. Role validation (allowed
+// values, at-least-one-required) is delegated entirely to UserService — this
+// handler only classifies its error messages as client vs server errors.
 func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Check admin privileges.
-	claims := c.Claims.Role
-	if claims != string(model.RoleAdmin) {
+	// RequestClaims currently carries a single Role string rather than a
+	// Roles slice, so it is wrapped for common.HasAnyRole here.
+	if !common.HasAnyRole([]string{c.Claims.Role}, model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
 
-	// Parse request body using model type.
 	req, err := model.CreateUserRequestFromJson(r.Body)
 	if err != nil {
 		c.SetInvalidParam("request body")
 		return
 	}
 
-	// Validate request.
 	if req.Username == "" || len(req.Username) < 3 || len(req.Username) > 50 {
 		c.SetInvalidParam("username: must be 3-50 characters")
 		return
 	}
 	if req.Password == "" || len(req.Password) < 8 {
 		c.SetInvalidParam("password: must be at least 8 characters")
-		return
-	}
-	validRoles := []string{model.RoleAdmin, model.RoleCryptoManager, model.RoleCertificateManager, model.RoleSecretsManager, model.RoleUser}
-	roleValid := false
-
-	// Split role string by comma to support multiple roles.
-	requestedRoles := strings.Split(strings.TrimSpace(req.Role), ",")
-	for _, requestedRole := range requestedRoles {
-		requestedRole = strings.TrimSpace(requestedRole)
-		if requestedRole == "" {
-			continue
-		}
-		found := false
-		for _, validRole := range validRoles {
-			if requestedRole == validRole {
-				found = true
-				break
-			}
-		}
-		if !found {
-			roleValid = false
-			break
-		}
-		roleValid = true
-	}
-
-	if !roleValid {
-		c.SetInvalidParam("role: must be one of secrets_manager, crypto_manager, certificate_manager, admin, user")
 		return
 	}
 
@@ -127,31 +100,36 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := userSvc.CreateUser(r.Context(), userService.CreateUserRequest{
-		Username:   req.Username,
-		Password:   req.Password,
-		Role:       req.Role,
-		CallerRole: claims,
+		Username:    req.Username,
+		Password:    req.Password,
+		Roles:       req.Roles,
+		CallerRoles: []string{c.Claims.Role},
 	})
 	if err != nil {
+		// Role validation errors from UserService ("invalid role: ...",
+		// "at least one role is required") are client errors, not server
+		// errors -- surface them as 400s instead of masking as 500.
+		if strings.Contains(err.Error(), "invalid role") || strings.Contains(err.Error(), "role is required") {
+			c.SetInvalidParam(err.Error())
+			return
+		}
 		c.SetInternalError(err)
 		return
 	}
 
-	// Prepare response.
 	response := model.UserResponse{
 		ID:         result.UserID.String(),
 		Username:   result.Username,
-		Role:       result.Role,
+		Roles:      result.Roles,
 		CreatedAt:  time.Now().Format(time.RFC3339),
 		TOTPSecret: result.TOTPSecret,
 	}
 
-	// Send response.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
-	c.Logger.Printf("Admin %s created user %s with role %s", c.Claims.UserID, result.Username, result.Role)
+	c.Logger.Printf("Admin %s created user %s with roles %v", c.Claims.UserID, result.Username, result.Roles)
 }
 
 // listUsers handles the HTTP request to retrieve all users.
@@ -195,7 +173,7 @@ func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 		userResponses[i] = model.UserResponse{
 			ID:        user.ID.String(),
 			Username:  user.Username,
-			Role:      user.Role,
+			Roles:     user.Roles,
 			CreatedAt: user.CreatedAt.Format(time.RFC3339),
 		}
 	}
@@ -243,7 +221,7 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	response := model.UserResponse{
 		ID:        user.ID.String(),
 		Username:  user.Username,
-		Role:      user.Role,
+		Roles:     user.Roles,
 		CreatedAt: user.CreatedAt.Format(time.RFC3339),
 	}
 
@@ -277,48 +255,21 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInvalidParam("password: must be at least 8 characters")
 		return
 	}
-	if req.Role != "" {
-		validRoles := []string{model.RoleAdmin, model.RoleCryptoManager, model.RoleCertificateManager, model.RoleSecretsManager, model.RoleUser}
-		roleValid := false
 
-		// Split role string by comma to support multiple roles.
-		requestedRoles := strings.Split(strings.TrimSpace(req.Role), ",")
-		for _, requestedRole := range requestedRoles {
-			requestedRole = strings.TrimSpace(requestedRole)
-			if requestedRole == "" {
-				continue
-			}
-			found := false
-			for _, validRole := range validRoles {
-				if requestedRole == validRole {
-					found = true
-					break
-				}
-			}
-			if !found {
-				roleValid = false
-				break
-			}
-			roleValid = true
-		}
-
-		if !roleValid {
-			c.SetInvalidParam("role: must be one of secrets_manager, crypto_manager, certificate_manager, admin, user")
-			return
-		}
-	}
-
-	// Check permissions — admin can update any user, users can update their own profile (except role).
+	// Check permissions — admin can update any user, users can update their
+	// own profile (except roles). RequestClaims currently carries a single
+	// Role string rather than a Roles slice, so it is wrapped here for
+	// common.HasAnyRole.
 	currentUserID := c.Claims.UserID
-	currentRole := c.Claims.Role
+	currentRoles := []string{c.Claims.Role}
 
-	if currentRole != string(model.RoleAdmin) {
+	if !common.HasAnyRole(currentRoles, model.RoleAdmin) {
 		if currentUserID != userID.String() {
 			c.SetPermissionError("can only update own profile")
 			return
 		}
-		// Non-admin users cannot change their role.
-		if req.Role != "" {
+		// Non-admin users cannot change their roles.
+		if req.Roles != nil {
 			c.SetPermissionError("cannot change own role")
 			return
 		}
@@ -330,29 +281,35 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert to optional pointer fields.
-	var usernamePtr, passwordPtr, rolePtr *string
+	var usernamePtr, passwordPtr *string
 	if req.Username != "" {
 		usernamePtr = &req.Username
 	}
 	if req.Password != "" {
 		passwordPtr = &req.Password
 	}
-	if req.Role != "" {
-		rolePtr = &req.Role
-	}
 
 	// Parse caller ID from claims for service-level enforcement.
 	callerID, _ := uuid.Parse(c.Claims.UserID)
 
-	// Update user using service.
+	// Update user using service. Role validation (allowed values,
+	// at-least-one-required, admin-only-can-change) is delegated entirely
+	// to UserService.
 	if err := userSvc.UpdateUser(r.Context(), userService.UpdateUserRequest{
-		UserID:     userID,
-		CallerID:   callerID,
-		CallerRole: currentRole,
-		Username:   usernamePtr,
-		Password:   passwordPtr,
-		Role:       rolePtr,
+		UserID:      userID,
+		CallerID:    callerID,
+		CallerRoles: currentRoles,
+		Username:    usernamePtr,
+		Password:    passwordPtr,
+		Roles:       req.Roles,
 	}); err != nil {
+		// Role validation errors from UserService ("invalid role: ...",
+		// "at least one role is required") are client errors, not server
+		// errors -- surface them as 400s instead of masking as 500.
+		if strings.Contains(err.Error(), "invalid role") || strings.Contains(err.Error(), "role is required") {
+			c.SetInvalidParam(err.Error())
+			return
+		}
 		c.SetInternalError(err)
 		return
 	}
@@ -368,7 +325,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	response := model.UserResponse{
 		ID:        user.ID.String(),
 		Username:  user.Username,
-		Role:      user.Role,
+		Roles:     user.Roles,
 		CreatedAt: user.CreatedAt.Format(time.RFC3339),
 	}
 
@@ -456,7 +413,7 @@ func loginUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		RefreshToken: result.RefreshToken,
 		UserID:       result.UserID.String(),
 		Username:     result.Username,
-		Role:         result.Role,
+		Roles:        result.Roles,
 	}
 
 	// Send response.
@@ -464,8 +421,8 @@ func loginUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
 
-	c.Logger.Printf("User %s (ID: %s) logged in successfully with role %s",
-		result.Username, result.UserID.String(), result.Role)
+	c.Logger.Printf("User %s (ID: %s) logged in successfully with roles %v",
+		result.Username, result.UserID.String(), result.Roles)
 }
 
 // refreshToken handles the refresh of an access token using a refresh token.
@@ -501,7 +458,7 @@ func refreshToken(c *Context, w http.ResponseWriter, r *http.Request) {
 		RefreshToken: result.RefreshToken,
 		UserID:       result.UserID.String(),
 		Username:     result.Username,
-		Role:         result.Role,
+		Roles:        result.Roles,
 		ExpiresAt:    result.ExpiresAt,
 	}
 
