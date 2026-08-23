@@ -44,7 +44,7 @@ func TestCreateServiceAccount_NonAdminForbidden(t *testing.T) {
 	c := &Context{
 		// App is nil — the role guard must fire before any App access.
 		Claims: RequestClaims{
-			Role: model.RoleUser,
+			Roles: []string{string(model.RoleUser)},
 		},
 	}
 
@@ -58,8 +58,9 @@ func TestCreateServiceAccount_NonAdminForbidden(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
-// TestCreateServiceAccount_AdminAllowed verifies that an admin role passes
-// the role guard and proceeds into the handler body (past the permission check).
+// TestCreateServiceAccount_AdminAllowed verifies that a caller whose roles
+// include admin — but not as the sole or first role — passes the role guard
+// and proceeds into the handler body (past the permission check).
 // App is left nil intentionally so the handler panics when it reaches the
 // service call — we use recover to catch that and confirm no 403 was set.
 func TestCreateServiceAccount_AdminAllowed(t *testing.T) {
@@ -67,7 +68,7 @@ func TestCreateServiceAccount_AdminAllowed(t *testing.T) {
 
 	c := &Context{
 		Claims: RequestClaims{
-			Role: model.RoleAdmin,
+			Roles: []string{"secrets_manager", string(model.RoleAdmin)},
 		},
 	}
 
@@ -95,7 +96,7 @@ func TestListServiceAccounts_NonAdminForbidden(t *testing.T) {
 
 	c := &Context{
 		Claims: RequestClaims{
-			Role: model.RoleUser,
+			Roles: []string{string(model.RoleUser)},
 		},
 	}
 
@@ -116,7 +117,7 @@ func TestGetServiceAccount_NonAdminForbidden(t *testing.T) {
 
 	c := &Context{
 		Claims: RequestClaims{
-			Role: model.RoleUser,
+			Roles: []string{string(model.RoleUser)},
 		},
 	}
 
@@ -137,7 +138,7 @@ func TestDeleteServiceAccount_NonAdminForbidden(t *testing.T) {
 
 	c := &Context{
 		Claims: RequestClaims{
-			Role: model.RoleUser,
+			Roles: []string{string(model.RoleUser)},
 		},
 	}
 
@@ -158,7 +159,7 @@ func TestRotateServiceAccountSecret_NonAdminForbidden(t *testing.T) {
 
 	c := &Context{
 		Claims: RequestClaims{
-			Role: model.RoleUser,
+			Roles: []string{string(model.RoleUser)},
 		},
 	}
 

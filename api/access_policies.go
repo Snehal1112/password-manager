@@ -30,7 +30,7 @@ func (api *API) InitAccessPolicies() {
 // enumerate every policy row and principal UUID. Mirrors the admin gate
 // already used in api/audit.go, api/oauth2.go, and api/jwks.go.
 func requireAccessPolicyAdmin(c *Context) bool {
-	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
+	if !common.HasAnyRole(c.Claims.Roles, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to manage access policies")
 		return false
 	}

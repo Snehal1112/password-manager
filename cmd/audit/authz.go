@@ -3,9 +3,7 @@
 // (like cmd/backup.go's requireBackupAdmin) there is no vault to scope this
 // to — the global admin role is the only applicable gate, mirroring the
 // !common.HasAnyRole(claims.Roles, model.RoleAdmin) restriction api/audit.go
-// should enforce (as of this writing api/audit.go still uses the old
-// claims.Role != model.RoleAdmin strict-equality check and has not yet been
-// migrated) on every audit HTTP route (getAuditLogs, getSOC2Report,
+// enforces on every audit HTTP route (getAuditLogs, getSOC2Report,
 // getGDPRReport, getAuditConfig, patchAuditConfig).
 package audit
 

@@ -224,10 +224,11 @@ func newJWKSCtx(provider signing.SigningKeyProvider) *Context {
 	}
 }
 
-// newJWKSAdminCtx builds a Context with an admin role claim, for handlers gated to admins.
+// newJWKSAdminCtx builds a Context with a multi-role claim where admin is
+// present but not the sole or first role, for handlers gated to admins.
 func newJWKSAdminCtx(provider signing.SigningKeyProvider) *Context {
 	c := newJWKSCtx(provider)
-	c.Claims = RequestClaims{Role: string(model.RoleAdmin), UserID: "00000000-0000-0000-0000-000000000001"}
+	c.Claims = RequestClaims{Roles: []string{"secrets_manager", string(model.RoleAdmin)}, UserID: "00000000-0000-0000-0000-000000000001"}
 	return c
 }
 
@@ -353,7 +354,7 @@ func TestRotateJWKS_Success_Returns200(t *testing.T) {
 func TestRotateJWKS_NonAdmin_Returns403(t *testing.T) {
 	provider := &rotatableStubProvider{rotateKID: "new-kid", rotateUntil: "2026-01-01T00:00:00Z"}
 	c := newJWKSCtx(provider)
-	c.Claims = RequestClaims{Role: "user"}
+	c.Claims = RequestClaims{Roles: []string{"user"}}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/jwks/rotate", nil)
 
@@ -375,7 +376,7 @@ func TestRotateJWKS_Success_RecordsAuditEvent(t *testing.T) {
 	a := &app.App{ServiceContainer: &jwkContainerBase{signingProvider: provider, auditSvc: mockAudit}}
 	c := &Context{
 		App:    a,
-		Claims: RequestClaims{Role: string(model.RoleAdmin), UserID: "00000000-0000-0000-0000-000000000001"},
+		Claims: RequestClaims{Roles: []string{string(model.RoleAdmin)}, UserID: "00000000-0000-0000-0000-000000000001"},
 		Params: &ApiParams{PerPage: 60},
 	}
 	w := httptest.NewRecorder()

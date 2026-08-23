@@ -236,7 +236,7 @@ func newOAuth2HCtx(svc oauth2Services.OAuth2Service) *Context {
 	a := &app.App{ServiceContainer: &oauth2HTestContainer{svc: svc}}
 	return &Context{
 		App:    a,
-		Claims: RequestClaims{Role: string(model.RoleAdmin)},
+		Claims: RequestClaims{Roles: []string{"secrets_manager", string(model.RoleAdmin)}},
 		Params: &ApiParams{PerPage: 60},
 	}
 }

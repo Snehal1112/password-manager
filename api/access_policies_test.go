@@ -243,7 +243,7 @@ func newPolicyCtx(svc authzServices.AccessPolicyService) *Context {
 	return &Context{
 		App:    a,
 		Params: &ApiParams{PerPage: 60},
-		Claims: RequestClaims{Role: model.RoleAdmin},
+		Claims: RequestClaims{Roles: []string{"secrets_manager", string(model.RoleAdmin)}},
 	}
 }
 
@@ -254,7 +254,7 @@ func newNonAdminPolicyCtx(svc authzServices.AccessPolicyService) *Context {
 	return &Context{
 		App:    a,
 		Params: &ApiParams{PerPage: 60},
-		Claims: RequestClaims{Role: model.RoleUser},
+		Claims: RequestClaims{Roles: []string{string(model.RoleUser)}},
 	}
 }
 

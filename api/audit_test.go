@@ -19,9 +19,11 @@ import (
 	"rocketvault/model"
 )
 
-// adminClaims returns a RequestClaims with admin role set.
+// adminClaims returns a RequestClaims with a multi-role set where admin is
+// present but not the sole or first role, verifying the gate checks
+// membership rather than a single primary role.
 func adminClaims() RequestClaims {
-	return RequestClaims{Role: string(model.RoleAdmin)}
+	return RequestClaims{Roles: []string{"secrets_manager", string(model.RoleAdmin)}}
 }
 
 // TestGetAuditLogs_Returns200 verifies that a valid query returns 200 with integrity_ok.

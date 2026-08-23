@@ -46,7 +46,7 @@ func getJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 // rotateJWKS serves POST /api/v1/jwks/rotate — only available with the self_pki provider.
 // Admin-only: rotating the signing key is a sensitive, availability-affecting action.
 func rotateJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
-	if !common.HasRequiredRole(c.Claims.Role, model.RoleAdmin) {
+	if !common.HasAnyRole(c.Claims.Roles, model.RoleAdmin) {
 		c.SetPermissionError("admin role required to rotate signing keys")
 		return
 	}
