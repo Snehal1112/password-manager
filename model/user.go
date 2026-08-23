@@ -15,7 +15,7 @@ type User struct {
 	Username     string    `json:"user_name"`
 	PasswordHash string    `json:"password_hash"`
 	TOTPSecret   string    `json:"totp_secret"`
-	Role         string    `json:"role"`
+	Roles        []string  `json:"roles"`
 	// AuthProvider is "local" for username/password/TOTP users, or an OIDC
 	// provider identifier (e.g. "oidc") for externally-authenticated users.
 	AuthProvider string `json:"auth_provider"`

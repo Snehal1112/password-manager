@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,13 +93,18 @@ func NewUserRepository(db db.DB, log *logging.Logger) UserRepositoryInterface {
 func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	logrus.WithFields(logrus.Fields{
 		"username": user.Username,
-		"role":     user.Role,
+		"roles":    user.Roles,
 		"user_id":  user.ID.String(),
 	}).Debug("Inserting user into database")
 
-	// Check if username already exists
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	var existingUserID string
-	err := r.db.QueryRowContext(ctx, "SELECT id FROM users WHERE username = ?", user.Username).Scan(&existingUserID)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM users WHERE username = ?", user.Username).Scan(&existingUserID)
 	if err == nil {
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Username already exists", nil)
 		return fmt.Errorf("username already exists")
@@ -108,7 +114,6 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 		return fmt.Errorf("failed to check existing username: %w", err)
 	}
 
-	// Insert user record
 	authProvider := user.AuthProvider
 	if authProvider == "" {
 		authProvider = model.AuthProviderLocal
@@ -117,23 +122,28 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	if user.ExternalIDPSubject != "" {
 		externalSubject = user.ExternalIDPSubject
 	}
-	_, err = r.db.ExecContext(
+	// users.role kept in sync (comma-joined) as a legacy/defense-in-depth
+	// copy -- not read by any new code, see the design spec.
+	_, err = tx.ExecContext(
 		ctx,
 		"INSERT INTO users (id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		user.ID.String(), user.Username, user.PasswordHash, user.TOTPSecret, user.Role, authProvider, externalSubject, user.CreatedAt,
+		user.ID.String(), user.Username, user.PasswordHash, user.TOTPSecret, strings.Join(user.Roles, ","), authProvider, externalSubject, user.CreatedAt,
 	)
 	if err != nil {
 		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to insert user", err)
 		return fmt.Errorf("failed to insert user: %w", err)
 	}
 
-	r.log.LogAuditInfo(user.ID.String(), "create_user", "success", fmt.Sprintf("User inserted: %s", user.Username))
-	logrus.WithFields(logrus.Fields{
-		"username": user.Username,
-		"user_id":  user.ID.String(),
-		"role":     user.Role,
-	}).Debug("User inserted successfully")
+	if err := r.replaceUserRoles(ctx, tx, user.ID, user.Roles); err != nil {
+		r.log.LogAuditError(user.ID.String(), "create_user", "failed", "Failed to insert user_roles", err)
+		return fmt.Errorf("failed to insert user_roles: %w", err)
+	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit user create: %w", err)
+	}
+
+	r.log.LogAuditInfo(user.ID.String(), "create_user", "success", fmt.Sprintf("User inserted: %s", user.Username))
 	return nil
 }
 
@@ -150,13 +160,14 @@ func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
 	var user model.User
 	var idStr string
+	var legacyRole string
 	var externalSubject sql.NullString
 
 	err := r.db.QueryRowContext(
 		ctx,
 		"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE id = ?",
 		id.String(),
-	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt)
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("user not found")
@@ -169,6 +180,11 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, e
 	user.ID, err = uuid.Parse(idStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	user.Roles, err = r.fetchUserRoles(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user roles: %w", err)
 	}
 
 	return &user, nil
@@ -191,19 +207,23 @@ func (r *UserRepository) Update(ctx context.Context, user *model.User) error {
 		"username": user.Username,
 	}).Debug("Updating user in database")
 
-	result, err := r.db.ExecContext(
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	result, err := tx.ExecContext(
 		ctx,
 		"UPDATE users SET username = ?, password_hash = ?, role = ? WHERE id = ?",
-		user.Username, user.PasswordHash, user.Role, user.ID.String(),
+		user.Username, user.PasswordHash, strings.Join(user.Roles, ","), user.ID.String(),
 	)
 	if err != nil {
 		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to update user", err)
 		return fmt.Errorf("failed to update user: %w", err)
 	}
-
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to get rows affected", err)
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 	if rowsAffected == 0 {
@@ -211,12 +231,16 @@ func (r *UserRepository) Update(ctx context.Context, user *model.User) error {
 		return fmt.Errorf("user not found")
 	}
 
-	r.log.LogAuditInfo(user.ID.String(), "update_user", "success", fmt.Sprintf("User updated: %s", user.Username))
-	logrus.WithFields(logrus.Fields{
-		"user_id":  user.ID.String(),
-		"username": user.Username,
-	}).Debug("User updated successfully")
+	if err := r.replaceUserRoles(ctx, tx, user.ID, user.Roles); err != nil {
+		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "Failed to replace user_roles", err)
+		return fmt.Errorf("failed to replace user_roles: %w", err)
+	}
 
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit user update: %w", err)
+	}
+
+	r.log.LogAuditInfo(user.ID.String(), "update_user", "success", fmt.Sprintf("User updated: %s", user.Username))
 	return nil
 }
 
@@ -274,6 +298,54 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	})
 }
 
+// replaceUserRoles deletes every existing user_roles row for userID and
+// inserts one row per entry in roles, inside the given transaction. Empty
+// or duplicate role strings are silently skipped -- callers are expected to
+// have already validated the role names themselves (this repository does
+// not know the valid-roles allowlist).
+func (r *UserRepository) replaceUserRoles(ctx context.Context, tx *db.Tx, userID uuid.UUID, roles []string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_roles WHERE user_id = ?`, userID.String()); err != nil {
+		return fmt.Errorf("delete existing user_roles: %w", err)
+	}
+	seen := map[string]bool{}
+	for _, role := range roles {
+		if role == "" || seen[role] {
+			continue
+		}
+		seen[role] = true
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO user_roles (id, user_id, role) VALUES (?, ?, ?)`,
+			uuid.New().String(), userID.String(), role,
+		); err != nil {
+			return fmt.Errorf("insert user_roles row (role=%s): %w", role, err)
+		}
+	}
+	return nil
+}
+
+// fetchUserRoles returns every role currently assigned to userID, in no
+// particular order.
+func (r *UserRepository) fetchUserRoles(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT role FROM user_roles WHERE user_id = ?`, userID.String())
+	if err != nil {
+		return nil, fmt.Errorf("query user_roles: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var roles []string
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, fmt.Errorf("scan user_roles row: %w", err)
+		}
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user_roles: %w", err)
+	}
+	return roles, nil
+}
+
 // ReadByUsername retrieves a user by username from the database.
 //
 // Parameters:
@@ -287,13 +359,14 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (model.User, error) {
 	var user model.User
 	var idStr string
+	var legacyRole string
 	var externalSubject sql.NullString
 
 	err := r.db.QueryRowContext(
 		ctx,
 		"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE username = ?",
 		username,
-	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt)
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return user, fmt.Errorf("user not found")
@@ -310,6 +383,12 @@ func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (m
 		return user, fmt.Errorf("failed to parse user ID: %w", err)
 	}
 
+	user.Roles, err = r.fetchUserRoles(ctx, user.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to fetch user roles")
+		return user, fmt.Errorf("failed to fetch user roles: %w", err)
+	}
+
 	return user, nil
 }
 
@@ -318,13 +397,14 @@ func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (m
 func (r *UserRepository) ReadByExternalSubject(ctx context.Context, provider, subject string) (*model.User, error) {
 	var user model.User
 	var idStr string
+	var legacyRole string
 	var externalSubject sql.NullString
 
 	err := r.db.QueryRowContext(
 		ctx,
 		"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE auth_provider = ? AND external_idp_subject = ?",
 		provider, subject,
-	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt)
+	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("user not found")
 	}
@@ -336,6 +416,11 @@ func (r *UserRepository) ReadByExternalSubject(ctx context.Context, provider, su
 	user.ID, err = uuid.Parse(idStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user ID: %w", err)
+	}
+
+	user.Roles, err = r.fetchUserRoles(ctx, user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch user roles: %w", err)
 	}
 
 	return &user, nil
@@ -367,7 +452,6 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 			logrus.WithError(err).Error("Failed to list users")
 			return fmt.Errorf("failed to list users: %w", err)
 		}
-		defer rows.Close() //nolint:errcheck
 
 		// Pre-allocate slice for better memory performance
 		users = make([]model.User, 0, 100) // Assume max 100 users initially
@@ -375,9 +459,11 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 		for rows.Next() {
 			var user model.User
 			var idStr string
+			var legacyRole string
 			var externalSubject sql.NullString
 
-			if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &user.Role, &user.AuthProvider, &externalSubject, &user.CreatedAt); err != nil {
+			if err := rows.Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt); err != nil {
+				rows.Close() //nolint:errcheck
 				logrus.WithError(err).Error("Failed to scan user")
 				return fmt.Errorf("failed to scan user: %w", err)
 			}
@@ -385,6 +471,7 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 
 			user.ID, err = uuid.Parse(idStr)
 			if err != nil {
+				rows.Close() //nolint:errcheck
 				logrus.WithError(err).Error("Failed to parse user ID")
 				return fmt.Errorf("failed to parse user ID: %w", err)
 			}
@@ -393,7 +480,24 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 		}
 
 		if err := rows.Err(); err != nil {
+			rows.Close() //nolint:errcheck
 			return fmt.Errorf("row iteration error: %w", err)
+		}
+		// Close the result set before issuing further queries below -- on
+		// SQLite ":memory:" databases a second connection checked out from
+		// the pool while rows is still open sees a distinct, empty in-memory
+		// database, so per-user role lookups must not run until rows is done.
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("close user rows: %w", err)
+		}
+
+		for i := range users {
+			roles, err := r.fetchUserRoles(ctx, users[i].ID)
+			if err != nil {
+				logrus.WithError(err).Error("Failed to fetch user roles")
+				return fmt.Errorf("failed to fetch user roles: %w", err)
+			}
+			users[i].Roles = roles
 		}
 
 		return nil

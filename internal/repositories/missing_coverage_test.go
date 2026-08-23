@@ -57,6 +57,14 @@ func setupUserDB(t *testing.T) *sql.DB {
 			token TEXT PRIMARY KEY,
 			used  BOOLEAN NOT NULL DEFAULT FALSE
 		);
+		CREATE TABLE IF NOT EXISTS user_roles (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			role       TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (user_id, role),
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+		);
 	`)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
@@ -70,7 +78,7 @@ func newUser(username, role string) *model.User {
 		Username:     username,
 		PasswordHash: "hashed-password",
 		TOTPSecret:   "",
-		Role:         role,
+		Roles:        []string{role},
 		CreatedAt:    time.Now(),
 	}
 }
@@ -200,7 +208,7 @@ func TestUserRepository_Create_And_Read(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, u.ID, got.ID)
 	assert.Equal(t, "alice", got.Username)
-	assert.Equal(t, model.RoleAdmin, got.Role)
+	assert.Equal(t, []string{model.RoleAdmin}, got.Roles)
 }
 
 func TestUserRepository_Create_DuplicateUsername(t *testing.T) {
@@ -238,12 +246,12 @@ func TestUserRepository_Update(t *testing.T) {
 	u := newUser("carol", model.RoleUser)
 	require.NoError(t, repo.Create(ctx, u))
 
-	u.Role = model.RoleAdmin
+	u.Roles = []string{model.RoleAdmin}
 	require.NoError(t, repo.Update(ctx, u))
 
 	got, err := repo.Read(ctx, u.ID)
 	require.NoError(t, err)
-	assert.Equal(t, model.RoleAdmin, got.Role)
+	assert.Equal(t, []string{model.RoleAdmin}, got.Roles)
 }
 
 func TestUserRepository_Update_NotFound(t *testing.T) {
@@ -318,7 +326,7 @@ func TestUserRepository_CreateAndReadByExternalSubject(t *testing.T) {
 
 	user := &model.User{
 		ID: uuid.New(), Username: "oidc-user", PasswordHash: "", TOTPSecret: "",
-		Role: model.RoleUser, AuthProvider: model.AuthProviderOIDC, ExternalIDPSubject: "sub-123",
+		Roles: []string{model.RoleUser}, AuthProvider: model.AuthProviderOIDC, ExternalIDPSubject: "sub-123",
 		CreatedAt: time.Now(),
 	}
 	require.NoError(t, repo.Create(ctx, user))
@@ -347,7 +355,7 @@ func TestUserRepository_LocalUser_HasEmptyAuthProviderDefaultsToLocal(t *testing
 
 	user := &model.User{
 		ID: uuid.New(), Username: "local-user", PasswordHash: "hash", TOTPSecret: "secret",
-		Role: model.RoleUser, CreatedAt: time.Now(), // AuthProvider left as zero value.
+		Roles: []string{model.RoleUser}, CreatedAt: time.Now(), // AuthProvider left as zero value.
 	}
 	require.NoError(t, repo.Create(ctx, user))
 
@@ -1949,4 +1957,28 @@ func TestVaultRepository_Purge(t *testing.T) {
 
 	_, err := repo.ReadByID(ctx, id)
 	assert.Error(t, err)
+}
+
+// ---------------------------------------------------------------------------
+// UserRepository – multi-role writes
+// ---------------------------------------------------------------------------
+
+func TestUserRepository_Create_WritesMultipleRoles(t *testing.T) {
+	t.Parallel()
+	db := setupUserDB(t)
+	repo := repositories.NewUserRepository(rvdb.NewConn(db, rvdb.SQLite), newLogger())
+	ctx := context.Background()
+
+	u := &model.User{
+		ID:           uuid.New(),
+		Username:     "dave",
+		PasswordHash: "hashed-password",
+		Roles:        []string{"admin", "secrets_manager"},
+		CreatedAt:    time.Now(),
+	}
+	require.NoError(t, repo.Create(ctx, u))
+
+	got, err := repo.Read(ctx, u.ID)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"admin", "secrets_manager"}, got.Roles)
 }
