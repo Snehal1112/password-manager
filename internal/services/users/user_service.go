@@ -6,11 +6,13 @@ package users
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"rocketvault/common"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
 	authService "rocketvault/internal/services/auth"
@@ -19,10 +21,10 @@ import (
 
 // CreateUserRequest represents a request to create a new user.
 type CreateUserRequest struct {
-	Username   string
-	Password   string
-	Role       string
-	CallerRole string // Required — must be model.RoleAdmin.
+	Username    string
+	Password    string
+	Roles       []string
+	CallerRoles []string // Must include model.RoleAdmin.
 }
 
 // FindOrCreateExternalUserRequest identifies an externally-authenticated
@@ -37,8 +39,8 @@ type FindOrCreateExternalUserRequest struct {
 type CreateUserResult struct {
 	UserID     uuid.UUID
 	Username   string
-	Role       string
-	TOTPSecret string // QR code URL for user setup
+	Roles      []string
+	TOTPSecret string
 	CreatedAt  time.Time
 }
 
@@ -114,64 +116,76 @@ func NewUserService(config UserServiceConfig) UserService {
 // Parameters:
 //
 //	ctx: The context for the operation.
-//	req: The user creation request with username, password, and role.
+//	req: The user creation request with username, password, and roles.
 //
 // Returns:
 //
 //	The created user information including TOTP setup details, or an error if creation fails.
 func (s *userService) CreateUser(ctx context.Context, req CreateUserRequest) (*CreateUserResult, error) {
-	if req.CallerRole != model.RoleAdmin {
+	if !common.HasAnyRole(req.CallerRoles, model.RoleAdmin) {
 		return nil, fmt.Errorf("forbidden: caller must have admin role to create users")
+	}
+
+	if len(req.Roles) == 0 {
+		return nil, fmt.Errorf("invalid role: at least one role is required")
+	}
+	seen := map[string]bool{}
+	var roles []string
+	for _, r := range req.Roles {
+		// HasAnyRole (Plan 03) requires pre-trimmed input -- it does no
+		// trimming itself, unlike the comma-string helper it replaced. Trim
+		// here, at the write boundary, or a role stored with stray
+		// whitespace silently fails every future authorization check.
+		r = strings.TrimSpace(r)
+		if r == "" || seen[r] {
+			continue
+		}
+		if !model.IsValidRole(r) {
+			return nil, fmt.Errorf("invalid role: %s", r)
+		}
+		seen[r] = true
+		roles = append(roles, r)
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"username": req.Username,
-		"role":     req.Role,
+		"roles":    roles,
 	}).Info("Creating new user")
 
-	// Hash password using password service
 	hashedPassword, err := s.passwordService.HashPassword(req.Password)
 	if err != nil {
 		s.logger.LogAuditError("", "create_user", "failed", "Failed to hash password", err)
 		return nil, fmt.Errorf("failed to prepare user: %w", err)
 	}
 
-	// Generate TOTP secret using TOTP service
 	totpKey, err := s.totpService.GenerateSecret("PasswordManager", req.Username)
 	if err != nil {
 		s.logger.LogAuditError("", "create_user", "failed", "Failed to generate TOTP secret", err)
 		return nil, fmt.Errorf("failed to generate TOTP secret: %w", err)
 	}
 
-	// Create user entity
 	userID := uuid.New()
 	user := &model.User{
 		ID:           userID,
 		Username:     req.Username,
 		PasswordHash: hashedPassword,
 		TOTPSecret:   totpKey.Secret(),
-		Role:         req.Role,
+		Roles:        roles,
 		CreatedAt:    time.Now(),
 	}
 
-	// Store user via repository
 	if err := s.userRepo.Create(ctx, user); err != nil {
 		s.logger.LogAuditError(userID.String(), "create_user", "failed", "Failed to create user", err)
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
 	s.logger.LogAuditInfo(userID.String(), "create_user", "success", fmt.Sprintf("User created: %s", req.Username))
-	logrus.WithFields(logrus.Fields{
-		"username": req.Username,
-		"user_id":  userID.String(),
-		"role":     req.Role,
-	}).Info("User created successfully")
 
 	return &CreateUserResult{
 		UserID:     userID,
 		Username:   req.Username,
-		Role:       req.Role,
-		TOTPSecret: totpKey.URL(), // QR code URL for user setup
+		Roles:      roles,
+		TOTPSecret: totpKey.URL(),
 		CreatedAt:  user.CreatedAt,
 	}, nil
 }
@@ -196,7 +210,7 @@ func (s *userService) FindOrCreateExternalUser(ctx context.Context, req FindOrCr
 		Username:           username,
 		PasswordHash:       "",
 		TOTPSecret:         "",
-		Role:               model.RoleUser,
+		Roles:              []string{model.RoleUser},
 		AuthProvider:       req.Provider,
 		ExternalIDPSubject: req.Subject,
 		CreatedAt:          time.Now(),
@@ -238,15 +252,7 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 
 	// Validate role value if provided.
 	if req.Role != nil {
-		validRoles := map[string]bool{
-			model.RoleAdmin:              true,
-			model.RoleUser:               true,
-			model.RoleSecretsManager:     true,
-			model.RoleCryptoManager:      true,
-			model.RoleCertificateManager: true,
-			model.RoleServiceAccount:     true,
-		}
-		if !validRoles[*req.Role] {
+		if !model.IsValidRole(*req.Role) {
 			return fmt.Errorf("invalid role: %s", *req.Role)
 		}
 	}
@@ -278,9 +284,9 @@ func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) err
 		updatedUser.PasswordHash = hashedPassword
 	}
 
-	// Update role if provided
+	// Update role if provided.
 	if req.Role != nil {
-		updatedUser.Role = *req.Role
+		updatedUser.Roles = []string{*req.Role}
 	}
 
 	// Update user via repository

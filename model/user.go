@@ -43,6 +43,22 @@ const (
 	RoleServiceAccount     = "service_account"
 )
 
+// ValidRoles is every role assignable to a human user account via
+// CreateUser/UpdateUser. RoleServiceAccount is deliberately excluded --
+// service accounts are OAuth2 clients (model.OAuth2Client), not rows in the
+// users table, and never go through this validation path.
+var ValidRoles = []string{RoleAdmin, RoleSecretsManager, RoleCryptoManager, RoleCertificateManager, RoleUser}
+
+// IsValidRole reports whether role is one of ValidRoles.
+func IsValidRole(role string) bool {
+	for _, r := range ValidRoles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
 // AuthProviderLocal identifies a username/password/TOTP user. This is the
 // default and the only provider value that existed before OIDC support.
 const AuthProviderLocal = "local"

@@ -165,10 +165,10 @@ func TestCreateUser_NonAdmin_Forbidden(t *testing.T) {
 	svc := newService(repo, pw, totpSvc)
 
 	req := CreateUserRequest{
-		Username:   "bob",
-		Password:   "pass",
-		Role:       model.RoleUser,
-		CallerRole: model.RoleUser, // not admin
+		Username:    "bob",
+		Password:    "pass",
+		Roles:       []string{model.RoleUser},
+		CallerRoles: []string{model.RoleUser}, // not admin
 	}
 
 	result, err := svc.CreateUser(context.Background(), req)
@@ -190,10 +190,10 @@ func TestCreateUser_HashPasswordFails(t *testing.T) {
 	pw.On("HashPassword", "pass").Return("", errors.New("bcrypt error"))
 
 	req := CreateUserRequest{
-		Username:   "alice",
-		Password:   "pass",
-		Role:       model.RoleUser,
-		CallerRole: model.RoleAdmin,
+		Username:    "alice",
+		Password:    "pass",
+		Roles:       []string{model.RoleUser},
+		CallerRoles: []string{model.RoleAdmin},
 	}
 
 	result, err := svc.CreateUser(context.Background(), req)
@@ -216,10 +216,10 @@ func TestCreateUser_GenerateSecretFails(t *testing.T) {
 	totpSvc.On("GenerateSecret", "PasswordManager", "alice").Return(nil, errors.New("totp error"))
 
 	req := CreateUserRequest{
-		Username:   "alice",
-		Password:   "pass",
-		Role:       model.RoleUser,
-		CallerRole: model.RoleAdmin,
+		Username:    "alice",
+		Password:    "pass",
+		Roles:       []string{model.RoleUser},
+		CallerRoles: []string{model.RoleAdmin},
 	}
 
 	result, err := svc.CreateUser(context.Background(), req)
@@ -244,10 +244,10 @@ func TestCreateUser_RepoCreateFails(t *testing.T) {
 	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.User")).Return(errors.New("db error"))
 
 	req := CreateUserRequest{
-		Username:   "alice",
-		Password:   "pass",
-		Role:       model.RoleUser,
-		CallerRole: model.RoleAdmin,
+		Username:    "alice",
+		Password:    "pass",
+		Roles:       []string{model.RoleUser},
+		CallerRoles: []string{model.RoleAdmin},
 	}
 
 	result, err := svc.CreateUser(context.Background(), req)
@@ -271,10 +271,10 @@ func TestCreateUser_Success(t *testing.T) {
 	repo.On("Create", mock.Anything, mock.AnythingOfType("*model.User")).Return(nil)
 
 	req := CreateUserRequest{
-		Username:   "alice",
-		Password:   "pass",
-		Role:       model.RoleAdmin,
-		CallerRole: model.RoleAdmin,
+		Username:    "alice",
+		Password:    "pass",
+		Roles:       []string{model.RoleAdmin},
+		CallerRoles: []string{model.RoleAdmin},
 	}
 
 	result, err := svc.CreateUser(context.Background(), req)
@@ -282,10 +282,85 @@ func TestCreateUser_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "alice", result.Username)
-	assert.Equal(t, model.RoleAdmin, result.Role)
+	assert.ElementsMatch(t, []string{model.RoleAdmin}, result.Roles)
 	assert.NotEmpty(t, result.TOTPSecret)
 	assert.NotEqual(t, uuid.Nil, result.UserID)
 	repo.AssertExpectations(t)
+}
+
+func TestCreateUser_AllValidRoles_Accepted(t *testing.T) {
+	t.Parallel()
+	for _, role := range model.ValidRoles {
+		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+			repo := &mockUserRepository{}
+			pw := &mockPasswordService{}
+			totpSvc := &mockTOTPService{}
+			svc := newService(repo, pw, totpSvc)
+
+			key := realTOTPKey(t)
+			pw.On("HashPassword", "pw12345678").Return("hashed", nil)
+			totpSvc.On("GenerateSecret", "PasswordManager", "newuser").Return(key, nil)
+			repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+				return len(u.Roles) == 1 && u.Roles[0] == role
+			})).Return(nil)
+
+			req := CreateUserRequest{
+				Username:    "newuser",
+				Password:    "pw12345678",
+				Roles:       []string{role},
+				CallerRoles: []string{model.RoleAdmin},
+			}
+			result, err := svc.CreateUser(context.Background(), req)
+			require.NoError(t, err)
+			assert.ElementsMatch(t, []string{role}, result.Roles)
+		})
+	}
+}
+
+func TestCreateUser_InvalidRole_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	req := CreateUserRequest{
+		Username:    "newuser",
+		Password:    "pw12345678",
+		Roles:       []string{"not_a_real_role"},
+		CallerRoles: []string{model.RoleAdmin},
+	}
+	_, err := svc.CreateUser(context.Background(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid role")
+	repo.AssertNotCalled(t, "Create")
+}
+
+func TestCreateUser_MultipleRoles_AllStored(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	key := realTOTPKey(t)
+	pw.On("HashPassword", "pw12345678").Return("hashed", nil)
+	totpSvc.On("GenerateSecret", "PasswordManager", "newuser").Return(key, nil)
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return assert.ObjectsAreEqualValues([]string{"secrets_manager", "crypto_manager"}, u.Roles) ||
+			assert.ObjectsAreEqualValues([]string{"crypto_manager", "secrets_manager"}, u.Roles)
+	})).Return(nil)
+
+	req := CreateUserRequest{
+		Username:    "newuser",
+		Password:    "pw12345678",
+		Roles:       []string{"secrets_manager", "crypto_manager"},
+		CallerRoles: []string{model.RoleAdmin},
+	}
+	result, err := svc.CreateUser(context.Background(), req)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"secrets_manager", "crypto_manager"}, result.Roles)
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +444,7 @@ func TestUpdateUser_PasswordHashFails(t *testing.T) {
 	existing := &model.User{
 		ID:       userID,
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	repo.On("Read", mock.Anything, userID).Return(existing, nil)
 
@@ -400,7 +475,7 @@ func TestUpdateUser_RepoUpdateFails(t *testing.T) {
 	existing := &model.User{
 		ID:       userID,
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	repo.On("Read", mock.Anything, userID).Return(existing, nil)
 	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.User")).Return(errors.New("db error"))
@@ -428,7 +503,7 @@ func TestUpdateUser_SuccessUsernameChange(t *testing.T) {
 	existing := &model.User{
 		ID:       userID,
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	repo.On("Read", mock.Anything, userID).Return(existing, nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
@@ -459,11 +534,11 @@ func TestUpdateUser_SuccessRoleChange(t *testing.T) {
 	existing := &model.User{
 		ID:       userID,
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	repo.On("Read", mock.Anything, userID).Return(existing, nil)
 	repo.On("Update", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
-		return u.Role == model.RoleSecretsManager
+		return len(u.Roles) == 1 && u.Roles[0] == model.RoleSecretsManager
 	})).Return(nil)
 
 	newRole := model.RoleSecretsManager
@@ -494,7 +569,7 @@ func TestGetUser_Success(t *testing.T) {
 	expected := &model.User{
 		ID:        userID,
 		Username:  "alice",
-		Role:      model.RoleUser,
+		Roles:     []string{model.RoleUser},
 		CreatedAt: time.Now(),
 	}
 	repo.On("Read", mock.Anything, userID).Return(expected, nil)
@@ -537,7 +612,7 @@ func TestGetUserByUsername_Success(t *testing.T) {
 	expected := model.User{
 		ID:       uuid.New(),
 		Username: "alice",
-		Role:     model.RoleUser,
+		Roles:    []string{model.RoleUser},
 	}
 	repo.On("ReadByUsername", mock.Anything, "alice").Return(expected, nil)
 
@@ -577,8 +652,8 @@ func TestListUsers_Success(t *testing.T) {
 	svc := newService(repo, pw, totpSvc)
 
 	users := []model.User{
-		{ID: uuid.New(), Username: "alice", Role: model.RoleAdmin},
-		{ID: uuid.New(), Username: "bob", Role: model.RoleUser},
+		{ID: uuid.New(), Username: "alice", Roles: []string{model.RoleAdmin}},
+		{ID: uuid.New(), Username: "bob", Roles: []string{model.RoleUser}},
 	}
 	repo.On("List", mock.Anything).Return(users, nil)
 
@@ -715,16 +790,7 @@ func TestInvalidateBootstrapToken_Error(t *testing.T) {
 func TestUpdateUser_AllValidRoles_Accepted(t *testing.T) {
 	t.Parallel()
 
-	validRoles := []string{
-		model.RoleAdmin,
-		model.RoleUser,
-		model.RoleSecretsManager,
-		model.RoleCryptoManager,
-		model.RoleCertificateManager,
-		model.RoleServiceAccount,
-	}
-
-	for _, role := range validRoles {
+	for _, role := range model.ValidRoles {
 		role := role // capture
 		t.Run(role, func(t *testing.T) {
 			t.Parallel()
@@ -734,7 +800,7 @@ func TestUpdateUser_AllValidRoles_Accepted(t *testing.T) {
 			svc := newService(repo, pw, totpSvc)
 
 			userID := uuid.New()
-			existing := &model.User{ID: userID, Username: "alice", Role: model.RoleUser}
+			existing := &model.User{ID: userID, Username: "alice", Roles: []string{model.RoleUser}}
 			repo.On("Read", mock.Anything, userID).Return(existing, nil)
 			repo.On("Update", mock.Anything, mock.AnythingOfType("*model.User")).Return(nil)
 
@@ -775,7 +841,7 @@ func TestFindOrCreateExternalUser_NewUser_CreatesWithDefaultRole(t *testing.T) {
 		Return(nil, errors.New("user not found"))
 	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
 		return u.AuthProvider == model.AuthProviderOIDC && u.ExternalIDPSubject == "sub-2" &&
-			u.Role == model.RoleUser && u.PasswordHash == "" && u.TOTPSecret == ""
+			len(u.Roles) == 1 && u.Roles[0] == model.RoleUser && u.PasswordHash == "" && u.TOTPSecret == ""
 	})).Return(nil)
 
 	svc := NewUserService(UserServiceConfig{UserRepository: repo, Logger: testLogger()})
@@ -784,7 +850,7 @@ func TestFindOrCreateExternalUser_NewUser_CreatesWithDefaultRole(t *testing.T) {
 		Provider: model.AuthProviderOIDC, Subject: "sub-2", PreferredUsername: "new-user",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, model.RoleUser, got.Role)
+	assert.ElementsMatch(t, []string{model.RoleUser}, got.Roles)
 	repo.AssertExpectations(t)
 }
 
