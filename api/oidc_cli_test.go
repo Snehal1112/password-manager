@@ -43,7 +43,7 @@ func TestValidateCLIRedirectURI(t *testing.T) {
 
 func TestCLIExchangeStore_PutThenConsume_SingleUse(t *testing.T) {
 	store := newCLIExchangeStore()
-	response := model.LoginResponse{Token: "tok", RefreshToken: "rtok", UserID: "u1", Username: "jdoe", Role: "user"}
+	response := model.LoginResponse{Token: "tok", RefreshToken: "rtok", UserID: "u1", Username: "jdoe", Roles: []string{"user"}}
 
 	code, err := store.put(response)
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestCLIExchangeStore_Put_ReclaimsExpiredUnconsumedEntries(t *testing.T) {
 
 func TestCLIExchangeHandler_ValidCode_ReturnsLoginResponse(t *testing.T) {
 	api := newOIDCHAPI(nil, nil, nil)
-	response := model.LoginResponse{Token: "tok", RefreshToken: "rtok", UserID: "u1", Username: "jdoe", Role: "user"}
+	response := model.LoginResponse{Token: "tok", RefreshToken: "rtok", UserID: "u1", Username: "jdoe", Roles: []string{"user"}}
 	code, err := api.cliExchange.put(response)
 	require.NoError(t, err)
 

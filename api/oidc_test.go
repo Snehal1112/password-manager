@@ -298,12 +298,12 @@ func TestOIDCCallback_Success_ReturnsLoginResponse(t *testing.T) {
 	oidcSvc.On("HandleCallback", mock.Anything, "auth-code", "nonce-1").Return(identity, nil)
 
 	userSvc := &mockUserServiceForOIDC{}
-	user := &model.User{ID: uuid.New(), Username: "jdoe", Role: model.RoleUser}
+	user := &model.User{ID: uuid.New(), Username: "jdoe", Roles: []string{model.RoleUser}}
 	userSvc.On("FindOrCreateExternalUser", mock.Anything, mock.Anything).Return(user, nil)
 
 	authSvc := &mockAuthServiceForOIDC{}
 	authSvc.On("IssueSessionForUser", mock.Anything, user).Return(&authServices.AuthenticationResult{
-		Token: "access-token", RefreshToken: "refresh-token", UserID: user.ID, Username: user.Username, Role: user.Role,
+		Token: "access-token", RefreshToken: "refresh-token", UserID: user.ID, Username: user.Username, Roles: user.Roles,
 	}, nil)
 
 	api := newOIDCHAPI(oidcSvc, userSvc, authSvc)
@@ -359,12 +359,12 @@ func TestOIDCCallback_WithCLIRedirect_RedirectsWithExchangeCode(t *testing.T) {
 	oidcSvc.On("HandleCallback", mock.Anything, "auth-code", "nonce-1").Return(identity, nil)
 
 	userSvc := &mockUserServiceForOIDC{}
-	user := &model.User{ID: uuid.New(), Username: "jdoe", Role: model.RoleUser}
+	user := &model.User{ID: uuid.New(), Username: "jdoe", Roles: []string{model.RoleUser}}
 	userSvc.On("FindOrCreateExternalUser", mock.Anything, mock.Anything).Return(user, nil)
 
 	authSvc := &mockAuthServiceForOIDC{}
 	authSvc.On("IssueSessionForUser", mock.Anything, user).Return(&authServices.AuthenticationResult{
-		Token: "access-token", RefreshToken: "refresh-token", UserID: user.ID, Username: user.Username, Role: user.Role,
+		Token: "access-token", RefreshToken: "refresh-token", UserID: user.ID, Username: user.Username, Roles: user.Roles,
 	}, nil)
 
 	api := newOIDCHAPI(oidcSvc, userSvc, authSvc)

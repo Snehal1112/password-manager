@@ -157,7 +157,7 @@ func (api *API) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: result.RefreshToken,
 		UserID:       result.UserID.String(),
 		Username:     result.Username,
-		Role:         result.Role,
+		Roles:        result.Roles,
 	}
 
 	if cliRedirectURI != "" {

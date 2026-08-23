@@ -503,12 +503,12 @@ func TestListOAuth2ClientsResponse_ToJson(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCreateUserRequestFromJson(t *testing.T) {
-	body := `{"username":"alice","password":"hunter2","role":"user"}`
+	body := `{"username":"alice","password":"hunter2","roles":["user"]}`
 	req, err := CreateUserRequestFromJson(strings.NewReader(body))
 	require.NoError(t, err)
 	assert.Equal(t, "alice", req.Username)
 	assert.Equal(t, "hunter2", req.Password)
-	assert.Equal(t, "user", req.Role)
+	assert.Equal(t, []string{"user"}, req.Roles)
 }
 
 func TestCreateUserRequestFromJson_InvalidJSON(t *testing.T) {
@@ -517,15 +517,15 @@ func TestCreateUserRequestFromJson_InvalidJSON(t *testing.T) {
 }
 
 func TestUpdateUserRequestFromJson(t *testing.T) {
-	body := `{"username":"bob","role":"admin"}`
+	body := `{"username":"bob","roles":["admin"]}`
 	req, err := UpdateUserRequestFromJson(strings.NewReader(body))
 	require.NoError(t, err)
 	assert.Equal(t, "bob", req.Username)
-	assert.Equal(t, "admin", req.Role)
+	assert.Equal(t, []string{"admin"}, req.Roles)
 }
 
 func TestUserResponse_ToJson(t *testing.T) {
-	r := &UserResponse{ID: "u-abc", Username: "alice", Role: "user"}
+	r := &UserResponse{ID: "u-abc", Username: "alice", Roles: []string{"user"}}
 	j := r.ToJson()
 	assert.Contains(t, j, "u-abc")
 	assert.Contains(t, j, "alice")
@@ -562,7 +562,7 @@ func TestLoginResponse_ToJson(t *testing.T) {
 		RefreshToken: "refresh-token",
 		UserID:       "u-123",
 		Username:     "alice",
-		Role:         "admin",
+		Roles:        []string{"admin"},
 	}
 	j := r.ToJson()
 	assert.Contains(t, j, "jwt-token")
@@ -587,7 +587,7 @@ func TestRefreshTokenResponse_ToJson(t *testing.T) {
 		RefreshToken: "new-refresh",
 		UserID:       "u-456",
 		Username:     "bob",
-		Role:         "user",
+		Roles:        []string{"user"},
 		ExpiresAt:    time.Now().Add(time.Hour),
 	}
 	j := r.ToJson()

@@ -333,7 +333,7 @@ func newUserCtx(userSvc userServices.UserService, authSvc authServices.Authentic
 // uAdminClaims returns claims for an admin caller with the given user_id.
 func uAdminClaims(userID string) RequestClaims {
 	return RequestClaims{
-		Role:   model.RoleAdmin,
+		Roles:  []string{model.RoleAdmin},
 		UserID: userID,
 	}
 }
@@ -341,7 +341,7 @@ func uAdminClaims(userID string) RequestClaims {
 // uViewerClaims returns claims for a non-admin caller.
 func uViewerClaims(userID string) RequestClaims {
 	return RequestClaims{
-		Role:   model.RoleUser,
+		Roles:  []string{model.RoleUser},
 		UserID: userID,
 	}
 }
@@ -624,6 +624,33 @@ func TestListUsers_Success_Returns200(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+// TestListUsers_MultiRoleAdmin_Allowed verifies a caller holding admin
+// alongside other roles still passes the admin gate -- the exact regression
+// class the whole feature exists to fix (a multi-role admin silently losing
+// access under the old strict-equality check).
+func TestListUsers_MultiRoleAdmin_Allowed(t *testing.T) {
+	svc := &mockUserService{}
+	users := []model.User{
+		{ID: uuid.New(), Username: "alice", Roles: []string{model.RoleAdmin}, CreatedAt: time.Now()},
+	}
+	svc.On("ListUsers", mock.Anything).Return(users, nil)
+
+	c := newUserCtx(svc, nil, RequestClaims{
+		UserID: "aaa",
+		Roles:  []string{"secrets_manager", model.RoleAdmin},
+	})
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/users", nil)
+
+	listUsers(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestListUsers_PaginationBeyondEnd_Returns200EmptyPage(t *testing.T) {
 	svc := &mockUserService{}
 	users := []model.User{
@@ -671,6 +698,27 @@ func TestGetUser_InvalidUserID_Returns400(t *testing.T) {
 func TestGetUser_NonAdminAccessingOtherUser_Returns403(t *testing.T) {
 	targetID := uuid.New()
 	c := newUserCtx(nil, nil, uViewerClaims("different-id"))
+	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/users/"+targetID.String(), nil)
+
+	getUser(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestGetUser_MultiRoleNonAdmin_CanOnlyAccessOwnProfile verifies a caller
+// holding several non-admin roles is still denied access to another user's
+// profile -- multi-role support must not accidentally widen non-admin access.
+func TestGetUser_MultiRoleNonAdmin_CanOnlyAccessOwnProfile(t *testing.T) {
+	targetID := uuid.New()
+	c := newUserCtx(nil, nil, RequestClaims{
+		UserID: "different-id",
+		Roles:  []string{"secrets_manager", "crypto_manager"},
+	})
 	c.Params = &ApiParams{UserID: targetID.String(), PerPage: 60}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/users/"+targetID.String(), nil)

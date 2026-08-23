@@ -24,7 +24,7 @@ import (
 // yields safe, empty field reads rather than a nil-pointer panic.
 type RequestClaims struct {
 	UserID string
-	Role   string
+	Roles  []string
 }
 
 // Context holds request-scoped data for every API handler.
@@ -188,7 +188,7 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 			App: a,
 			Claims: RequestClaims{
 				UserID: userIDStr,
-				Role:   role,
+				Roles:  []string{role},
 			},
 			Params:         ApiParamsFromRequest(r),
 			RequestID:      "req-" + uuid.New().String()[:8],

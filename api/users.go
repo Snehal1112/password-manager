@@ -72,9 +72,7 @@ func (api *API) InitUsers() {
 // values, at-least-one-required) is delegated entirely to UserService — this
 // handler only classifies its error messages as client vs server errors.
 func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
-	// RequestClaims currently carries a single Role string rather than a
-	// Roles slice, so it is wrapped for common.HasAnyRole here.
-	if !common.HasAnyRole([]string{c.Claims.Role}, model.RoleAdmin) {
+	if !common.HasAnyRole(c.Claims.Roles, model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -103,7 +101,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		Username:    req.Username,
 		Password:    req.Password,
 		Roles:       req.Roles,
-		CallerRoles: []string{c.Claims.Role},
+		CallerRoles: c.Claims.Roles,
 	})
 	if err != nil {
 		// Role validation errors from UserService ("invalid role: ...",
@@ -136,7 +134,7 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 // Only users with admin role can list all users.
 func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges.
-	if c.Claims.Role != string(model.RoleAdmin) {
+	if !common.HasAnyRole(c.Claims.Roles, model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
@@ -199,9 +197,9 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	// Check permissions — admin can get any user, users can get their own profile.
 	currentUserID := c.Claims.UserID
-	currentRole := c.Claims.Role
+	currentRoles := c.Claims.Roles
 
-	if currentRole != string(model.RoleAdmin) && currentUserID != userID.String() {
+	if !common.HasAnyRole(currentRoles, model.RoleAdmin) && currentUserID != userID.String() {
 		c.SetPermissionError("can only access own profile")
 		return
 	}
@@ -257,11 +255,9 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check permissions — admin can update any user, users can update their
-	// own profile (except roles). RequestClaims currently carries a single
-	// Role string rather than a Roles slice, so it is wrapped here for
-	// common.HasAnyRole.
+	// own profile (except roles).
 	currentUserID := c.Claims.UserID
-	currentRoles := []string{c.Claims.Role}
+	currentRoles := c.Claims.Roles
 
 	if !common.HasAnyRole(currentRoles, model.RoleAdmin) {
 		if currentUserID != userID.String() {
@@ -340,7 +336,7 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 // Only users with admin role can delete users.
 func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Check admin privileges.
-	if c.Claims.Role != string(model.RoleAdmin) {
+	if !common.HasAnyRole(c.Claims.Roles, model.RoleAdmin) {
 		c.SetPermissionError("admin role required")
 		return
 	}
