@@ -154,7 +154,7 @@ func TestEndpointAccessValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := rbacService.ValidateEndpointAccess(tt.role, tt.method, tt.path)
+			err := rbacService.ValidateEndpointAccess([]string{tt.role}, tt.method, tt.path)
 
 			if tt.shouldAllow {
 				if err != nil {

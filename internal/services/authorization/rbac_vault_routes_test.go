@@ -40,7 +40,7 @@ func TestValidateEndpointAccess_DataPlaneRoutesDelegate(t *testing.T) {
 	for _, p := range paths {
 		for _, role := range roles {
 			t.Run(role+" "+p.method+" "+p.path, func(t *testing.T) {
-				if err := svc.ValidateEndpointAccess(role, p.method, p.path); err != nil {
+				if err := svc.ValidateEndpointAccess([]string{role}, p.method, p.path); err != nil {
 					t.Fatalf("data-plane routes must not be gated by the global role, got %v", err)
 				}
 			})
@@ -102,15 +102,55 @@ func TestValidateEndpointAccess_VaultManagementRoutes(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if err := svc.ValidateEndpointAccess(c.role, c.method, c.path); err != nil {
+			if err := svc.ValidateEndpointAccess([]string{c.role}, c.method, c.path); err != nil {
 				t.Fatalf("ValidateEndpointAccess(%s, %s, %s) = %v, want nil — the global layer must defer entirely to the handler's own check", c.role, c.method, c.path, err)
 			}
 		})
 	}
 
 	// User management keeps its global permissions; it is not a vault data plane.
-	if err := svc.ValidateEndpointAccess(model.RoleUser, "POST", "/api/v1/users"); err == nil {
+	if err := svc.ValidateEndpointAccess([]string{model.RoleUser}, "POST", "/api/v1/users"); err == nil {
 		t.Fatal("user creation must still require the global users:create permission")
+	}
+}
+
+// TestValidateEndpointAccess_MultiRoleCallerGranted asserts that a caller
+// holding multiple roles is authorized if ANY of those roles grants the
+// required permission. Before this fix, ValidateEndpointAccess took a single
+// role string and HasPermission did an exact map lookup keyed by that one
+// string — a multi-role caller was always "unknown role," denied outright,
+// even when one of their roles individually would have been granted.
+//
+// The production role-permission table has no HTTP-reachable endpoint where
+// this actually bites: every data-plane route (secrets/keys/certificates)
+// bypasses global RBAC entirely (see mapEndpointToPermission), and /users is
+// the only route still gated, granted to "admin" alone. So this test builds
+// an rbacService directly with a small custom rolePermissions map — same
+// mechanism NewRBACService wires up, just with test-local grants — to
+// isolate ValidateEndpointAccess's role-loop from that production-table
+// constraint.
+func TestValidateEndpointAccess_MultiRoleCallerGranted(t *testing.T) {
+	svc := &rbacService{
+		rolePermissions: map[string][]Permission{
+			model.RoleUser:           {PermissionReadUser},
+			model.RoleSecretsManager: {PermissionCreateUser},
+		},
+		logger: logging.InitLogger(),
+	}
+
+	// "user" alone lacks users:create; "secrets_manager" alone has it.
+	if svc.HasPermission(model.RoleUser, PermissionCreateUser) {
+		t.Fatal("user role must not have users:create in this test setup")
+	}
+	if !svc.HasPermission(model.RoleSecretsManager, PermissionCreateUser) {
+		t.Fatal("secrets_manager role must have users:create in this test setup")
+	}
+
+	// A caller holding both roles must be granted: this is the exact bug
+	// class this task exists to fix.
+	roles := []string{model.RoleUser, model.RoleSecretsManager}
+	if err := svc.ValidateEndpointAccess(roles, "POST", "/api/v1/users"); err != nil {
+		t.Fatalf("multi-role caller should be granted access via secrets_manager's grant, got %v", err)
 	}
 }
 

@@ -287,7 +287,7 @@ func (m *Middleware) AuthenticationMiddleware(next http.Handler) http.Handler {
 		// Add user information to request context
 		ctx := context.WithValue(r.Context(), common.UserIDKey, claims.UserID.String())
 		ctx = context.WithValue(ctx, common.UsernameKey, claims.Username)
-		ctx = context.WithValue(ctx, common.RoleKey, claims.Role)
+		ctx = context.WithValue(ctx, common.RoleKey, claims.Roles)
 
 		if svc := m.container.GetAuditService(); svc != nil {
 			_ = svc.RecordEvent(r.Context(), auditSvc.AuditEvent{
@@ -325,8 +325,8 @@ func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Get user role from context (set by authentication middleware)
-		role, ok := r.Context().Value(common.RoleKey).(string)
+		// Get user roles from context (set by authentication middleware)
+		roles, ok := r.Context().Value(common.RoleKey).([]string)
 		if !ok {
 			m.logger.LogAuditError("", "authz", "failed", "Missing role in context", nil)
 			http.Error(w, "Forbidden: missing role", http.StatusForbidden)
@@ -334,10 +334,10 @@ func (m *Middleware) AuthorizationMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Check endpoint access using RBAC service
-		if err := m.container.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
+		if err := m.container.GetRBACService().ValidateEndpointAccess(roles, r.Method, r.URL.Path); err != nil {
 			m.logger.LogAuditError("", "authz", "failed", "Access denied", err)
 			logrus.WithFields(logrus.Fields{
-				"role":   role,
+				"roles":  roles,
 				"method": r.Method,
 				"path":   r.URL.Path,
 			}).Warn("Authorization failed")

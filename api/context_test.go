@@ -61,8 +61,8 @@ func (m *mockRBACService) GetRolePermissions(role string) []authzServices.Permis
 	return args.Get(0).([]authzServices.Permission)
 }
 
-func (m *mockRBACService) ValidateEndpointAccess(role, method, path string) error {
-	args := m.Called(role, method, path)
+func (m *mockRBACService) ValidateEndpointAccess(roles []string, method, path string) error {
+	args := m.Called(roles, method, path)
 	return args.Error(0)
 }
 
@@ -231,7 +231,7 @@ func (m *mockServiceContainer) Close() error {
 // Authorization header — i.e. it trusts AuthenticationMiddleware's output.
 func TestSessionRequired_ReadsFromContext(t *testing.T) {
 	rbac := &mockRBACService{}
-	rbac.On("ValidateEndpointAccess", "admin", http.MethodGet, "/api/secrets").Return(nil)
+	rbac.On("ValidateEndpointAccess", []string{"admin"}, http.MethodGet, "/api/secrets").Return(nil)
 
 	testApp := &app.App{}
 	testApp.ServiceContainer = &mockServiceContainer{rbac: rbac}
@@ -247,7 +247,7 @@ func TestSessionRequired_ReadsFromContext(t *testing.T) {
 	// Populate context as AuthenticationMiddleware would — no Authorization header.
 	ctx := context.WithValue(req.Context(), common.UserIDKey, "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	ctx = context.WithValue(ctx, common.UsernameKey, "alice")
-	ctx = context.WithValue(ctx, common.RoleKey, "admin")
+	ctx = context.WithValue(ctx, common.RoleKey, []string{"admin"})
 	req = req.WithContext(ctx)
 
 	rr := httptest.NewRecorder()
@@ -284,7 +284,7 @@ func TestSessionRequired_MissingUserID_Returns401(t *testing.T) {
 // role for the requested endpoint, SessionRequired returns 403.
 func TestSessionRequired_RBACDenied_Returns403(t *testing.T) {
 	rbac := &mockRBACService{}
-	rbac.On("ValidateEndpointAccess", "viewer", http.MethodDelete, "/api/secrets/123").
+	rbac.On("ValidateEndpointAccess", []string{"viewer"}, http.MethodDelete, "/api/secrets/123").
 		Return(errors.New("insufficient permissions"))
 
 	testApp := &app.App{}
@@ -299,7 +299,7 @@ func TestSessionRequired_RBACDenied_Returns403(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/api/secrets/123", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, "a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	ctx = context.WithValue(ctx, common.UsernameKey, "bob")
-	ctx = context.WithValue(ctx, common.RoleKey, "viewer")
+	ctx = context.WithValue(ctx, common.RoleKey, []string{"viewer"})
 	req = req.WithContext(ctx)
 
 	rr := httptest.NewRecorder()

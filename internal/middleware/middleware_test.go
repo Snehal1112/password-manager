@@ -184,8 +184,8 @@ func (m *MockRBACService) GetRolePermissions(role string) []authzServices.Permis
 	return args.Get(0).([]authzServices.Permission)
 }
 
-func (m *MockRBACService) ValidateEndpointAccess(role, method, path string) error {
-	args := m.Called(role, method, path)
+func (m *MockRBACService) ValidateEndpointAccess(roles []string, method, path string) error {
+	args := m.Called(roles, method, path)
 	return args.Error(0)
 }
 
@@ -433,7 +433,7 @@ func TestAuthenticationMiddleware(t *testing.T) {
 				claims := &authServices.JWTClaims{
 					UserID:   uuid.New(),
 					Username: "testuser",
-					Role:     "user",
+					Roles:    []string{"user"},
 				}
 				m.On("ValidateSession", mock.Anything, "valid-token-123").Return(claims, nil)
 			},
@@ -467,9 +467,9 @@ func TestAuthenticationMiddleware(t *testing.T) {
 					assert.True(t, ok, "Username should be in context")
 					assert.Equal(t, "testuser", username)
 
-					role, ok := r.Context().Value(common.RoleKey).(string)
+					roles, ok := r.Context().Value(common.RoleKey).([]string)
 					assert.True(t, ok, "Role should be in context")
-					assert.Equal(t, "user", role)
+					assert.Equal(t, []string{"user"}, roles)
 				}
 				w.WriteHeader(http.StatusOK)
 			})
@@ -517,7 +517,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 			method: "POST",
 			path:   "/api/users",
 			setupMock: func(m *MockRBACService) {
-				m.On("ValidateEndpointAccess", "admin", "POST", "/api/users").Return(nil)
+				m.On("ValidateEndpointAccess", []string{"admin"}, "POST", "/api/users").Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -527,7 +527,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 			method: "DELETE",
 			path:   "/api/users",
 			setupMock: func(m *MockRBACService) {
-				m.On("ValidateEndpointAccess", "user", "DELETE", "/api/users").Return(fmt.Errorf("insufficient permissions"))
+				m.On("ValidateEndpointAccess", []string{"user"}, "DELETE", "/api/users").Return(fmt.Errorf("insufficient permissions"))
 			},
 			expectedStatus: http.StatusForbidden,
 		},
@@ -537,7 +537,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 			method: "GET",
 			path:   "/api/secrets",
 			setupMock: func(m *MockRBACService) {
-				m.On("ValidateEndpointAccess", "user", "GET", "/api/secrets").Return(nil)
+				m.On("ValidateEndpointAccess", []string{"user"}, "GET", "/api/secrets").Return(nil)
 			},
 			expectedStatus: http.StatusOK,
 		},
@@ -557,7 +557,7 @@ func TestAuthorizationMiddleware(t *testing.T) {
 
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			if tt.role != "" {
-				ctx := context.WithValue(req.Context(), common.RoleKey, tt.role)
+				ctx := context.WithValue(req.Context(), common.RoleKey, []string{tt.role})
 				req = req.WithContext(ctx)
 			}
 			rr := httptest.NewRecorder()
@@ -780,10 +780,10 @@ func TestAuthMiddlewareDeprecated(t *testing.T) {
 	claims := &authServices.JWTClaims{
 		UserID:   uuid.New(),
 		Username: "testuser",
-		Role:     "admin",
+		Roles:    []string{"admin"},
 	}
 	mockAuthService.On("ValidateSession", mock.Anything, "valid-token").Return(claims, nil)
-	mockRBACService.On("ValidateEndpointAccess", "admin", "GET", "/api/test").Return(nil)
+	mockRBACService.On("ValidateEndpointAccess", []string{"admin"}, "GET", "/api/test").Return(nil)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

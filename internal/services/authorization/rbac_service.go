@@ -58,7 +58,7 @@ const (
 type RBACService interface {
 	HasPermission(role string, permission Permission) bool
 	GetRolePermissions(role string) []Permission
-	ValidateEndpointAccess(role, method, path string) error
+	ValidateEndpointAccess(roles []string, method, path string) error
 }
 
 // rbacService implements RBACService with configurable role-permission mappings.
@@ -174,47 +174,46 @@ func (s *rbacService) GetRolePermissions(role string) []Permission {
 	return result
 }
 
-// ValidateEndpointAccess validates if a role can access a specific endpoint.
-// It maps HTTP endpoints to required permissions and checks authorization.
+// ValidateEndpointAccess validates if any of a caller's roles can access a
+// specific endpoint. It maps HTTP endpoints to required permissions and
+// checks authorization.
 //
 // Parameters:
 //
-//	role: The user's role.
+//	roles: The caller's roles.
 //	method: The HTTP method (GET, POST, PUT, DELETE).
 //	path: The request path.
 //
 // Returns:
 //
 //	An error if access is denied, nil if access is granted.
-func (s *rbacService) ValidateEndpointAccess(role, method, path string) error {
+func (s *rbacService) ValidateEndpointAccess(roles []string, method, path string) error {
 	permission := s.mapEndpointToPermission(method, path)
 	if permission == "" {
-		// No specific permission required, allow access
 		return nil
 	}
 
-	if !s.HasPermission(role, permission) {
-		s.logger.LogAuditError("", "authorization", "failed",
-			fmt.Sprintf("Access denied for role %s to %s %s", role, method, path), nil)
-
-		logrus.WithFields(logrus.Fields{
-			"role":                role,
-			"method":              method,
-			"path":                path,
-			"required_permission": string(permission),
-		}).Warn("Access denied: insufficient permissions")
-
-		return fmt.Errorf("insufficient permissions: %s required", permission)
+	for _, role := range roles {
+		if s.HasPermission(role, permission) {
+			logrus.WithFields(logrus.Fields{
+				"roles":      roles,
+				"method":     method,
+				"path":       path,
+				"permission": string(permission),
+			}).Debug("Access granted")
+			return nil
+		}
 	}
 
+	s.logger.LogAuditError("", "authorization", "failed",
+		fmt.Sprintf("Access denied for roles %v to %s %s", roles, method, path), nil)
 	logrus.WithFields(logrus.Fields{
-		"role":       role,
-		"method":     method,
-		"path":       path,
-		"permission": string(permission),
-	}).Debug("Access granted")
-
-	return nil
+		"roles":               roles,
+		"method":              method,
+		"path":                path,
+		"required_permission": string(permission),
+	}).Warn("Access denied: insufficient permissions")
+	return fmt.Errorf("insufficient permissions: %s required", permission)
 }
 
 // mapEndpointToPermission maps HTTP endpoints to the global permission they

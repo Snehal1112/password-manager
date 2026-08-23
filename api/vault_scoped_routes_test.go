@@ -25,7 +25,7 @@ import (
 func doScopedRequest(api *API, method, path string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, nil)
 	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleAdmin)})
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)
@@ -411,7 +411,7 @@ func TestVaultScopedRoute_UsesVaultScopedImport(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/prod/secrets/import", &buf)
 	r.Header.Set("Content-Type", mw.FormDataContentType())
 	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleAdmin)})
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)

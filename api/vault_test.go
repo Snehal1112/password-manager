@@ -406,7 +406,7 @@ func doVaultRequest(api *API, method, path string, body []byte) *httptest.Respon
 		r = httptest.NewRequest(method, path, nil)
 	}
 	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleAdmin)})
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)
@@ -520,7 +520,7 @@ func (p permissiveRBAC) GetRolePermissions(role string) []authzServices.Permissi
 	return []authzServices.Permission{}
 }
 
-func (p permissiveRBAC) ValidateEndpointAccess(role, method, path string) error {
+func (p permissiveRBAC) ValidateEndpointAccess(roles []string, method, path string) error {
 	return nil
 }
 
@@ -557,7 +557,7 @@ func doVaultRequestAs(api *API, role, method, path string, body []byte) *httptes
 		r = httptest.NewRequest(method, path, nil)
 	}
 	ctx := context.WithValue(r.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, role)
+	ctx = context.WithValue(ctx, common.RoleKey, []string{role})
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)

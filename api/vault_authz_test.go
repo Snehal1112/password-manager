@@ -186,7 +186,7 @@ func TestVaultManage_ScopedToDefault_CannotReachOtherVault(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/vaults/prod", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleUser)})
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -216,7 +216,7 @@ func TestVaultManage_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *t
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
-			ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+			ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleUser)})
 			req = req.WithContext(ctx)
 			w := httptest.NewRecorder()
 			router.ServeHTTP(w, req)
@@ -254,7 +254,7 @@ func TestVaultManage_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *tes
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/vaults/prod", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleUser)})
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -332,7 +332,7 @@ func TestPurgeVault_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *te
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/purge", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleUser)})
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -363,7 +363,7 @@ func TestPurgeVault_GlobalAdminDeniedWithoutPurgeOperatorGrant(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/purge", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleAdmin))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleAdmin)})
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -394,7 +394,7 @@ func TestPurgeVault_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *test
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/vaults/prod/purge", nil)
 	ctx := context.WithValue(req.Context(), common.UserIDKey, vaultTestUserID)
-	ctx = context.WithValue(ctx, common.RoleKey, string(model.RoleUser))
+	ctx = context.WithValue(ctx, common.RoleKey, []string{string(model.RoleUser)})
 	req = req.WithContext(ctx)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

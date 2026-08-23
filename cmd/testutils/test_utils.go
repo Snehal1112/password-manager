@@ -809,8 +809,8 @@ func (m *MockRBACService) GetRolePermissions(role string) []authzServices.Permis
 	return args.Get(0).([]authzServices.Permission)
 }
 
-func (m *MockRBACService) ValidateEndpointAccess(role, method, path string) error {
-	args := m.Called(role, method, path)
+func (m *MockRBACService) ValidateEndpointAccess(roles []string, method, path string) error {
+	args := m.Called(roles, method, path)
 	return args.Error(0)
 }
 

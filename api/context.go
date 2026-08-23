@@ -169,10 +169,10 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 			return
 		}
 
-		role, _ := r.Context().Value(common.RoleKey).(string)
+		roles, _ := r.Context().Value(common.RoleKey).([]string)
 
 		if a.ServiceContainer != nil {
-			if err := a.ServiceContainer.GetRBACService().ValidateEndpointAccess(role, r.Method, r.URL.Path); err != nil {
+			if err := a.ServiceContainer.GetRBACService().ValidateEndpointAccess(roles, r.Method, r.URL.Path); err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
@@ -188,7 +188,7 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 			App: a,
 			Claims: RequestClaims{
 				UserID: userIDStr,
-				Roles:  []string{role},
+				Roles:  roles,
 			},
 			Params:         ApiParamsFromRequest(r),
 			RequestID:      "req-" + uuid.New().String()[:8],
