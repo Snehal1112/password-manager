@@ -21,7 +21,7 @@ func TestSaveAndLoadSession_RoundTrip(t *testing.T) {
 		RefreshToken: "refresh-tok",
 		UserID:       uuid.New(),
 		Username:     "user14@exchange4all.local",
-		Role:         "user",
+		Roles:        []string{"user"},
 		ExpiresAt:    time.Now().Add(15 * time.Minute).UTC().Truncate(time.Second),
 	}
 
@@ -34,7 +34,7 @@ func TestSaveAndLoadSession_RoundTrip(t *testing.T) {
 	assert.Equal(t, session.RefreshToken, loaded.RefreshToken)
 	assert.Equal(t, session.UserID, loaded.UserID)
 	assert.Equal(t, session.Username, loaded.Username)
-	assert.Equal(t, session.Role, loaded.Role)
+	assert.Equal(t, session.Roles, loaded.Roles)
 	assert.True(t, session.ExpiresAt.Equal(loaded.ExpiresAt))
 }
 

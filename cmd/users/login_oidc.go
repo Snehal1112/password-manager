@@ -52,11 +52,11 @@ const (
 // package (an HTTP server package) into the CLI's dependency graph for one
 // struct shape.
 type oidcExchangeResponse struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
-	UserID       string `json:"user_id"`
-	Username     string `json:"username"`
-	Role         string `json:"role"`
+	Token        string   `json:"token"`
+	RefreshToken string   `json:"refresh_token"`
+	UserID       string   `json:"user_id"`
+	Username     string   `json:"username"`
+	Roles        []string `json:"roles"`
 }
 
 // startLoopbackListener starts an HTTP server on 127.0.0.1:<random port>
@@ -164,7 +164,7 @@ func exchangeOIDCCode(ctx context.Context, baseURL, code string) (*common.Sessio
 		RefreshToken: exchanged.RefreshToken,
 		UserID:       userID,
 		Username:     exchanged.Username,
-		Role:         exchanged.Role,
+		Roles:        exchanged.Roles,
 		ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
 	}, nil
 }

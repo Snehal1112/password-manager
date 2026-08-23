@@ -36,7 +36,7 @@ type SessionCache struct {
 	RefreshToken string    `json:"refresh_token"`
 	UserID       uuid.UUID `json:"user_id"`
 	Username     string    `json:"username"`
-	Role         string    `json:"role"`
+	Roles        []string  `json:"roles"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	// ServerKey identifies which server this session belongs to:
 	// LocalServerKey for local mode, or SanitizeServerKey(serverURL) for a

@@ -25,7 +25,6 @@ package users
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -101,13 +100,8 @@ func performPasswordLogin(ctx context.Context, authSvc authServices.Authenticati
 		RefreshToken: result.RefreshToken,
 		UserID:       result.UserID,
 		Username:     result.Username,
-		// SessionCache.Role is still a single string (its rename to Roles
-		// []string is deferred to Plan 10 Task 1); AuthenticationResult.Role
-		// was already renamed to Roles []string by an earlier, unrelated
-		// auth-service change, so join here to keep this file compiling
-		// without pre-empting Plan 10's own SessionCache rename.
-		Role:      strings.Join(result.Roles, ","),
-		ExpiresAt: time.Now().Add(viper.GetDuration("jwt.expiry")),
+		Roles:        result.Roles,
+		ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
 	}
 	if err := common.SaveSession(session); err != nil {
 		return nil, fmt.Errorf("authenticated but failed to cache session: %w", err)

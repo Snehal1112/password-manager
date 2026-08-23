@@ -1030,6 +1030,28 @@ func TestFindOrCreateExternalUser_NewUser_CreatesWithDefaultRole(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+func TestFindOrCreateExternalUser_NewUser_GetsLeastPrivilegeRole(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	pw := &mockPasswordService{}
+	totpSvc := &mockTOTPService{}
+	svc := newService(repo, pw, totpSvc)
+
+	repo.On("ReadByExternalSubject", mock.Anything, "oidc", "sub-123").
+		Return(nil, errors.New("not found"))
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(u *model.User) bool {
+		return assert.ObjectsAreEqualValues([]string{model.RoleUser}, u.Roles)
+	})).Return(nil)
+
+	user, err := svc.FindOrCreateExternalUser(context.Background(), FindOrCreateExternalUserRequest{
+		Provider:          "oidc",
+		Subject:           "sub-123",
+		PreferredUsername: "newoidcuser",
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{model.RoleUser}, user.Roles)
+}
+
 func TestFindOrCreateExternalUser_UsernameCollision_Suffixes(t *testing.T) {
 	repo := &mockUserRepository{}
 	repo.On("ReadByExternalSubject", mock.Anything, model.AuthProviderOIDC, "sub-3").

@@ -89,10 +89,10 @@ func TestExchangeOIDCCode_Success(t *testing.T) {
 		assert.Equal(t, "code123", body["code"])
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck
+		json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 			"token": "access-tok", "refresh_token": "refresh-tok",
 			"user_id":  "11111111-1111-1111-1111-111111111111",
-			"username": "user14@exchange4all.local", "role": "user",
+			"username": "user14@exchange4all.local", "roles": []string{"user"},
 		})
 	}))
 	defer server.Close()
@@ -102,7 +102,20 @@ func TestExchangeOIDCCode_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "access-tok", session.Token)
 	assert.Equal(t, "user14@exchange4all.local", session.Username)
+	assert.Equal(t, []string{"user"}, session.Roles)
 	assert.True(t, session.ExpiresAt.After(time.Now()))
+}
+
+// TestOIDCExchangeResponse_UnmarshalsRolesArray proves oidcExchangeResponse
+// decodes a "roles" JSON array into its Roles []string field. This struct
+// hand-duplicates the server's wire shape (see its doc comment) rather than
+// importing model.LoginResponse, so it doesn't benefit from that type's own
+// tests -- it needs this one directly.
+func TestOIDCExchangeResponse_UnmarshalsRolesArray(t *testing.T) {
+	var decoded oidcExchangeResponse
+	err := json.Unmarshal([]byte(`{"roles":["admin","secrets_manager"]}`), &decoded)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"admin", "secrets_manager"}, decoded.Roles)
 }
 
 func TestExchangeOIDCCode_NonOKStatus_ReturnsError(t *testing.T) {
