@@ -252,7 +252,7 @@ func TestOAuth2Service_IssueToken_JWTError(t *testing.T) {
 	client := &model.OAuth2Client{ID: clientID, Name: "svc", Enabled: true, CreatedAt: time.Now().UTC()}
 	repo.On("FindByName", mock.Anything, "svc").Return(client, nil)
 	pw.On("ValidatePassword", "secret", client.ClientSecret).Return(nil)
-	jwtMock.On("GenerateToken", clientID, "svc", model.RoleServiceAccount, clientID).Return("", errors.New("jwt failure"))
+	jwtMock.On("GenerateToken", clientID, "svc", []string{model.RoleServiceAccount}, clientID).Return("", errors.New("jwt failure"))
 
 	_, err := svc.IssueToken(context.Background(), "svc", "secret")
 	require.Error(t, err)
@@ -281,7 +281,7 @@ func TestNewOAuth2Service_DefaultExpiry(t *testing.T) {
 	client := &model.OAuth2Client{ID: clientID, Name: "svc", Enabled: true, CreatedAt: time.Now().UTC()}
 	repo.On("FindByName", mock.Anything, "svc").Return(client, nil)
 	pw.On("ValidatePassword", "s", client.ClientSecret).Return(nil)
-	jwtMock.On("GenerateToken", clientID, "svc", model.RoleServiceAccount, clientID).Return("tok", nil)
+	jwtMock.On("GenerateToken", clientID, "svc", []string{model.RoleServiceAccount}, clientID).Return("tok", nil)
 
 	resp, err := svc.IssueToken(context.Background(), "svc", "s")
 	require.NoError(t, err)

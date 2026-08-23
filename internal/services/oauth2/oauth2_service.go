@@ -19,7 +19,7 @@ import (
 // JWTService is the subset of authServices.JWTService required here.
 // Token validation is performed by AuthenticationMiddleware, not this service.
 type JWTService interface {
-	GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error)
+	GenerateToken(userID uuid.UUID, username string, roles []string, sessionID uuid.UUID) (string, error)
 }
 
 // PasswordService is the subset of authServices.PasswordService that this
@@ -103,7 +103,7 @@ func (s *oauth2Service) IssueToken(ctx context.Context, clientName, secret strin
 
 	// Use client.ID as jti so ValidateSession can verify the client is still
 	// active on each request, enabling immediate revocation on delete/disable.
-	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, model.RoleServiceAccount, client.ID)
+	tokenStr, err := s.jwtSvc.GenerateToken(client.ID, client.Name, []string{model.RoleServiceAccount}, client.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to issue token: %w", err)
 	}

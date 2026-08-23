@@ -70,8 +70,8 @@ func (m *mockPasswordService) ValidatePassword(pw, hash string) error {
 
 type mockJWTService struct{ mock.Mock }
 
-func (m *mockJWTService) GenerateToken(userID uuid.UUID, username, role string, sessionID uuid.UUID) (string, error) {
-	args := m.Called(userID, username, role, sessionID)
+func (m *mockJWTService) GenerateToken(userID uuid.UUID, username string, roles []string, sessionID uuid.UUID) (string, error) {
+	args := m.Called(userID, username, roles, sessionID)
 	return args.String(0), args.Error(1)
 }
 
@@ -105,13 +105,17 @@ func TestOAuth2Service_IssueToken_Success(t *testing.T) {
 	repo.On("FindByName", mock.Anything, "my-app").Return(client, nil)
 	pw.On("ValidatePassword", "plain-secret", client.ClientSecret).Return(nil)
 	// jti must now be client.ID so ValidateSession can verify the client is active.
-	jwt.On("GenerateToken", clientID, "my-app", "service_account", clientID).Return("tok.en.str", nil)
+	jwt.On("GenerateToken", clientID, "my-app", []string{model.RoleServiceAccount}, clientID).Return("tok.en.str", nil)
 
 	resp, err := svc.IssueToken(context.Background(), "my-app", "plain-secret")
 	require.NoError(t, err)
 	assert.Equal(t, "tok.en.str", resp.AccessToken)
 	assert.Equal(t, "Bearer", resp.TokenType)
 	assert.Equal(t, int(30*60), resp.ExpiresIn)
+
+	// Assert the call site passes the service-account role as a single-element
+	// slice, not a bare string — GenerateToken's claims-facing contract.
+	jwt.AssertCalled(t, "GenerateToken", clientID, "my-app", []string{model.RoleServiceAccount}, clientID)
 }
 
 func TestOAuth2Service_IssueToken_ClientNotFound(t *testing.T) {
