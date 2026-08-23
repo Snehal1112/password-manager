@@ -29,6 +29,9 @@ package common
 //   - userRoles: the roles a principal actually holds
 //   - requiredRoles: the roles that would grant the operation being checked
 //
+// Matching is exact and requires normalized input: callers must pass
+// already-trimmed role strings; this function does not trim whitespace.
+//
 // Returns true if userRoles and requiredRoles share at least one entry.
 func HasAnyRole(userRoles []string, requiredRoles ...string) bool {
 	if len(userRoles) == 0 || len(requiredRoles) == 0 {
