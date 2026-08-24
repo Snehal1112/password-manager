@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"rocketvault/internal/cachekit"
@@ -185,3 +186,120 @@ type Config struct {
 	// SoftDelete holds soft-delete and purge protection settings.
 	SoftDelete SoftDeleteConfig `mapstructure:"soft_delete"`
 }
+
+// MCPMaxResultsCeiling bounds mcp.max_results.
+//
+// An unbounded list tool would pour thousands of rows straight into a model's
+// context, so the ceiling is a hard limit rather than a suggestion.
+const MCPMaxResultsCeiling = 200
+
+// mcpClientSecretEnv holds the service-account secret, taking precedence over
+// the YAML key so a deployment need not write it to disk.
+const mcpClientSecretEnv = "ROCKETVAULT_MCP_CLIENT_SECRET"
+
+// MCPRateLimit bounds how fast tools may be called, per tool class.
+type MCPRateLimit struct {
+	ReadsPerMinute  int `mapstructure:"reads_per_minute"`
+	WritesPerMinute int `mapstructure:"writes_per_minute"`
+}
+
+// MCPConfig governs the MCP server's capability surface.
+//
+// Every capability flag defaults to false: a config file with no mcp section
+// must yield the most restrictive server possible. These flags only ever
+// narrow what the authenticated principal's RBAC already permits — they
+// cannot widen it, because the server enforces authorization independently.
+type MCPConfig struct {
+	// Vault is the default vault for tools that do not name one.
+	Vault string `mapstructure:"vault"`
+	// AllowedVaults pins the server to a set of vaults. Empty means any
+	// vault the principal can reach.
+	AllowedVaults []string `mapstructure:"allowed_vaults"`
+
+	AllowWrite        bool `mapstructure:"allow_write"`
+	AllowDestructive  bool `mapstructure:"allow_destructive"`
+	AllowCrypto       bool `mapstructure:"allow_crypto"`
+	AllowSecretValues bool `mapstructure:"allow_secret_values"`
+
+	// RequireServiceAccount refuses the cached-session identity, so the agent
+	// cannot act as the logged-in human. Production should set it.
+	RequireServiceAccount bool `mapstructure:"require_service_account"`
+	// ConfirmDestructive requires destructive tools to echo the exact
+	// resource name. It defaults to true, the safer value.
+	ConfirmDestructive bool `mapstructure:"confirm_destructive"`
+
+	MaxResults     int           `mapstructure:"max_results"`
+	RequestTimeout time.Duration `mapstructure:"request_timeout"`
+	RateLimit      MCPRateLimit  `mapstructure:"rate_limit"`
+
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+}
+
+// LoadMCPConfig reads MCP settings from Viper, seeding restrictive defaults
+// and overriding only keys that are actually set.
+func LoadMCPConfig() (MCPConfig, error) {
+	cfg := MCPConfig{
+		Vault:              "default",
+		ConfirmDestructive: true,
+		MaxResults:         50,
+		RequestTimeout:     30 * time.Second,
+		RateLimit:          MCPRateLimit{ReadsPerMinute: 120, WritesPerMinute: 20},
+	}
+
+	if viper.IsSet("mcp.vault") {
+		cfg.Vault = viper.GetString("mcp.vault")
+	}
+	if viper.IsSet("mcp.allowed_vaults") {
+		cfg.AllowedVaults = viper.GetStringSlice("mcp.allowed_vaults")
+	}
+	if viper.IsSet("mcp.allow_write") {
+		cfg.AllowWrite = viper.GetBool("mcp.allow_write")
+	}
+	if viper.IsSet("mcp.allow_destructive") {
+		cfg.AllowDestructive = viper.GetBool("mcp.allow_destructive")
+	}
+	if viper.IsSet("mcp.allow_crypto") {
+		cfg.AllowCrypto = viper.GetBool("mcp.allow_crypto")
+	}
+	if viper.IsSet("mcp.allow_secret_values") {
+		cfg.AllowSecretValues = viper.GetBool("mcp.allow_secret_values")
+	}
+	if viper.IsSet("mcp.require_service_account") {
+		cfg.RequireServiceAccount = viper.GetBool("mcp.require_service_account")
+	}
+	if viper.IsSet("mcp.confirm_destructive") {
+		cfg.ConfirmDestructive = viper.GetBool("mcp.confirm_destructive")
+	}
+	if viper.IsSet("mcp.max_results") {
+		cfg.MaxResults = viper.GetInt("mcp.max_results")
+	}
+	if viper.IsSet("mcp.request_timeout") {
+		cfg.RequestTimeout = viper.GetDuration("mcp.request_timeout")
+	}
+	if viper.IsSet("mcp.rate_limit.reads_per_minute") {
+		cfg.RateLimit.ReadsPerMinute = viper.GetInt("mcp.rate_limit.reads_per_minute")
+	}
+	if viper.IsSet("mcp.rate_limit.writes_per_minute") {
+		cfg.RateLimit.WritesPerMinute = viper.GetInt("mcp.rate_limit.writes_per_minute")
+	}
+	if viper.IsSet("mcp.client_id") {
+		cfg.ClientID = viper.GetString("mcp.client_id")
+	}
+	if viper.IsSet("mcp.client_secret") {
+		cfg.ClientSecret = viper.GetString("mcp.client_secret")
+	}
+
+	// The environment wins, so a deployment need not write the secret to disk.
+	if fromEnv := os.Getenv(mcpClientSecretEnv); fromEnv != "" {
+		cfg.ClientSecret = fromEnv
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return MCPConfig{}, err
+	}
+	return cfg, nil
+}
+
+// Validate checks the configuration. Task 2 gives it a real body.
+func (c MCPConfig) Validate() error { return nil }
