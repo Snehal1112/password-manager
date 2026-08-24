@@ -253,3 +253,78 @@ func TestServiceAccountSource_RecoversAfterFailedFetch(t *testing.T) {
 	require.NoError(t, err, "a failed fetch must not poison the source")
 	require.Equal(t, "tok-ok", tok)
 }
+
+func TestServiceAccountSource_CloseClearsCachedToken(t *testing.T) {
+	srv, _, _ := tokenServer(t, 3600)
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec", HTTPClient: srv.Client(),
+	})
+	require.NoError(t, err)
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, tok)
+	require.NotEmpty(t, src.cachedTokenForTest())
+
+	src.Close()
+	require.Empty(t, src.cachedTokenForTest(), "Close must drop the cached token")
+	require.True(t, src.expiryForTest().IsZero(), "Close must reset expiry so a stale token is never served")
+}
+
+func TestServiceAccountSource_TokenAfterCloseFetchesFresh(t *testing.T) {
+	srv, calls, _ := tokenServer(t, 3600)
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec", HTTPClient: srv.Client(),
+	})
+	require.NoError(t, err)
+
+	_, err = src.Token(context.Background())
+	require.NoError(t, err)
+	src.Close()
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "tok-2", tok)
+	require.EqualValues(t, 2, atomic.LoadInt32(calls))
+}
+
+func TestServiceAccountSource_RefreshDropsPreviousToken(t *testing.T) {
+	srv, _, _ := tokenServer(t, 30)
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec",
+		HTTPClient: srv.Client(), Skew: 60 * time.Second,
+	})
+	require.NoError(t, err)
+
+	_, err = src.Token(context.Background())
+	require.NoError(t, err)
+	_, err = src.Token(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, "tok-2", src.cachedTokenForTest(),
+		"the replaced token must not still be the cached one")
+}
+
+func TestServiceAccountSource_CloseIsIdempotent(t *testing.T) {
+	srv, _, _ := tokenServer(t, 3600)
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec", HTTPClient: srv.Client(),
+	})
+	require.NoError(t, err)
+
+	_, err = src.Token(context.Background())
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		src.Close()
+		src.Close()
+	})
+}

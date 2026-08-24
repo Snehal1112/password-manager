@@ -122,8 +122,25 @@ func (s *ServiceAccountSource) Token(ctx context.Context) (string, error) {
 	return token, err
 }
 
-// zeroToken clears the cached token. Task 3 gives it a real body.
-func (s *ServiceAccountSource) zeroToken() {}
+// zeroToken drops the cached token and its expiry.
+//
+// Go strings are immutable and the runtime may have copied this value, so
+// this cannot erase every copy. What it does guarantee is that the source
+// stops holding a live reference, bounding how long the token stays reachable
+// through this struct. That is the same bound cachekit.Zeroable operates
+// under. Callers must hold s.mu.
+func (s *ServiceAccountSource) zeroToken() {
+	s.token = ""
+	s.expiresAt = time.Time{}
+}
+
+// Close drops any cached token. It is safe to call more than once, and the
+// source remains usable afterwards — the next Token call fetches a fresh one.
+func (s *ServiceAccountSource) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.zeroToken()
+}
 
 // tokenResponse mirrors the success body documented at api/oauth2.go:54.
 type tokenResponse struct {
