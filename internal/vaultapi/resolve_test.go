@@ -264,3 +264,55 @@ func TestResolver_EmptyListIsNotFoundNotAnError(t *testing.T) {
 	var apiErr *APIError
 	require.NotErrorAs(t, err, &apiErr, "an empty vault is not an API failure")
 }
+
+func TestResolver_NotFoundIsErrResourceNotFound(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[],"total":0}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "missing")
+	require.ErrorIs(t, err, ErrResourceNotFound,
+		"callers must be able to tell absence from denial without matching on text")
+}
+
+func TestResolver_NotFoundStillCarriesItsMessage(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[{"id":"` + dbSecretID + `","name":"db-password"}],"total":1}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "db-pass")
+	require.ErrorIs(t, err, ErrResourceNotFound)
+	require.Contains(t, err.Error(), "did you mean",
+		"wrapping must not cost the near-miss suggestion")
+}
+
+func TestResolver_AmbiguousIsNotErrResourceNotFound(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[
+			{"id":"` + dbSecretID + `","name":"dup"},
+			{"id":"` + apiSecretID + `","name":"dup"}
+		],"total":2}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "dup")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrResourceNotFound,
+		"an ambiguous name is present twice, not absent")
+}
+
+func TestResolver_ForbiddenIsNotErrResourceNotFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	c, err := New(Config{BaseURL: srv.URL, HTTPClient: srv.Client(), Tokens: staticToken("t")})
+	require.NoError(t, err)
+
+	_, err = c.Resolver().Resolve(context.Background(), "prod", KindSecrets, "anything")
+	require.NotErrorIs(t, err, ErrResourceNotFound,
+		"conflating denial with absence would silently turn a permission failure into a create")
+}

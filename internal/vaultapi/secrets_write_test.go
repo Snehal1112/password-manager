@@ -171,3 +171,29 @@ func TestSetSecretRequest_MarshalsWithoutLeakingTheValue(t *testing.T) {
 	require.NotContains(t, string(encoded), "hunter2-super-secret",
 		"a request carrying plaintext must redact like a response does")
 }
+
+func TestSetSecret_ForbiddenResolveDoesNotBecomeACreate(t *testing.T) {
+	var writeCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		writeCalls++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	c := newClientForTest(t, srv)
+	_, _, err := c.SetSecret(context.Background(), "prod", SetSecretRequest{
+		Name: "db-password", Value: SecretValue("hunter2"),
+	})
+
+	require.Error(t, err)
+	require.Zero(t, writeCalls,
+		"a denied listing must not be read as 'the secret does not exist' and become a create")
+
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, KindForbidden, apiErr.Kind)
+}
