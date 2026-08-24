@@ -254,3 +254,130 @@ func TestEncrypt_IsPresentWithoutAllowSecretValues(t *testing.T) {
 
 	require.Contains(t, s.RegisteredTools(), "encrypt")
 }
+
+// fullCryptoConfig enables both the crypto tier and value disclosure.
+func fullCryptoConfig() config.MCPConfig {
+	cfg := cryptoConfig()
+	cfg.AllowSecretValues = true
+	return cfg
+}
+
+func TestDecrypt_IsAbsentWithoutAllowSecretValues(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, cryptoConfig()) // crypto on, disclosure off
+	registerCryptoTools(s)
+
+	require.NotContains(t, s.RegisteredTools(), "decrypt",
+		"decrypt returns plaintext; without this gate, disabling secret disclosure would mean nothing")
+	require.Contains(t, s.RegisteredTools(), "encrypt",
+		"the other three crypto tools are unaffected")
+}
+
+func TestDecrypt_IsAbsentWithoutAllowCrypto(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+
+	cfg := testConfig()
+	cfg.AllowSecretValues = true // disclosure alone is not enough
+	s := f.server(t, cfg)
+	registerCryptoTools(s)
+
+	require.Empty(t, s.RegisteredTools())
+}
+
+func TestDecrypt_IsPresentWithBothFlags(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	require.Contains(t, s.RegisteredTools(), "decrypt")
+}
+
+func TestDecrypt_ReturnsTextForValidUTF8(t *testing.T) {
+	plaintext := []byte("the-decrypted-secret")
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","algorithm":"RSA-OAEP",
+		"value":"` + base64.StdEncoding.EncodeToString(plaintext) + `","version":1}`
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	var got decryptResult
+	structured(t, callTool(t, s, "decrypt", map[string]any{
+		"key_name": "signing-key", "ciphertext_base64": "Y2lwaGVy",
+	}), &got)
+
+	require.Equal(t, "the-decrypted-secret", got.Plaintext)
+	require.False(t, got.PlaintextIsBase64)
+}
+
+func TestDecrypt_ReturnsBase64ForBinaryPlaintext(t *testing.T) {
+	binary := []byte{0x00, 0xFF, 0xFE, 0x80}
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `",
+		"value":"` + base64.StdEncoding.EncodeToString(binary) + `"}`
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	var got decryptResult
+	structured(t, callTool(t, s, "decrypt", map[string]any{
+		"key_name": "signing-key", "ciphertext_base64": "Y2lwaGVy",
+	}), &got)
+
+	require.True(t, got.PlaintextIsBase64,
+		"returning invalid UTF-8 as a JSON string would corrupt it silently via U+FFFD replacement")
+	require.Equal(t, base64.StdEncoding.EncodeToString(binary), got.Plaintext)
+}
+
+func TestDecrypt_SendsTheNonce(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","value":"aGk="}`
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	nonce := base64.StdEncoding.EncodeToString([]byte{0x01, 0x02})
+	_ = callTool(t, s, "decrypt", map[string]any{
+		"key_name": "signing-key", "ciphertext_base64": "Y2lwaGVy",
+		"nonce_base64": nonce, "algorithm": "AES256-GCM",
+	})
+	require.Equal(t, nonce, f.lastWriteBody["nonce"])
+}
+
+func TestDecrypt_RejectsInvalidBase64Ciphertext(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	result := callTool(t, s, "decrypt", map[string]any{
+		"key_name": "signing-key", "ciphertext_base64": "not base64!!!",
+	})
+	require.True(t, result.IsError)
+	require.Contains(t, renderContent(result), "base64")
+}
+
+func TestDecrypt_ErrorNeverContainsThePlaintext(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.failWith("/api/v1/vaults/default/keys/"+signKeyUUID+"/decrypt", 403)
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	result := callTool(t, s, "decrypt", map[string]any{
+		"key_name": "signing-key", "ciphertext_base64": "Y2lwaGVy",
+	})
+	require.True(t, result.IsError)
+	require.Contains(t, renderContent(result), "Key Vault Crypto")
+}
+
+func TestCryptoTier_ExposesThreeToolsWithoutDisclosure(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	require.Equal(t, []string{"encrypt", "sign", "verify"}, s.RegisteredTools())
+}
+
+func TestCryptoTier_ExposesFourToolsWithDisclosure(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, fullCryptoConfig())
+	registerCryptoTools(s)
+
+	require.Equal(t, []string{"decrypt", "encrypt", "sign", "verify"}, s.RegisteredTools())
+}
