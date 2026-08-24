@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -152,4 +153,114 @@ func TestResolver_PropagatesListFailure(t *testing.T) {
 	var apiErr *APIError
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, KindForbidden, apiErr.Kind)
+}
+
+func TestResolver_AmbiguousNameNamesEveryCandidate(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[
+			{"id":"` + dbSecretID + `","name":"db-password"},
+			{"id":"` + apiSecretID + `","name":"db-password"}
+		],"total":2}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "db-password")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), dbSecretID)
+	require.Contains(t, err.Error(), apiSecretID)
+	require.Contains(t, err.Error(), "address one by id")
+}
+
+func TestResolver_AmbiguityIsNeverSilentlyResolved(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/keys": `{"keys":[
+			{"id":"` + dbSecretID + `","name":"signing-key"},
+			{"id":"` + apiSecretID + `","name":"signing-key"}
+		]}`,
+	})
+	defer srv.Close()
+
+	got, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindKeys, "signing-key")
+	require.Error(t, err, "a duplicate name must never resolve to an arbitrary pick")
+	require.Equal(t, uuid.Nil, got)
+}
+
+func TestResolver_NotFoundSuggestsNearMisses(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[
+			{"id":"` + dbSecretID + `","name":"db-password"},
+			{"id":"` + apiSecretID + `","name":"db-password-legacy"}
+		],"total":2}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "db-passw")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "did you mean")
+	require.Contains(t, err.Error(), "db-password")
+}
+
+func TestResolver_NotFoundIsCaseInsensitiveWhenSuggesting(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[{"id":"` + dbSecretID + `","name":"DB-Password"}],"total":1}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "db-password")
+	require.Error(t, err, "matching is exact, so a case difference is still not found")
+	require.Contains(t, err.Error(), "DB-Password", "but the suggestion should surface the real name")
+}
+
+func TestResolver_NotFoundWithNoNearMissOmitsSuggestion(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[{"id":"` + dbSecretID + `","name":"db-password"}],"total":1}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "totally-unrelated")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `no secrets named "totally-unrelated"`)
+	require.NotContains(t, err.Error(), "did you mean")
+}
+
+func TestResolver_NotFoundCapsSuggestionsAtThree(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[
+			{"id":"` + dbSecretID + `","name":"db-a"},
+			{"id":"` + apiSecretID + `","name":"db-b"},
+			{"id":"` + signKeyID + `","name":"db-c"},
+			{"id":"3f2504e0-4f89-11d3-9a0c-0305e82c3304","name":"db-d"},
+			{"id":"3f2504e0-4f89-11d3-9a0c-0305e82c3305","name":"db-e"}
+		],"total":5}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "db")
+	require.Error(t, err)
+	require.Equal(t, 3, strings.Count(err.Error(), `"db-`),
+		"suggestions must be capped so an error stays readable in a model's context")
+}
+
+func TestResolver_ErrorNamesTheVault(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/staging/secrets": `{"secrets":[],"total":0}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "staging", KindSecrets, "db-password")
+	require.ErrorContains(t, err, `vault "staging"`,
+		"the vault must be named so an agent working across vaults can tell where it looked")
+}
+
+func TestResolver_EmptyListIsNotFoundNotAnError(t *testing.T) {
+	srv, _ := listServer(t, map[string]string{
+		"/api/v1/vaults/prod/secrets": `{"secrets":[],"total":0}`,
+	})
+	defer srv.Close()
+
+	_, err := newResolverForTest(t, srv).Resolve(context.Background(), "prod", KindSecrets, "db-password")
+	require.ErrorContains(t, err, "no secrets named")
+
+	var apiErr *APIError
+	require.NotErrorAs(t, err, &apiErr, "an empty vault is not an API failure")
 }
