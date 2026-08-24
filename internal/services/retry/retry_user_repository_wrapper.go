@@ -32,15 +32,9 @@ func (r *RetryUserRepositoryWrapper) Create(ctx context.Context, user *model.Use
 
 // Read wraps the Read operation with retry logic
 func (r *RetryUserRepositoryWrapper) Read(ctx context.Context, id uuid.UUID) (*model.User, error) {
-	var result *model.User
-	var err error
-
-	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = r.baseRepo.Read(ctx, id)
-		return err
+	return retried(ctx, r.retryService, func() (*model.User, error) {
+		return r.baseRepo.Read(ctx, id)
 	})
-
-	return result, retryErr
 }
 
 // Update wraps the Update operation with retry logic
@@ -59,54 +53,30 @@ func (r *RetryUserRepositoryWrapper) Delete(ctx context.Context, id uuid.UUID) e
 
 // ReadByUsername wraps the ReadByUsername operation with retry logic
 func (r *RetryUserRepositoryWrapper) ReadByUsername(ctx context.Context, username string) (model.User, error) {
-	var result model.User
-	var err error
-
-	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = r.baseRepo.ReadByUsername(ctx, username)
-		return err
+	return retried(ctx, r.retryService, func() (model.User, error) {
+		return r.baseRepo.ReadByUsername(ctx, username)
 	})
-
-	return result, retryErr
 }
 
 // ReadByExternalSubject wraps the ReadByExternalSubject operation with retry logic
 func (r *RetryUserRepositoryWrapper) ReadByExternalSubject(ctx context.Context, provider, subject string) (*model.User, error) {
-	var result *model.User
-	var err error
-
-	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = r.baseRepo.ReadByExternalSubject(ctx, provider, subject)
-		return err
+	return retried(ctx, r.retryService, func() (*model.User, error) {
+		return r.baseRepo.ReadByExternalSubject(ctx, provider, subject)
 	})
-
-	return result, retryErr
 }
 
 // List wraps the List operation with retry logic
 func (r *RetryUserRepositoryWrapper) List(ctx context.Context) ([]model.User, error) {
-	var result []model.User
-	var err error
-
-	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = r.baseRepo.List(ctx)
-		return err
+	return retried(ctx, r.retryService, func() ([]model.User, error) {
+		return r.baseRepo.List(ctx)
 	})
-
-	return result, retryErr
 }
 
 // ValidateBootstrapToken wraps the ValidateBootstrapToken operation with retry logic
 func (r *RetryUserRepositoryWrapper) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
-	var result bool
-	var err error
-
-	retryErr := r.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = r.baseRepo.ValidateBootstrapToken(ctx, token)
-		return err
+	return retried(ctx, r.retryService, func() (bool, error) {
+		return r.baseRepo.ValidateBootstrapToken(ctx, token)
 	})
-
-	return result, retryErr
 }
 
 // InvalidateBootstrapToken wraps the InvalidateBootstrapToken operation with retry logic

@@ -30,54 +30,30 @@ func NewRetryAuthenticationService(baseService auth.AuthenticationService, retry
 
 // AuthenticateUser authenticates a user with retry logic for database operations
 func (s *retryAuthenticationService) AuthenticateUser(ctx context.Context, username, password, totpCode string) (*auth.AuthenticationResult, error) {
-	var result *auth.AuthenticationResult
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.AuthenticateUser(ctx, username, password, totpCode)
-		return err
+	return retried(ctx, s.retryService, func() (*auth.AuthenticationResult, error) {
+		return s.baseService.AuthenticateUser(ctx, username, password, totpCode)
 	})
-
-	return result, retryErr
 }
 
 // IssueSessionForUser issues a session with retry logic for database operations.
 func (s *retryAuthenticationService) IssueSessionForUser(ctx context.Context, user *model.User) (*auth.AuthenticationResult, error) {
-	var result *auth.AuthenticationResult
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.IssueSessionForUser(ctx, user)
-		return err
+	return retried(ctx, s.retryService, func() (*auth.AuthenticationResult, error) {
+		return s.baseService.IssueSessionForUser(ctx, user)
 	})
-
-	return result, retryErr
 }
 
 // ValidateSession validates a session with retry logic for database operations
 func (s *retryAuthenticationService) ValidateSession(ctx context.Context, token string) (*auth.JWTClaims, error) {
-	var result *auth.JWTClaims
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ValidateSession(ctx, token)
-		return err
+	return retried(ctx, s.retryService, func() (*auth.JWTClaims, error) {
+		return s.baseService.ValidateSession(ctx, token)
 	})
-
-	return result, retryErr
 }
 
 // RefreshAccessToken refreshes an access token with retry logic for database operations
 func (s *retryAuthenticationService) RefreshAccessToken(ctx context.Context, refreshToken string) (*auth.RefreshTokenResult, error) {
-	var result *auth.RefreshTokenResult
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.RefreshAccessToken(ctx, refreshToken)
-		return err
+	return retried(ctx, s.retryService, func() (*auth.RefreshTokenResult, error) {
+		return s.baseService.RefreshAccessToken(ctx, refreshToken)
 	})
-
-	return result, retryErr
 }
 
 // RevokeSession revokes a session with retry logic for database operations
@@ -96,13 +72,7 @@ func (s *retryAuthenticationService) RevokeAllUserSessions(ctx context.Context, 
 
 // ListActiveSessions lists all active sessions for a user with retry logic for database operations
 func (s *retryAuthenticationService) ListActiveSessions(ctx context.Context, userID uuid.UUID) ([]*model.Session, error) {
-	var result []*model.Session
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ListActiveSessions(ctx, userID)
-		return err
+	return retried(ctx, s.retryService, func() ([]*model.Session, error) {
+		return s.baseService.ListActiveSessions(ctx, userID)
 	})
-
-	return result, retryErr
 }

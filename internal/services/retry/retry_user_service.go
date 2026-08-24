@@ -30,15 +30,9 @@ func NewRetryUserService(baseService users.UserService, retryService RetryServic
 
 // CreateUser creates a user with retry logic for database operations
 func (s *retryUserService) CreateUser(ctx context.Context, req users.CreateUserRequest) (*users.CreateUserResult, error) {
-	var result *users.CreateUserResult
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.CreateUser(ctx, req)
-		return err
+	return retried(ctx, s.retryService, func() (*users.CreateUserResult, error) {
+		return s.baseService.CreateUser(ctx, req)
 	})
-
-	return result, retryErr
 }
 
 // UpdateUser updates a user with retry logic for database operations
@@ -51,54 +45,30 @@ func (s *retryUserService) UpdateUser(ctx context.Context, req users.UpdateUserR
 // FindOrCreateExternalUser resolves an externally-authenticated user with
 // retry logic for database operations.
 func (s *retryUserService) FindOrCreateExternalUser(ctx context.Context, req users.FindOrCreateExternalUserRequest) (*model.User, error) {
-	var result *model.User
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.FindOrCreateExternalUser(ctx, req)
-		return err
+	return retried(ctx, s.retryService, func() (*model.User, error) {
+		return s.baseService.FindOrCreateExternalUser(ctx, req)
 	})
-
-	return result, retryErr
 }
 
 // GetUser retrieves a user with retry logic for database operations
 func (s *retryUserService) GetUser(ctx context.Context, userID uuid.UUID) (*model.User, error) {
-	var result *model.User
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetUser(ctx, userID)
-		return err
+	return retried(ctx, s.retryService, func() (*model.User, error) {
+		return s.baseService.GetUser(ctx, userID)
 	})
-
-	return result, retryErr
 }
 
 // GetUserByUsername retrieves a user by username with retry logic for database operations
 func (s *retryUserService) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
-	var result *model.User
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.GetUserByUsername(ctx, username)
-		return err
+	return retried(ctx, s.retryService, func() (*model.User, error) {
+		return s.baseService.GetUserByUsername(ctx, username)
 	})
-
-	return result, retryErr
 }
 
 // ListUsers lists users with retry logic for database operations
 func (s *retryUserService) ListUsers(ctx context.Context) ([]model.User, error) {
-	var result []model.User
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ListUsers(ctx)
-		return err
+	return retried(ctx, s.retryService, func() ([]model.User, error) {
+		return s.baseService.ListUsers(ctx)
 	})
-
-	return result, retryErr
 }
 
 // DeleteUser deletes a user with retry logic for database operations
@@ -110,15 +80,9 @@ func (s *retryUserService) DeleteUser(ctx context.Context, userID uuid.UUID) err
 
 // ValidateBootstrapToken validates a bootstrap token with retry logic for database operations
 func (s *retryUserService) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
-	var result bool
-	var err error
-
-	retryErr := s.retryService.ExecuteDatabaseOperation(ctx, func() error {
-		result, err = s.baseService.ValidateBootstrapToken(ctx, token)
-		return err
+	return retried(ctx, s.retryService, func() (bool, error) {
+		return s.baseService.ValidateBootstrapToken(ctx, token)
 	})
-
-	return result, retryErr
 }
 
 // InvalidateBootstrapToken invalidates a bootstrap token with retry logic for database operations
