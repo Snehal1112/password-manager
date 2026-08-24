@@ -153,3 +153,65 @@ func (c *Client) GetKey(ctx context.Context, vault, name string) (*Key, error) {
 		UpdatedAt:  wire.UpdatedAt,
 	}, nil
 }
+
+// KeyVersion is one entry of a key's version history, with that version's
+// public components.
+//
+// It has no field for private material. api.KeyVersionResponse states the
+// same rule about the type it embeds: "there is deliberately no Value or PEM
+// field here, and none may be added".
+type KeyVersion struct {
+	KeyID     uuid.UUID `json:"key_id"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	PublicJWK PublicJWK `json:"public_jwk"`
+}
+
+// keyVersionWire is the flat response shape produced by
+// KeyVersionResponse's inline embed of model.KeyVersion.
+type keyVersionWire struct {
+	KeyID     string    `json:"key_id"`
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	N         string    `json:"n"`
+	E         string    `json:"e"`
+	X         string    `json:"x"`
+	Y         string    `json:"y"`
+}
+
+// GetKeyVersions returns a key's version history with each version's public
+// components. The route encodes its slice directly, so the response is a bare
+// JSON array.
+func (c *Client) GetKeyVersions(ctx context.Context, vault, name string) ([]KeyVersion, error) {
+	if vault == "" {
+		return nil, fmt.Errorf("vaultapi: vault is required to list key versions")
+	}
+
+	id, err := c.Resolver().Resolve(ctx, vault, KindKeys, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var wires []keyVersionWire
+	path := fmt.Sprintf("/api/v1/vaults/%s/keys/%s/versions", vault, id)
+	if err := c.Do(ctx, http.MethodGet, path, nil, &wires); err != nil {
+		return nil, err
+	}
+
+	versions := make([]KeyVersion, 0, len(wires))
+	for _, wire := range wires {
+		keyID, err := uuid.Parse(wire.KeyID)
+		if err != nil {
+			// A version whose key id is unparseable is still useful; report
+			// the version rather than failing the whole history.
+			keyID = id
+		}
+		versions = append(versions, KeyVersion{
+			KeyID:     keyID,
+			Version:   wire.Version,
+			CreatedAt: wire.CreatedAt,
+			PublicJWK: PublicJWK{N: wire.N, E: wire.E, X: wire.X, Y: wire.Y},
+		})
+	}
+	return versions, nil
+}

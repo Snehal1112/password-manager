@@ -146,3 +146,85 @@ func TestGetKey_CarriesNoPrivateMaterialField(t *testing.T) {
 		"Key has no private-material field, so a stray server value is dropped")
 	require.NotContains(t, string(encoded), "PRIVATE KEY")
 }
+
+func TestGetKeyVersions_DecodesFlatEmbeddedShape(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		// KeyVersionResponse embeds model.KeyVersion, so the JSON is flat.
+		_, _ = w.Write([]byte(`[
+			{"key_id":"` + rsaKeyID + `","version":1,"created_at":"2026-06-01T00:00:00Z","n":"old-n","e":"AQAB"},
+			{"key_id":"` + rsaKeyID + `","version":2,"created_at":"2026-07-01T00:00:00Z","n":"new-n","e":"AQAB"}
+		]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyVersions(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/versions", gotPath)
+	require.Len(t, got, 2)
+	require.Equal(t, 1, got[0].Version)
+	require.Equal(t, "old-n", got[0].PublicJWK.N)
+	require.Equal(t, 2, got[1].Version)
+	require.Equal(t, "new-n", got[1].PublicJWK.N)
+	require.Equal(t, uuid.MustParse(rsaKeyID), got[0].KeyID)
+}
+
+func TestGetKeyVersions_HSMVersionsHaveEmptyComponents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"key_id":"` + rsaKeyID + `","version":1,"created_at":"2026-06-01T00:00:00Z"}]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyVersions(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.True(t, got[0].PublicJWK.IsEmpty())
+}
+
+func TestGetKeyVersions_ResolvesNameFirst(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/vaults/prod/keys" {
+			_, _ = w.Write([]byte(`{"keys":[{"id":"` + rsaKeyID + `","name":"signing-key"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"key_id":"` + rsaKeyID + `","version":1}]`))
+	}))
+	defer srv.Close()
+
+	_, err := newClientForTest(t, srv).GetKeyVersions(context.Background(), "prod", "signing-key")
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/versions", paths[1])
+}
+
+func TestGetKeyVersions_EmptyHistoryIsNotAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyVersions(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestGetKeyVersions_CarriesNoPrivateMaterialField(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"key_id":"` + rsaKeyID + `","version":1,"value":"LEAKED-PRIVATE"}]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyVersions(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "LEAKED-PRIVATE")
+}
