@@ -2,8 +2,13 @@ package vaultapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -113,4 +118,144 @@ func TestSessionSource_RequiresBaseURLAndHTTPClient(t *testing.T) {
 
 func TestSessionSource_SatisfiesTokenSource(t *testing.T) {
 	var _ TokenSource = (*SessionSource)(nil)
+}
+
+// refreshServer replies to POST /api/v1/users/refresh with a rotated pair,
+// and records the refresh token it was sent.
+func refreshServer(t *testing.T, newAccess, newRefresh string, expiresIn time.Duration) (*httptest.Server, *string) {
+	t.Helper()
+	var gotRefresh string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/api/v1/users/refresh", r.URL.Path)
+
+		var body struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		gotRefresh = body.RefreshToken
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"token":%q,"refresh_token":%q,"user_id":"11111111-1111-1111-1111-111111111111","username":"admin","roles":["admin"],"expires_at":%q}`,
+			newAccess, newRefresh, time.Now().Add(expiresIn).Format(time.RFC3339Nano))
+	}))
+	return srv, &gotRefresh
+}
+
+func TestSessionSource_RefreshesExpiredToken(t *testing.T) {
+	srv, sentRefresh := refreshServer(t, "access-new", "refresh-new", time.Hour)
+	defer srv.Close()
+
+	store := &stubStore{session: sessionFixture(-time.Minute)} // already expired
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-new", tok)
+	require.Equal(t, "refresh-original", *sentRefresh, "the cached refresh token is what gets sent")
+}
+
+func TestSessionSource_PersistsRotatedRefreshToken(t *testing.T) {
+	srv, _ := refreshServer(t, "access-new", "refresh-ROTATED", time.Hour)
+	defer srv.Close()
+
+	store := &stubStore{session: sessionFixture(-time.Minute)}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	_, err := src.Token(context.Background())
+	require.NoError(t, err)
+
+	require.Len(t, store.saved, 1, "a refresh must persist the session")
+	saved := store.saved[0]
+	require.Equal(t, "access-new", saved.Token)
+	require.Equal(t, "refresh-ROTATED", saved.RefreshToken,
+		"the rotated refresh token must be persisted, or the next refresh fails with a stale token")
+	require.Equal(t, "vault.example.com", saved.ServerKey, "the server key must survive a refresh")
+	require.Equal(t, "admin", saved.Username)
+}
+
+func TestSessionSource_SecondRefreshUsesTheRotatedToken(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		seen = append(seen, body.RefreshToken)
+
+		w.Header().Set("Content-Type", "application/json")
+		// Always hand back an already-expired access token, so the next
+		// Token call refreshes again.
+		_, _ = fmt.Fprintf(w, `{"token":"access-%d","refresh_token":"refresh-%d","user_id":"11111111-1111-1111-1111-111111111111","username":"admin","roles":["admin"],"expires_at":%q}`,
+			len(seen), len(seen), time.Now().Add(-time.Minute).Format(time.RFC3339Nano))
+	}))
+	defer srv.Close()
+
+	store := &stubStore{session: sessionFixture(-time.Minute)}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	_, err := src.Token(context.Background())
+	require.NoError(t, err)
+	_, err = src.Token(context.Background())
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"refresh-original", "refresh-1"}, seen,
+		"the second refresh must use the token the first one returned")
+}
+
+func TestSessionSource_RefreshRejectionIsActionable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// api/users.go:496 calls SetPermissionError, so this is 403.
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"token refresh failed"}`))
+	}))
+	defer srv.Close()
+
+	store := &stubStore{session: sessionFixture(-time.Minute)}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rocketvault users login")
+	require.NotContains(t, err.Error(), "refresh-original", "the refresh token must not appear in the error")
+	require.Empty(t, store.saved, "a failed refresh must not persist anything")
+}
+
+func TestSessionSource_ConcurrentCallersShareOneRefresh(t *testing.T) {
+	var calls int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"token":"access-shared","refresh_token":"refresh-shared","user_id":"11111111-1111-1111-1111-111111111111","username":"admin","roles":["admin"],"expires_at":%q}`,
+			time.Now().Add(time.Hour).Format(time.RFC3339Nano))
+	}))
+	defer srv.Close()
+
+	store := &stubStore{session: sessionFixture(-time.Minute)}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	const callers = 15
+	results := make(chan string, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tok, err := src.Token(context.Background())
+			require.NoError(t, err)
+			results <- tok
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(results)
+
+	for tok := range results {
+		require.Equal(t, "access-shared", tok)
+	}
+	require.EqualValues(t, 1, atomic.LoadInt32(&calls),
+		"concurrent callers must share one refresh, not stampede the endpoint")
 }
