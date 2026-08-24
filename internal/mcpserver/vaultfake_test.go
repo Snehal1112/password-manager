@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -98,6 +100,25 @@ func (f *fakeVault) server(t *testing.T, cfg config.MCPConfig) *Server {
 	require.NoError(t, err)
 
 	s, err := New(Deps{Client: client, Config: cfg, Logger: discardLogger(), Version: "test"})
+	require.NoError(t, err)
+	return s
+}
+
+// serverWithLogger is server() with diagnostics captured, for tests that
+// assert on log output.
+func (f *fakeVault) serverWithLogger(t *testing.T, cfg config.MCPConfig, out io.Writer) *Server {
+	t.Helper()
+
+	client, err := vaultapi.New(vaultapi.Config{
+		BaseURL:      f.srv.URL,
+		HTTPClient:   f.srv.Client(),
+		Tokens:       staticTestToken("test-token"),
+		DisableRetry: true,
+	})
+	require.NoError(t, err)
+
+	logger := slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	s, err := New(Deps{Client: client, Config: cfg, Logger: logger, Version: "test"})
 	require.NoError(t, err)
 	return s
 }
