@@ -153,6 +153,56 @@ jobs:
             exit 1
           fi
 
+  mcp-gate:
+    name: MCP Capability Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The exposed tool surface must match the configuration exactly, for
+      # every flag combination. This is the invariant that breaks silently
+      # when a tool is added under the wrong tier: nothing else in the suite
+      # notices, and the first person to find out is whoever runs the server.
+      - name: Capability gating table
+        run: go test ./internal/mcpserver/ -run TestGatingTable_ -race -v
+
+      # No tool may return secret material while allow_secret_values is off,
+      # in raw or base64 form.
+      - name: Secret-material leak sweep
+        run: go test ./internal/mcpserver/ -run TestLeakSweep_ -race -v
+
+      # register() sets the MCP annotations that let a host prompt before a
+      # destructive call. A tool added through mcp.AddTool directly would
+      # bypass that, along with the deadline, rate limit and correlation id.
+      - name: No direct mcp.AddTool calls outside register
+        run: |
+          if grep -rn "mcp\.AddTool(" --include="*.go" internal/mcpserver/ \
+              | grep -v "_test.go" \
+              | grep -v "server.go"; then
+            echo "mcp.AddTool must only be called from register() in server.go."
+            echo "Direct calls lose the deadline, panic recovery, correlation id,"
+            echo "rate limit and destructive annotations all at once."
+            exit 1
+          fi
+
+      # discloseValue is the single egress point for secret values.
+      - name: Only redact.go reveals secret values
+        run: |
+          if grep -rn "\.Reveal()" --include="*.go" internal/mcpserver/ \
+              | grep -v "_test.go" \
+              | grep -v "redact.go" \
+              | grep -v "tools_crypto.go"; then
+            echo "SecretValue.Reveal() may only be called from redact.go, and from"
+            echo "tools_crypto.go's decrypt handler, which is gated on both"
+            echo "allow_crypto and allow_secret_values."
+            exit 1
+          fi
+
   security:
     name: Security Scan
     runs-on: ubuntu-latest
