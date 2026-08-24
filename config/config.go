@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"rocketvault/internal/cachekit"
@@ -301,5 +302,65 @@ func LoadMCPConfig() (MCPConfig, error) {
 	return cfg, nil
 }
 
-// Validate checks the configuration. Task 2 gives it a real body.
-func (c MCPConfig) Validate() error { return nil }
+// Validate reports whether the configuration is coherent.
+//
+// It rejects rather than clamps. A max_results of 5000 is not a value to
+// quietly reduce: it means the operator believes something about this server
+// that is not true, and a server that silently behaves differently from its
+// config is worse than one that refuses to start.
+//
+// No error message includes the client secret.
+func (c MCPConfig) Validate() error {
+	if c.Vault == "" {
+		return fmt.Errorf("mcp.vault must not be empty")
+	}
+	if c.MaxResults <= 0 {
+		return fmt.Errorf("mcp.max_results must be positive, got %d", c.MaxResults)
+	}
+	if c.MaxResults > MCPMaxResultsCeiling {
+		return fmt.Errorf("mcp.max_results must not exceed %d, got %d", MCPMaxResultsCeiling, c.MaxResults)
+	}
+	if c.RequestTimeout <= 0 {
+		return fmt.Errorf("mcp.request_timeout must be positive, got %s", c.RequestTimeout)
+	}
+	if c.RateLimit.ReadsPerMinute <= 0 {
+		return fmt.Errorf("mcp.rate_limit.reads_per_minute must be positive, got %d", c.RateLimit.ReadsPerMinute)
+	}
+	if c.RateLimit.WritesPerMinute <= 0 {
+		return fmt.Errorf("mcp.rate_limit.writes_per_minute must be positive, got %d", c.RateLimit.WritesPerMinute)
+	}
+
+	for i, name := range c.AllowedVaults {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("mcp.allowed_vaults[%d] must not be blank", i)
+		}
+	}
+	// A default vault the server is not allowed to touch would fail on every
+	// call that does not name one explicitly.
+	if len(c.AllowedVaults) > 0 && !containsString(c.AllowedVaults, c.Vault) {
+		return fmt.Errorf("mcp.vault %q is not in mcp.allowed_vaults %v", c.Vault, c.AllowedVaults)
+	}
+
+	// Credentials are all-or-nothing: half a credential can only fail later,
+	// at the first request, with a much less clear message.
+	switch {
+	case c.ClientID != "" && c.ClientSecret == "":
+		return fmt.Errorf("mcp.client_id is set but mcp.client_secret is not; set it or %s", mcpClientSecretEnv)
+	case c.ClientSecret != "" && c.ClientID == "":
+		return fmt.Errorf("mcp.client_secret is set but mcp.client_id is not")
+	}
+	if c.RequireServiceAccount && c.ClientID == "" {
+		return fmt.Errorf("mcp.require_service_account is true but no mcp.client_id is configured")
+	}
+	return nil
+}
+
+// containsString reports whether values contains target.
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
