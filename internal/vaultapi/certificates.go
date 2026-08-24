@@ -94,6 +94,19 @@ func (c *Client) ListCertificates(ctx context.Context, vault string, limit int) 
 	return summaries, truncated, nil
 }
 
+// certificateFromWire converts a decoded response into a Certificate.
+func certificateFromWire(wire certificateWire) (*Certificate, error) {
+	summary, err := wire.summary()
+	if err != nil {
+		return nil, err
+	}
+	return &Certificate{
+		CertificateSummary: summary,
+		AutoRenew:          wire.AutoRenew,
+		RenewalDays:        wire.RenewalDays,
+	}, nil
+}
+
 // GetCertificate fetches one certificate by name or id.
 func (c *Client) GetCertificate(ctx context.Context, vault, name string) (*Certificate, error) {
 	if vault == "" {
@@ -111,15 +124,7 @@ func (c *Client) GetCertificate(ctx context.Context, vault, name string) (*Certi
 		return nil, err
 	}
 
-	summary, err := wire.summary()
-	if err != nil {
-		return nil, err
-	}
-	return &Certificate{
-		CertificateSummary: summary,
-		AutoRenew:          wire.AutoRenew,
-		RenewalDays:        wire.RenewalDays,
-	}, nil
+	return certificateFromWire(wire)
 }
 
 // CertificatePolicy describes how a certificate is issued and renewed.
