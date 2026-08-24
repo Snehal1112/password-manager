@@ -177,3 +177,130 @@ func TestRecoverDeleted_IsAttemptedExactlyOnce(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 1, probe.calls)
 }
+
+func TestPurgeItem_ResolvesAgainstTheDeletedListing(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{
+		"/api/v1/vaults/prod/deleted/secrets": `{"deleted_secrets":[{"id":"` + dbSecretID + `","name":"old-password"}],"total":1}`,
+	}, http.StatusOK)
+
+	err := newClientForTest(t, srv).PurgeItem(context.Background(), "prod", KindSecrets, "old-password")
+	require.NoError(t, err)
+
+	require.Equal(t, http.MethodDelete, probe.method)
+	require.Equal(t, "/api/v1/vaults/prod/deleted/secrets/"+dbSecretID+"/purge", probe.target)
+	require.NotContains(t, probe.paths, "/api/v1/vaults/prod/secrets",
+		"only an already-deleted item can be purged")
+}
+
+func TestPurgeItem_CoversAllThreeKinds(t *testing.T) {
+	cases := []struct {
+		kind Kind
+		path string
+		body string
+		id   string
+	}{
+		{KindSecrets, "/api/v1/vaults/prod/deleted/secrets",
+			`{"deleted_secrets":[{"id":"` + dbSecretID + `","name":"gone"}],"total":1}`, dbSecretID},
+		{KindKeys, "/api/v1/vaults/prod/deleted/keys",
+			`{"deleted_keys":[{"id":"` + rsaKeyID + `","name":"gone"}],"total":1}`, rsaKeyID},
+		{KindCertificates, "/api/v1/vaults/prod/deleted/certificates",
+			`{"deleted_certificates":[{"id":"` + tlsCertID + `","name":"gone"}],"total":1}`, tlsCertID},
+	}
+
+	for _, tc := range cases {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			srv, probe := destructiveServer(t, map[string]string{tc.path: tc.body}, http.StatusOK)
+
+			err := newClientForTest(t, srv).PurgeItem(context.Background(), "prod", tc.kind, "gone")
+			require.NoError(t, err)
+			require.Equal(t,
+				"/api/v1/vaults/prod/deleted/"+string(tc.kind)+"/"+tc.id+"/purge", probe.target)
+		})
+	}
+}
+
+func TestPurgeItem_IsAttemptedExactlyOnce(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{
+		"/api/v1/vaults/prod/deleted/secrets": `{"deleted_secrets":[{"id":"` + dbSecretID + `","name":"gone"}],"total":1}`,
+	}, http.StatusInternalServerError)
+
+	err := newClientForTest(t, srv).PurgeItem(context.Background(), "prod", KindSecrets, "gone")
+	require.Error(t, err)
+	require.Equal(t, 1, probe.calls,
+		"a retried purge that already succeeded would report 404 for an operation that worked")
+}
+
+func TestPurgeItem_ProtectionRefusalIsSurfacedNotPredicted(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{
+		"/api/v1/vaults/prod/deleted/secrets": `{"deleted_secrets":[{"id":"` + dbSecretID + `","name":"gone"}],"total":1}`,
+	}, http.StatusForbidden)
+
+	err := newClientForTest(t, srv).PurgeItem(context.Background(), "prod", KindSecrets, "gone")
+	require.Error(t, err)
+	require.Equal(t, 1, probe.calls,
+		"whether purge protection applies is server state; the client must not pre-empt it")
+}
+
+func TestPurgeVault_TakesTheNameDirectly(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{}, http.StatusOK)
+
+	err := newClientForTest(t, srv).PurgeVault(context.Background(), "prod")
+	require.NoError(t, err)
+
+	require.Equal(t, http.MethodDelete, probe.method)
+	require.Equal(t, "/api/v1/vaults/prod/purge", probe.target)
+	require.Equal(t, 1, len(probe.paths), "a vault's name is its identifier; no resolution applies")
+}
+
+func TestPurgeVault_RequiresAName(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{}, http.StatusOK)
+
+	err := newClientForTest(t, srv).PurgeVault(context.Background(), "")
+	require.ErrorContains(t, err, "vault is required")
+	require.Zero(t, probe.calls)
+}
+
+func TestPurgeVault_ForbiddenNamesThePurgeOperatorRole(t *testing.T) {
+	srv, _ := destructiveServer(t, map[string]string{}, http.StatusForbidden)
+
+	err := newClientForTest(t, srv).PurgeVault(context.Background(), "prod")
+
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, KindForbidden, apiErr.Kind)
+	require.Contains(t, apiErr.Hint, "purge",
+		"the hint should reflect that this is a purge, which needs its own grant")
+}
+
+func TestDeleteRoleAssignment_TargetsTheAssignmentID(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{}, http.StatusOK)
+
+	err := newClientForTest(t, srv).DeleteRoleAssignment(context.Background(), "prod", assignmentID)
+	require.NoError(t, err)
+
+	require.Equal(t, http.MethodDelete, probe.method)
+	require.Equal(t, "/api/v1/vaults/prod/role-assignments/"+assignmentID, probe.target)
+}
+
+func TestDeleteRoleAssignment_RejectsANonUUID(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{}, http.StatusOK)
+
+	// One principal can hold several roles in a vault, so a principal name
+	// would be ambiguous. The route is keyed by assignment.
+	err := newClientForTest(t, srv).DeleteRoleAssignment(context.Background(), "prod", "alice")
+	require.ErrorContains(t, err, "assignment id")
+	require.Zero(t, probe.calls)
+}
+
+func TestDeleteRoleAssignment_RequiresVaultAndID(t *testing.T) {
+	srv, probe := destructiveServer(t, map[string]string{}, http.StatusOK)
+	c := newClientForTest(t, srv)
+
+	err := c.DeleteRoleAssignment(context.Background(), "", assignmentID)
+	require.ErrorContains(t, err, "vault is required")
+
+	err = c.DeleteRoleAssignment(context.Background(), "prod", "")
+	require.ErrorContains(t, err, "assignment id")
+
+	require.Zero(t, probe.calls)
+}
