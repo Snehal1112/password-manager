@@ -19,4 +19,5 @@ func RegisterAllTools(s *Server) {
 	registerSecretsWriteTools(s)
 	registerVaultsWriteTools(s)
 	registerAccessWriteTools(s)
+	registerKeysWriteTools(s)
 }
