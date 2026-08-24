@@ -102,6 +102,25 @@ type SecretRepository struct {
 	log *logging.Logger
 }
 
+// crud returns the itemLifecycleConfig for secrets. A method rather than a
+// constructor-set field, since tests (and possibly other code) construct
+// SecretRepository via a struct literal rather than NewSecretRepository — a
+// stored field would silently zero-value there, and a nil wrap panics on
+// first call.
+func (r *SecretRepository) crud() itemLifecycleConfig {
+	return itemLifecycleConfig{
+		table:              "secrets",
+		item:               "secret",
+		itemCap:            "Secret",
+		idField:            "secret_id",
+		auditActor:         "",
+		purgeErr:           ErrSecretPurgeProtected,
+		notFoundIsSentinel: true,
+		log:                r.log,
+		wrap:               passthroughWrap,
+	}
+}
+
 // executeWithMetrics wraps database operations with performance monitoring.
 func (r *SecretRepository) executeWithMetrics(operation string, fn func() error) error {
 	start := time.Now()
@@ -384,31 +403,7 @@ func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
 //
 //	An error if the soft deletion fails.
 func (r *SecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
-	logrus.WithField("secret_id", id.String()).Debug("Soft deleting secret from database")
-
-	now := time.Now()
-	result, err := r.db.ExecContext(ctx,
-		"UPDATE secrets SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
-		now, id.String())
-	if err != nil {
-		r.log.LogAuditError("", "soft_delete_secret", "failed", "Failed to soft delete secret", err)
-		return fmt.Errorf("failed to soft delete secret: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		r.log.LogAuditError("", "soft_delete_secret", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		r.log.LogAuditError("", "soft_delete_secret", "failed", "Secret not found or already deleted", nil)
-		return fmt.Errorf("secret not found or already deleted")
-	}
-
-	r.log.LogAuditInfo("", "soft_delete_secret", "success", "Secret soft deleted successfully")
-	logrus.WithField("secret_id", id.String()).Debug("Secret soft deleted successfully")
-
-	return nil
+	return softDeleteItem(ctx, r.db, r.crud(), id)
 }
 
 // RecoverSecret restores a soft-deleted secret by clearing its deleted_at timestamp.
@@ -422,30 +417,7 @@ func (r *SecretRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
 //
 //	An error if the secret is not found in a deleted state or the update fails.
 func (r *SecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) error {
-	logrus.WithField("secret_id", id.String()).Debug("Recovering soft-deleted secret")
-
-	result, err := r.db.ExecContext(ctx,
-		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
-		id.String())
-	if err != nil {
-		r.log.LogAuditError("", "recover_secret", "failed", "Failed to recover secret", err)
-		return fmt.Errorf("failed to recover secret: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		r.log.LogAuditError("", "recover_secret", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		r.log.LogAuditError("", "recover_secret", "failed", "Secret not found in deleted state", nil)
-		return fmt.Errorf("secret not found in deleted state")
-	}
-
-	r.log.LogAuditInfo("", "recover_secret", "success", "Secret recovered successfully")
-	logrus.WithField("secret_id", id.String()).Debug("Secret recovered successfully")
-
-	return nil
+	return recoverItem(ctx, r.db, r.crud(), id)
 }
 
 // PurgeSecret permanently removes a soft-deleted secret from the database.
@@ -460,54 +432,7 @@ func (r *SecretRepository) RecoverSecret(ctx context.Context, id uuid.UUID) erro
 //
 //	An error if the purge operation fails.
 func (r *SecretRepository) PurgeSecret(ctx context.Context, id uuid.UUID) error {
-	logrus.WithField("secret_id", id.String()).Debug("Purging secret from database")
-
-	// First check if the secret exists and is soft-deleted without purge protection
-	var deletedAt *time.Time
-	var purgeProtection bool
-	err := r.db.QueryRowContext(ctx,
-		"SELECT deleted_at, purge_protection FROM secrets WHERE id = ?", id.String()).
-		Scan(&deletedAt, &purgeProtection)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			r.log.LogAuditError("", "purge_secret", "failed", "Secret not found", nil)
-			return fmt.Errorf("secret not found")
-		}
-		r.log.LogAuditError("", "purge_secret", "failed", "Failed to check secret status", err)
-		return fmt.Errorf("failed to check secret status: %w", err)
-	}
-
-	// Validate that the secret can be purged
-	if deletedAt == nil {
-		r.log.LogAuditError("", "purge_secret", "failed", "Secret is not soft-deleted", nil)
-		return fmt.Errorf("secret is not soft-deleted")
-	}
-	if purgeProtection {
-		r.log.LogAuditError("", "purge_secret", "failed", "Secret has purge protection enabled", nil)
-		return ErrSecretPurgeProtected
-	}
-
-	// Perform the purge
-	result, err := r.db.ExecContext(ctx, "DELETE FROM secrets WHERE id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError("", "purge_secret", "failed", "Failed to purge secret", err)
-		return fmt.Errorf("failed to purge secret: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		r.log.LogAuditError("", "purge_secret", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		r.log.LogAuditError("", "purge_secret", "failed", "Secret not found for purge", nil)
-		return fmt.Errorf("secret not found for purge")
-	}
-
-	r.log.LogAuditInfo("", "purge_secret", "success", "Secret purged successfully")
-	logrus.WithField("secret_id", id.String()).Debug("Secret purged successfully")
-
-	return nil
+	return purgeItem(ctx, r.db, r.crud(), id)
 }
 
 // SetPurgeProtection enables or disables purge protection on a secret.
@@ -533,26 +458,7 @@ func (r *SecretRepository) SetPurgeProtectionTx(ctx context.Context, ex db.DBTX,
 }
 
 func (r *SecretRepository) setPurgeProtection(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
-	result, err := ex.ExecContext(ctx,
-		"UPDATE secrets SET purge_protection = ? WHERE id = ?", enabled, id.String())
-	if err != nil {
-		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Failed to set purge protection", err)
-		return fmt.Errorf("failed to set purge protection: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		r.log.LogAuditError("", "set_purge_protection_secret", "failed", "Secret not found", nil)
-		return fmt.Errorf("secret %s: %w", id.String(), ErrNotFound)
-	}
-
-	r.log.LogAuditInfo("", "set_purge_protection_secret", "success",
-		fmt.Sprintf("Secret purge protection set to %v", enabled))
-	return nil
+	return setPurgeProtectionItem(ctx, ex, r.crud(), id, enabled)
 }
 
 // ExportSecrets is deprecated and should be moved to a dedicated export service.
@@ -601,18 +507,7 @@ func (r *SecretRepository) SoftDeleteVaultContentsTx(ctx context.Context, ex db.
 }
 
 func (r *SecretRepository) softDeleteVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
-	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all secrets in vault")
-
-	_, err := ex.ExecContext(ctx,
-		"UPDATE secrets SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
-		deletedAt, vaultID.String())
-	if err != nil {
-		r.log.LogAuditError(vaultID.String(), "soft_delete_vault_secrets", "failed", "Failed to soft delete vault secrets", err)
-		return fmt.Errorf("failed to soft delete vault secrets: %w", err)
-	}
-
-	r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_secrets", "success", "Vault secrets soft deleted successfully")
-	return nil
+	return softDeleteVaultContents(ctx, ex, r.crud(), vaultID, deletedAt)
 }
 
 // RecoverVaultContents restores every soft-deleted secret in a vault.
@@ -636,18 +531,7 @@ func (r *SecretRepository) RecoverVaultContentsTx(ctx context.Context, ex db.DBT
 }
 
 func (r *SecretRepository) recoverVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
-	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted secrets in vault")
-
-	_, err := ex.ExecContext(ctx,
-		"UPDATE secrets SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
-		vaultID.String(), deletedAt)
-	if err != nil {
-		r.log.LogAuditError(vaultID.String(), "recover_vault_secrets", "failed", "Failed to recover vault secrets", err)
-		return fmt.Errorf("failed to recover vault secrets: %w", err)
-	}
-
-	r.log.LogAuditInfo(vaultID.String(), "recover_vault_secrets", "success", "Vault secrets recovered successfully")
-	return nil
+	return recoverVaultContents(ctx, ex, r.crud(), vaultID, deletedAt)
 }
 
 // PurgeVaultContents permanently deletes every secret in a vault, regardless
@@ -659,16 +543,7 @@ func (r *SecretRepository) recoverVaultContents(ctx context.Context, ex db.DBTX,
 // orphans). Mirrors the unconditional DELETE the vault service already
 // issues for access_policies on purge, for the same reason.
 func (r *SecretRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	logrus.WithField("vault_id", vaultID.String()).Debug("Purging all secrets in vault")
-
-	_, err := r.db.ExecContext(ctx, "DELETE FROM secrets WHERE vault_id = ?", vaultID.String())
-	if err != nil {
-		r.log.LogAuditError(vaultID.String(), "purge_vault_secrets", "failed", "Failed to purge vault secrets", err)
-		return fmt.Errorf("failed to purge vault secrets: %w", err)
-	}
-
-	r.log.LogAuditInfo(vaultID.String(), "purge_vault_secrets", "success", "Vault secrets purged successfully")
-	return nil
+	return purgeVaultContents(ctx, r.db, r.crud(), vaultID)
 }
 
 // HasProtectedContent reports whether any secret in the vault, active or
@@ -676,12 +551,5 @@ func (r *SecretRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.
 // cascade purge-protection check (see vaults.CascadeRepository) so purging a
 // vault can't bypass an individual secret's own protection.
 func (r *SecretRepository) HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error) {
-	var exists bool
-	err := r.db.QueryRowContext(ctx,
-		"SELECT EXISTS(SELECT 1 FROM secrets WHERE vault_id = ? AND purge_protection = TRUE)",
-		vaultID.String()).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check secret purge protection: %w", err)
-	}
-	return exists, nil
+	return hasProtectedContent(ctx, r.db, r.crud(), vaultID)
 }

@@ -1,0 +1,261 @@
+package repositories
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+
+	"rocketvault/internal/db"
+	"rocketvault/internal/logging"
+)
+
+// itemLifecycleConfig holds the per-type constants softDeleteItem, recoverItem,
+// purgeItem, setPurgeProtectionItem, softDeleteVaultContents,
+// recoverVaultContents, purgeVaultContents, and hasProtectedContent need to
+// reproduce SecretRepository's, KeyRepository's, and CertificateRepository's
+// existing behavior exactly, including their pre-existing divergences:
+//   - auditActor is the constant actor ID string item-scoped operations log.
+//     Secret predates the uuid.Nil.String() convention and logs "" instead.
+//   - wrap is the metrics-wrapping function each operation runs through.
+//     Secret predates the metrics wrapper (internal/metrics) and passes
+//     passthroughWrap; key and certificate pass their own executeWithMetrics.
+//   - notFoundIsSentinel is true only for secret: SetPurgeProtection's
+//     not-found error wraps the shared ErrNotFound sentinel, while key's and
+//     certificate's return a plain, unwrapped error.
+type itemLifecycleConfig struct {
+	table              string // SQL table name, plural: "secrets" / "keys" / "certificates"
+	item               string // singular label: "secret" / "key" / "certificate"
+	itemCap            string // capitalized singular label: "Secret" / "Key" / "Certificate"
+	idField            string // logrus field key for id-scoped debug logs: "secret_id" / "key_id" / "cert_id"
+	auditActor         string
+	purgeErr           error
+	notFoundIsSentinel bool
+	log                *logging.Logger
+	wrap               func(operation string, fn func() error) error
+}
+
+// passthroughWrap runs fn directly with no metrics wrapping — secret's wrap.
+func passthroughWrap(_ string, fn func() error) error { return fn() }
+
+// softDeleteItem marks one row deleted_at = now(), refusing rows already
+// soft-deleted.
+func softDeleteItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid.UUID) error {
+	op := "soft_delete_" + cfg.item
+	return cfg.wrap(op, func() error {
+		logrus.WithField(cfg.idField, id.String()).Debug("Soft deleting " + cfg.item + " from database")
+
+		now := time.Now()
+		result, err := ex.ExecContext(ctx,
+			"UPDATE "+cfg.table+" SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
+			now, id.String())
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to soft delete "+cfg.item, err)
+			return fmt.Errorf("failed to soft delete %s: %w", cfg.item, err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found or already deleted", nil)
+			return fmt.Errorf("%s not found or already deleted", cfg.item)
+		}
+
+		cfg.log.LogAuditInfo(cfg.auditActor, op, "success", cfg.itemCap+" soft deleted successfully")
+		logrus.WithField(cfg.idField, id.String()).Debug(cfg.itemCap + " soft deleted successfully")
+		return nil
+	})
+}
+
+// recoverItem clears deleted_at on a soft-deleted row, refusing rows that
+// aren't currently soft-deleted.
+func recoverItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid.UUID) error {
+	op := "recover_" + cfg.item
+	return cfg.wrap(op, func() error {
+		logrus.WithField(cfg.idField, id.String()).Debug("Recovering soft-deleted " + cfg.item)
+
+		result, err := ex.ExecContext(ctx,
+			"UPDATE "+cfg.table+" SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
+			id.String())
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to recover "+cfg.item, err)
+			return fmt.Errorf("failed to recover %s: %w", cfg.item, err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found in deleted state", nil)
+			return fmt.Errorf("%s not found in deleted state", cfg.item)
+		}
+
+		cfg.log.LogAuditInfo(cfg.auditActor, op, "success", cfg.itemCap+" recovered successfully")
+		logrus.WithField(cfg.idField, id.String()).Debug(cfg.itemCap + " recovered successfully")
+		return nil
+	})
+}
+
+// purgeItem permanently deletes a soft-deleted row, refusing rows that
+// aren't soft-deleted or that have purge protection enabled.
+func purgeItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid.UUID) error {
+	op := "purge_" + cfg.item
+	return cfg.wrap(op, func() error {
+		logrus.WithField(cfg.idField, id.String()).Debug("Purging " + cfg.item + " from database")
+
+		var deletedAt *time.Time
+		var purgeProtection bool
+		err := ex.QueryRowContext(ctx,
+			"SELECT deleted_at, purge_protection FROM "+cfg.table+" WHERE id = ?", id.String()).
+			Scan(&deletedAt, &purgeProtection)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found", nil)
+				return fmt.Errorf("%s not found", cfg.item)
+			}
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to check "+cfg.item+" status", err)
+			return fmt.Errorf("failed to check %s status: %w", cfg.item, err)
+		}
+
+		if deletedAt == nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" is not soft-deleted", nil)
+			return fmt.Errorf("%s is not soft-deleted", cfg.item)
+		}
+		if purgeProtection {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" has purge protection enabled", nil)
+			return cfg.purgeErr
+		}
+
+		result, err := ex.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE id = ?", id.String())
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to purge "+cfg.item, err)
+			return fmt.Errorf("failed to purge %s: %w", cfg.item, err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found for purge", nil)
+			return fmt.Errorf("%s not found for purge", cfg.item)
+		}
+
+		cfg.log.LogAuditInfo(cfg.auditActor, op, "success", cfg.itemCap+" purged successfully")
+		logrus.WithField(cfg.idField, id.String()).Debug(cfg.itemCap + " purged successfully")
+		return nil
+	})
+}
+
+// setPurgeProtectionItem enables or disables purge protection on one row.
+func setPurgeProtectionItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid.UUID, enabled bool) error {
+	op := "set_purge_protection_" + cfg.item
+	return cfg.wrap(op, func() error {
+		result, err := ex.ExecContext(ctx,
+			"UPDATE "+cfg.table+" SET purge_protection = ? WHERE id = ?", enabled, id.String())
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to set purge protection", err)
+			return fmt.Errorf("failed to set purge protection: %w", err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found", nil)
+			if cfg.notFoundIsSentinel {
+				return fmt.Errorf("%s %s: %w", cfg.item, id.String(), ErrNotFound)
+			}
+			return fmt.Errorf("%s not found", cfg.item)
+		}
+
+		cfg.log.LogAuditInfo(cfg.auditActor, op, "success", fmt.Sprintf("%s purge protection set to %v", cfg.itemCap, enabled))
+		return nil
+	})
+}
+
+// softDeleteVaultContents marks every active row in vaultID deleted_at =
+// deletedAt.
+func softDeleteVaultContents(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, vaultID uuid.UUID, deletedAt time.Time) error {
+	op := "soft_delete_vault_" + cfg.table
+	return cfg.wrap(op, func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all " + cfg.table + " in vault")
+
+		_, err := ex.ExecContext(ctx,
+			"UPDATE "+cfg.table+" SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
+			deletedAt, vaultID.String())
+		if err != nil {
+			cfg.log.LogAuditError(vaultID.String(), op, "failed", "Failed to soft delete vault "+cfg.table, err)
+			return fmt.Errorf("failed to soft delete vault %s: %w", cfg.table, err)
+		}
+
+		cfg.log.LogAuditInfo(vaultID.String(), op, "success", "Vault "+cfg.table+" soft deleted successfully")
+		return nil
+	})
+}
+
+// recoverVaultContents restores only the rows the cascade soft-deleted at
+// deletedAt.
+func recoverVaultContents(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, vaultID uuid.UUID, deletedAt time.Time) error {
+	op := "recover_vault_" + cfg.table
+	return cfg.wrap(op, func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted " + cfg.table + " in vault")
+
+		_, err := ex.ExecContext(ctx,
+			"UPDATE "+cfg.table+" SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
+			vaultID.String(), deletedAt)
+		if err != nil {
+			cfg.log.LogAuditError(vaultID.String(), op, "failed", "Failed to recover vault "+cfg.table, err)
+			return fmt.Errorf("failed to recover vault %s: %w", cfg.table, err)
+		}
+
+		cfg.log.LogAuditInfo(vaultID.String(), op, "success", "Vault "+cfg.table+" recovered successfully")
+		return nil
+	})
+}
+
+// purgeVaultContents permanently deletes every row in vaultID, regardless of
+// soft-delete state.
+func purgeVaultContents(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, vaultID uuid.UUID) error {
+	op := "purge_vault_" + cfg.table
+	return cfg.wrap(op, func() error {
+		logrus.WithField("vault_id", vaultID.String()).Debug("Purging all " + cfg.table + " in vault")
+
+		_, err := ex.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE vault_id = ?", vaultID.String())
+		if err != nil {
+			cfg.log.LogAuditError(vaultID.String(), op, "failed", "Failed to purge vault "+cfg.table, err)
+			return fmt.Errorf("failed to purge vault %s: %w", cfg.table, err)
+		}
+
+		cfg.log.LogAuditInfo(vaultID.String(), op, "success", "Vault "+cfg.table+" purged successfully")
+		return nil
+	})
+}
+
+// hasProtectedContent reports whether any row in vaultID, active or
+// soft-deleted, has purge_protection enabled.
+func hasProtectedContent(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, vaultID uuid.UUID) (bool, error) {
+	op := "has_protected_content_" + cfg.table
+	var exists bool
+	err := cfg.wrap(op, func() error {
+		return ex.QueryRowContext(ctx,
+			"SELECT EXISTS(SELECT 1 FROM "+cfg.table+" WHERE vault_id = ? AND purge_protection = TRUE)",
+			vaultID.String()).Scan(&exists)
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to check %s purge protection: %w", cfg.item, err)
+	}
+	return exists, nil
+}

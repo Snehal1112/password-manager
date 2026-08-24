@@ -269,6 +269,21 @@ type CertificateRepository struct {
 }
 
 // executeWithMetrics wraps database operations with performance monitoring.
+// crud returns the itemLifecycleConfig for certificates.
+func (r *CertificateRepository) crud() itemLifecycleConfig {
+	return itemLifecycleConfig{
+		table:              "certificates",
+		item:               "certificate",
+		itemCap:            "Certificate",
+		idField:            "cert_id",
+		auditActor:         uuid.Nil.String(),
+		purgeErr:           ErrCertPurgeProtected,
+		notFoundIsSentinel: false,
+		log:                r.log,
+		wrap:               r.executeWithMetrics,
+	}
+}
+
 func (r *CertificateRepository) executeWithMetrics(operation string, fn func() error) error {
 	start := time.Now()
 	err := fn()
@@ -579,33 +594,7 @@ func (r *CertificateRepository) ListRevoked(ctx context.Context, userID uuid.UUI
 //
 //	An error if the soft deletion fails.
 func (r *CertificateRepository) SoftDelete(ctx context.Context, id uuid.UUID) error {
-	return r.executeWithMetrics("soft_delete_certificate", func() error {
-		logrus.WithField("cert_id", id.String()).Debug("Soft deleting certificate from database")
-
-		now := time.Now()
-		result, err := r.db.ExecContext(ctx,
-			"UPDATE certificates SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
-			now, id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Failed to soft delete certificate", err)
-			return fmt.Errorf("failed to soft delete certificate: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(uuid.Nil.String(), "soft_delete_certificate", "failed", "Certificate not found or already deleted", nil)
-			return fmt.Errorf("certificate not found or already deleted")
-		}
-
-		r.log.LogAuditInfo(uuid.Nil.String(), "soft_delete_certificate", "success", "Certificate soft deleted successfully")
-		logrus.WithField("cert_id", id.String()).Debug("Certificate soft deleted successfully")
-
-		return nil
-	})
+	return softDeleteItem(ctx, r.db, r.crud(), id)
 }
 
 // RecoverCertificate restores a soft-deleted certificate by clearing its deleted_at timestamp.
@@ -618,32 +607,7 @@ func (r *CertificateRepository) SoftDelete(ctx context.Context, id uuid.UUID) er
 //
 //	An error if the certificate is not found in a deleted state or the update fails.
 func (r *CertificateRepository) RecoverCertificate(ctx context.Context, id uuid.UUID) error {
-	return r.executeWithMetrics("recover_certificate", func() error {
-		logrus.WithField("cert_id", id.String()).Debug("Recovering soft-deleted certificate")
-
-		result, err := r.db.ExecContext(ctx,
-			"UPDATE certificates SET deleted_at = NULL, scheduled_purge_at = NULL WHERE id = ? AND deleted_at IS NOT NULL",
-			id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "recover_certificate", "failed", "Failed to recover certificate", err)
-			return fmt.Errorf("failed to recover certificate: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "recover_certificate", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(uuid.Nil.String(), "recover_certificate", "failed", "Certificate not found in deleted state", nil)
-			return fmt.Errorf("certificate not found in deleted state")
-		}
-
-		r.log.LogAuditInfo(uuid.Nil.String(), "recover_certificate", "success", "Certificate recovered successfully")
-		logrus.WithField("cert_id", id.String()).Debug("Certificate recovered successfully")
-
-		return nil
-	})
+	return recoverItem(ctx, r.db, r.crud(), id)
 }
 
 // PurgeCertificate permanently removes a soft-deleted certificate from the database.
@@ -657,54 +621,7 @@ func (r *CertificateRepository) RecoverCertificate(ctx context.Context, id uuid.
 //
 //	An error if the purge operation fails or purge protection is enabled.
 func (r *CertificateRepository) PurgeCertificate(ctx context.Context, id uuid.UUID) error {
-	return r.executeWithMetrics("purge_certificate", func() error {
-		logrus.WithField("cert_id", id.String()).Debug("Purging certificate from database")
-
-		// Check certificate status before purging.
-		var deletedAt *time.Time
-		var purgeProtection bool
-		err := r.db.QueryRowContext(ctx,
-			"SELECT deleted_at, purge_protection FROM certificates WHERE id = ?", id.String()).
-			Scan(&deletedAt, &purgeProtection)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate not found", nil)
-				return fmt.Errorf("certificate not found")
-			}
-			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Failed to check certificate status", err)
-			return fmt.Errorf("failed to check certificate status: %w", err)
-		}
-
-		if deletedAt == nil {
-			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate is not soft-deleted", nil)
-			return fmt.Errorf("certificate is not soft-deleted")
-		}
-		if purgeProtection {
-			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate has purge protection enabled", nil)
-			return ErrCertPurgeProtected
-		}
-
-		result, err := r.db.ExecContext(ctx, "DELETE FROM certificates WHERE id = ?", id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Failed to purge certificate", err)
-			return fmt.Errorf("failed to purge certificate: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(uuid.Nil.String(), "purge_certificate", "failed", "Certificate not found for purge", nil)
-			return fmt.Errorf("certificate not found for purge")
-		}
-
-		r.log.LogAuditInfo(uuid.Nil.String(), "purge_certificate", "success", "Certificate purged successfully")
-		logrus.WithField("cert_id", id.String()).Debug("Certificate purged successfully")
-
-		return nil
-	})
+	return purgeItem(ctx, r.db, r.crud(), id)
 }
 
 // SetPurgeProtection enables or disables purge protection on a certificate.
@@ -729,28 +646,7 @@ func (r *CertificateRepository) SetPurgeProtectionTx(ctx context.Context, ex db.
 }
 
 func (r *CertificateRepository) setPurgeProtection(ctx context.Context, ex db.DBTX, id uuid.UUID, enabled bool) error {
-	return r.executeWithMetrics("set_purge_protection_certificate", func() error {
-		result, err := ex.ExecContext(ctx,
-			"UPDATE certificates SET purge_protection = ? WHERE id = ?",
-			enabled, id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_certificate", "failed", "Failed to set purge protection", err)
-			return fmt.Errorf("failed to set purge protection: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_certificate", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(uuid.Nil.String(), "set_purge_protection_certificate", "failed", "Certificate not found", nil)
-			return fmt.Errorf("certificate not found")
-		}
-
-		r.log.LogAuditInfo(uuid.Nil.String(), "set_purge_protection_certificate", "success", fmt.Sprintf("Certificate purge protection set to %v", enabled))
-		return nil
-	})
+	return setPurgeProtectionItem(ctx, ex, r.crud(), id, enabled)
 }
 
 // ListAll returns all non-deleted certificates across all users.
@@ -815,31 +711,12 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 //
 //	An error if the soft deletion fails.
 func (r *CertificateRepository) SoftDeleteVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
-	return r.executeWithMetrics("soft_delete_vault_certificates", func() error {
-		return r.softDeleteVaultContents(ctx, r.db, vaultID, deletedAt)
-	})
+	return softDeleteVaultContents(ctx, r.db, r.crud(), vaultID, deletedAt)
 }
 
 // SoftDeleteVaultContentsTx is SoftDeleteVaultContents scoped to an explicit executor.
 func (r *CertificateRepository) SoftDeleteVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
-	return r.executeWithMetrics("soft_delete_vault_certificates", func() error {
-		return r.softDeleteVaultContents(ctx, ex, vaultID, deletedAt)
-	})
-}
-
-func (r *CertificateRepository) softDeleteVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
-	logrus.WithField("vault_id", vaultID.String()).Debug("Soft deleting all certificates in vault")
-
-	_, err := ex.ExecContext(ctx,
-		"UPDATE certificates SET deleted_at = ? WHERE vault_id = ? AND deleted_at IS NULL",
-		deletedAt, vaultID.String())
-	if err != nil {
-		r.log.LogAuditError(vaultID.String(), "soft_delete_vault_certificates", "failed", "Failed to soft delete vault certificates", err)
-		return fmt.Errorf("failed to soft delete vault certificates: %w", err)
-	}
-
-	r.log.LogAuditInfo(vaultID.String(), "soft_delete_vault_certificates", "success", "Vault certificates soft deleted successfully")
-	return nil
+	return softDeleteVaultContents(ctx, ex, r.crud(), vaultID, deletedAt)
 }
 
 // RecoverVaultContents restores every soft-deleted certificate in a vault.
@@ -853,31 +730,12 @@ func (r *CertificateRepository) softDeleteVaultContents(ctx context.Context, ex 
 //
 //	An error if the recovery fails.
 func (r *CertificateRepository) RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error {
-	return r.executeWithMetrics("recover_vault_certificates", func() error {
-		return r.recoverVaultContents(ctx, r.db, vaultID, deletedAt)
-	})
+	return recoverVaultContents(ctx, r.db, r.crud(), vaultID, deletedAt)
 }
 
 // RecoverVaultContentsTx is RecoverVaultContents scoped to an explicit executor.
 func (r *CertificateRepository) RecoverVaultContentsTx(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
-	return r.executeWithMetrics("recover_vault_certificates", func() error {
-		return r.recoverVaultContents(ctx, ex, vaultID, deletedAt)
-	})
-}
-
-func (r *CertificateRepository) recoverVaultContents(ctx context.Context, ex db.DBTX, vaultID uuid.UUID, deletedAt time.Time) error {
-	logrus.WithField("vault_id", vaultID.String()).Debug("Recovering cascade soft-deleted certificates in vault")
-
-	_, err := ex.ExecContext(ctx,
-		"UPDATE certificates SET deleted_at = NULL, scheduled_purge_at = NULL WHERE vault_id = ? AND deleted_at = ?",
-		vaultID.String(), deletedAt)
-	if err != nil {
-		r.log.LogAuditError(vaultID.String(), "recover_vault_certificates", "failed", "Failed to recover vault certificates", err)
-		return fmt.Errorf("failed to recover vault certificates: %w", err)
-	}
-
-	r.log.LogAuditInfo(vaultID.String(), "recover_vault_certificates", "success", "Vault certificates recovered successfully")
-	return nil
+	return recoverVaultContents(ctx, ex, r.crud(), vaultID, deletedAt)
 }
 
 // PurgeVaultContents permanently deletes every certificate in a vault,
@@ -890,18 +748,7 @@ func (r *CertificateRepository) recoverVaultContents(ctx context.Context, ex db.
 // DELETE the vault service already issues for access_policies on purge, for
 // the same reason.
 func (r *CertificateRepository) PurgeVaultContents(ctx context.Context, vaultID uuid.UUID) error {
-	return r.executeWithMetrics("purge_vault_certificates", func() error {
-		logrus.WithField("vault_id", vaultID.String()).Debug("Purging all certificates in vault")
-
-		_, err := r.db.ExecContext(ctx, "DELETE FROM certificates WHERE vault_id = ?", vaultID.String())
-		if err != nil {
-			r.log.LogAuditError(vaultID.String(), "purge_vault_certificates", "failed", "Failed to purge vault certificates", err)
-			return fmt.Errorf("failed to purge vault certificates: %w", err)
-		}
-
-		r.log.LogAuditInfo(vaultID.String(), "purge_vault_certificates", "success", "Vault certificates purged successfully")
-		return nil
-	})
+	return purgeVaultContents(ctx, r.db, r.crud(), vaultID)
 }
 
 // HasProtectedContent reports whether any certificate in the vault, active
@@ -909,14 +756,5 @@ func (r *CertificateRepository) PurgeVaultContents(ctx context.Context, vaultID 
 // service's cascade purge-protection check (see vaults.CascadeRepository) so
 // purging a vault can't bypass an individual certificate's own protection.
 func (r *CertificateRepository) HasProtectedContent(ctx context.Context, vaultID uuid.UUID) (bool, error) {
-	var exists bool
-	err := r.executeWithMetrics("has_protected_content_certificates", func() error {
-		return r.db.QueryRowContext(ctx,
-			"SELECT EXISTS(SELECT 1 FROM certificates WHERE vault_id = ? AND purge_protection = TRUE)",
-			vaultID.String()).Scan(&exists)
-	})
-	if err != nil {
-		return false, fmt.Errorf("failed to check certificate purge protection: %w", err)
-	}
-	return exists, nil
+	return hasProtectedContent(ctx, r.db, r.crud(), vaultID)
 }
