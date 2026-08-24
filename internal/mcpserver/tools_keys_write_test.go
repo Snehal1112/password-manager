@@ -163,3 +163,130 @@ func TestRotateKey_ForbiddenNamesTheCryptoOfficerRole(t *testing.T) {
 	require.True(t, result.IsError)
 	require.Contains(t, renderContent(result), "Key Vault Crypto Officer")
 }
+
+func TestSetKeyRotationPolicy_ReplacesThePolicy(t *testing.T) {
+	f := newFakeVault(t, map[string]string{
+		"/api/v1/vaults/default/keys": `{"keys":[{"id":"` + signKeyUUID + `","name":"signing-key"}]}`,
+	})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","rotate_after_days":90,
+		"notify_before_expiry_days":14,"expiry_days":365,"enabled":true,
+		"next_rotation_at":"2026-11-01T00:00:00Z"}`
+	s := f.server(t, writeConfig())
+	registerKeysWriteTools(s)
+
+	var got setKeyRotationPolicyResult
+	structured(t, callTool(t, s, "set_key_rotation_policy", map[string]any{
+		"name": "signing-key", "rotate_after_days": 90,
+		"notify_before_expiry_days": 14, "expiry_days": 365, "enabled": true,
+	}), &got)
+
+	require.Equal(t, 90, got.RotateAfterDays)
+	require.Equal(t, 365, got.ExpiryDays)
+	require.True(t, got.Enabled)
+	require.EqualValues(t, 90, f.lastWriteBody["rotate_after_days"])
+}
+
+func TestSetKeyRotationPolicy_AllFieldsAreRequiredInTheSchema(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, writeConfig())
+	registerKeysWriteTools(s)
+
+	cs := connect(t, s)
+	tools, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+
+	for _, tool := range tools.Tools {
+		if tool.Name != "set_key_rotation_policy" {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+
+		var schema map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &schema))
+
+		required, _ := schema["required"].([]any)
+		var names []string
+		for _, item := range required {
+			names = append(names, item.(string))
+		}
+
+		for _, field := range []string{"rotate_after_days", "notify_before_expiry_days", "expiry_days", "enabled"} {
+			require.Contains(t, names, field,
+				"this operation replaces the policy, so an omittable field could silently zero itself")
+		}
+		return
+	}
+	t.Fatal("set_key_rotation_policy was not registered")
+}
+
+func TestSetKeyRotationPolicy_RejectsAMissingField(t *testing.T) {
+	f := newFakeVault(t, map[string]string{
+		"/api/v1/vaults/default/keys": `{"keys":[{"id":"` + signKeyUUID + `","name":"signing-key"}]}`,
+	})
+	s := f.server(t, writeConfig())
+	registerKeysWriteTools(s)
+
+	result := callTool(t, s, "set_key_rotation_policy", map[string]any{
+		"name": "signing-key", "rotate_after_days": 90,
+	})
+	require.True(t, result.IsError,
+		"a partial policy must be refused, not sent with the rest zeroed")
+	require.Empty(t, f.requested)
+}
+
+func TestSetKeyRotationPolicy_DistinguishesFalseFromMissing(t *testing.T) {
+	f := newFakeVault(t, map[string]string{
+		"/api/v1/vaults/default/keys": `{"keys":[{"id":"` + signKeyUUID + `","name":"signing-key"}]}`,
+	})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","enabled":false}`
+	s := f.server(t, writeConfig())
+	registerKeysWriteTools(s)
+
+	result := callTool(t, s, "set_key_rotation_policy", map[string]any{
+		"name": "signing-key", "rotate_after_days": 90,
+		"notify_before_expiry_days": 14, "expiry_days": 365, "enabled": false,
+	})
+	require.False(t, result.IsError, "an explicit false is a supplied value")
+	require.Equal(t, false, f.lastWriteBody["enabled"])
+}
+
+func TestSetKeyRotationPolicy_DescriptionSaysItReplaces(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, writeConfig())
+	registerKeysWriteTools(s)
+
+	cs := connect(t, s)
+	tools, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+
+	for _, tool := range tools.Tools {
+		if tool.Name == "set_key_rotation_policy" {
+			require.Contains(t, tool.Description, "Replaces",
+				"the caller must know this is not a partial update")
+			require.Contains(t, tool.Description, "get_key",
+				"and where to read the current values from")
+			return
+		}
+	}
+	t.Fatal("set_key_rotation_policy was not registered")
+}
+
+func TestSetKeyRotationPolicy_IsAnnotatedIdempotent(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, writeConfig())
+	registerKeysWriteTools(s)
+
+	cs := connect(t, s)
+	tools, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+
+	for _, tool := range tools.Tools {
+		if tool.Name == "set_key_rotation_policy" {
+			require.True(t, tool.Annotations.IdempotentHint,
+				"a full replacement applied twice leaves the same state")
+			return
+		}
+	}
+	t.Fatal("set_key_rotation_policy was not registered")
+}
