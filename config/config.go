@@ -194,9 +194,10 @@ type Config struct {
 // context, so the ceiling is a hard limit rather than a suggestion.
 const MCPMaxResultsCeiling = 200
 
-// mcpClientSecretEnv holds the service-account secret, taking precedence over
-// the YAML key so a deployment need not write it to disk.
-const mcpClientSecretEnv = "ROCKETVAULT_MCP_CLIENT_SECRET"
+// mcpClientSecretEnv is the environment variable holding the service-account
+// secret, which takes precedence over the YAML key so a deployment need not
+// write it to disk. This constant is a variable name, never a secret value.
+const mcpClientSecretEnv = "ROCKETVAULT_MCP_CLIENT_SECRET" //nolint:gosec // env var name, not a credential
 
 // MCPRateLimit bounds how fast tools may be called, per tool class.
 type MCPRateLimit struct {

@@ -19,7 +19,7 @@ func TestSecretValue_RevealReturnsPlaintext(t *testing.T) {
 func TestSecretValue_StringRedacts(t *testing.T) {
 	v := SecretValue(plaintext)
 	require.Equal(t, "[REDACTED]", v.String())
-	require.NotContains(t, fmt.Sprintf("%s", v), plaintext)
+	require.NotContains(t, v.String(), plaintext)
 }
 
 func TestSecretValue_VerbFormattingRedacts(t *testing.T) {

@@ -54,46 +54,55 @@ type mcpCheckReport struct {
 	ValuesShown bool
 }
 
+// mustFprintf writes to w, ignoring the error.
+//
+// w is stdout for every real caller here, and there is nothing actionable to
+// do if a write to it fails -- the process has no fallback output stream to
+// report the failure on.
+func mustFprintf(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
 // writeMCPCheckReport renders the report.
 //
 // Tools are listed one per line rather than comma-joined: an operator is
 // checking this against an expectation, and a scannable list makes a missing
 // or unexpected entry obvious.
 func writeMCPCheckReport(w io.Writer, report mcpCheckReport) {
-	fmt.Fprintf(w, "RocketVault MCP server preflight\n\n")
+	mustFprintf(w, "RocketVault MCP server preflight\n\n")
 
-	fmt.Fprintf(w, "  Server:    %s\n", report.BaseURL)
-	fmt.Fprintf(w, "  Identity:  %s\n", report.Identity)
-	fmt.Fprintf(w, "  Vault:     %s\n", report.Vault)
+	mustFprintf(w, "  Server:    %s\n", report.BaseURL)
+	mustFprintf(w, "  Identity:  %s\n", report.Identity)
+	mustFprintf(w, "  Vault:     %s\n", report.Vault)
 
 	if report.Reachable {
-		fmt.Fprintf(w, "  Reachable: yes (%d vault(s) visible)\n", report.VaultCount)
+		mustFprintf(w, "  Reachable: yes (%d vault(s) visible)\n", report.VaultCount)
 	} else {
-		fmt.Fprintf(w, "  Reachable: FAIL - %s\n", report.Failure)
+		mustFprintf(w, "  Reachable: FAIL - %s\n", report.Failure)
 	}
 
-	fmt.Fprintf(w, "\n  Enabled tiers: %s\n", strings.Join(report.Tiers, ", "))
-	fmt.Fprintf(w, "  Max results per list: %d\n", report.MaxResults)
+	mustFprintf(w, "\n  Enabled tiers: %s\n", strings.Join(report.Tiers, ", "))
+	mustFprintf(w, "  Max results per list: %d\n", report.MaxResults)
 
 	if report.ValuesShown {
-		fmt.Fprintf(w, "  Secret values CAN be returned to the model (allow_secret_values is on).\n")
+		mustFprintf(w, "  Secret values CAN be returned to the model (allow_secret_values is on).\n")
 	} else {
-		fmt.Fprintf(w, "  Secret values are not returned to the model.\n")
+		mustFprintf(w, "  Secret values are not returned to the model.\n")
 	}
 
 	// Under a session the agent acts as the operator, so its actions are
 	// indistinguishable from theirs in the audit log. That is worth saying at
 	// setup time rather than leaving in a document.
 	if report.IsSession {
-		fmt.Fprintf(w, "\n  Note: this server acts as your own logged-in user, so its actions\n")
-		fmt.Fprintf(w, "  are indistinguishable from yours in the audit log. For anything\n")
-		fmt.Fprintf(w, "  beyond local use, configure a service account and set\n")
-		fmt.Fprintf(w, "  mcp.require_service_account.\n")
+		mustFprintf(w, "\n  Note: this server acts as your own logged-in user, so its actions\n")
+		mustFprintf(w, "  are indistinguishable from yours in the audit log. For anything\n")
+		mustFprintf(w, "  beyond local use, configure a service account and set\n")
+		mustFprintf(w, "  mcp.require_service_account.\n")
 	}
 
-	fmt.Fprintf(w, "\n  Exposed tools (%d):\n", len(report.Tools))
+	mustFprintf(w, "\n  Exposed tools (%d):\n", len(report.Tools))
 	for _, name := range report.Tools {
-		fmt.Fprintf(w, "    %s\n", name)
+		mustFprintf(w, "    %s\n", name)
 	}
 }
 

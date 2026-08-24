@@ -165,8 +165,8 @@ const (
 func secretRoutes() map[string]string {
 	return map[string]string{
 		"/api/v1/vaults/default/secrets":                               secretsListBody,
-		"/api/v1/vaults/default/secrets/" + dbSecretUUID:                secretGetBody,
-		"/api/v1/vaults/default/secrets/" + dbSecretUUID + "/versions":  secretVersionsBody,
+		"/api/v1/vaults/default/secrets/" + dbSecretUUID:               secretGetBody,
+		"/api/v1/vaults/default/secrets/" + dbSecretUUID + "/versions": secretVersionsBody,
 	}
 }
 

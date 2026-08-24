@@ -87,6 +87,3 @@ func withLifecycle[In, Out any](s *Server, tier Tier, name string, h mcp.ToolHan
 		return result, out, err
 	}
 }
-
-// timeoutFor reports the configured per-call deadline.
-func (s *Server) timeoutFor() time.Duration { return s.cfg.RequestTimeout }
