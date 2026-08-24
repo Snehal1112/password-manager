@@ -22,4 +22,5 @@ func RegisterAllTools(s *Server) {
 	registerKeysWriteTools(s)
 	registerCertificatesWriteTools(s)
 	registerRecoverTools(s)
+	registerDestructiveTools(s)
 }
