@@ -91,7 +91,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("vaultapi: %s %s: unexpected status %d", method, path, resp.StatusCode)
+		return newAPIError(method, path, resp.StatusCode)
 	}
 	if out == nil {
 		return nil
