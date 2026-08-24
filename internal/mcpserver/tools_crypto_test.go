@@ -145,3 +145,112 @@ func TestVerify_RequiresDataAndSignature(t *testing.T) {
 	require.True(t, callTool(t, s, "verify", map[string]any{
 		"key_name": "k", "data_base64": "aGk="}).IsError)
 }
+
+func TestEncrypt_AcceptsPlainText(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","algorithm":"RSA-OAEP","value":"Y2lwaGVy"}`
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	var got encryptResult
+	structured(t, callTool(t, s, "encrypt", map[string]any{
+		"key_name": "signing-key", "plaintext": "hello",
+	}), &got)
+
+	require.Equal(t, "Y2lwaGVy", got.CiphertextBase64)
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("hello")), f.lastWriteBody["value"],
+		"plain text is encoded here so the caller need not, and cannot forget to")
+}
+
+func TestEncrypt_AcceptsBase64ForBinaryData(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","value":"Y2lwaGVy"}`
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	binary := base64.StdEncoding.EncodeToString([]byte{0x00, 0xFF, 0xFE})
+	result := callTool(t, s, "encrypt", map[string]any{
+		"key_name": "signing-key", "plaintext_base64": binary,
+	})
+	require.False(t, result.IsError)
+	require.Equal(t, binary, f.lastWriteBody["value"])
+}
+
+func TestEncrypt_RejectsBothInputsAtOnce(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	result := callTool(t, s, "encrypt", map[string]any{
+		"key_name": "signing-key", "plaintext": "hello", "plaintext_base64": "aGVsbG8=",
+	})
+	require.True(t, result.IsError,
+		"two sources for the same data would leave which one was used ambiguous")
+}
+
+func TestEncrypt_RejectsNeitherInput(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	result := callTool(t, s, "encrypt", map[string]any{"key_name": "signing-key"})
+	require.True(t, result.IsError)
+	require.Contains(t, renderContent(result), "plaintext")
+}
+
+func TestEncrypt_ReturnsTheNonce(t *testing.T) {
+	nonce := base64.StdEncoding.EncodeToString([]byte{0x01, 0x02, 0x03})
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","algorithm":"AES256-GCM",
+		"value":"Y2lwaGVy","nonce":"` + nonce + `"}`
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	var got encryptResult
+	structured(t, callTool(t, s, "encrypt", map[string]any{
+		"key_name": "signing-key", "plaintext": "hello", "algorithm": "AES256-GCM",
+	}), &got)
+
+	require.Equal(t, nonce, got.NonceBase64,
+		"decryption requires this; a caller that discards it has lost the plaintext for good")
+	require.NotEmpty(t, got.Note, "and the result should say so")
+}
+
+func TestEncrypt_NoNoteWhenThereIsNoNonce(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	f.writeResponse = `{"key_id":"` + signKeyUUID + `","algorithm":"RSA-OAEP","value":"Y2lwaGVy"}`
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	var got encryptResult
+	structured(t, callTool(t, s, "encrypt", map[string]any{
+		"key_name": "signing-key", "plaintext": "hello",
+	}), &got)
+
+	require.Empty(t, got.NonceBase64)
+	require.Empty(t, got.Note)
+}
+
+func TestEncrypt_RejectsInvalidBase64Input(t *testing.T) {
+	f := newFakeVault(t, map[string]string{"/api/v1/vaults/default/keys": keysForCryptoBody})
+	s := f.server(t, cryptoConfig())
+	registerCryptoTools(s)
+
+	result := callTool(t, s, "encrypt", map[string]any{
+		"key_name": "signing-key", "plaintext_base64": "not base64!!!",
+	})
+	require.True(t, result.IsError)
+	require.Contains(t, renderContent(result), "base64")
+}
+
+func TestEncrypt_IsPresentWithoutAllowSecretValues(t *testing.T) {
+	// Encrypting does not disclose anything, so it needs only the tier flag.
+	f := newFakeVault(t, map[string]string{})
+
+	cfg := cryptoConfig()
+	cfg.AllowSecretValues = false
+	s := f.server(t, cfg)
+	registerCryptoTools(s)
+
+	require.Contains(t, s.RegisteredTools(), "encrypt")
+}
