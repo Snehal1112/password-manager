@@ -494,6 +494,14 @@ npm run typecheck # If available
 
 ## Documentation History
 
+- **2026-08-24**: Added the MCP server (`rocketvault mcp`) — a Model Context
+  Protocol interface exposing the vault to Claude Code and Claude Desktop over
+  stdio. Read-only by default (10 tools), with independently gated tiers for
+  writes, destructive operations, crypto and secret values (27 tools fully
+  enabled). Built on a new `internal/vaultapi` typed REST client, which the
+  pending CLI remote-mode work is expected to reuse. Design:
+  `docs/superpowers/specs/2026-08-21-mcp-server-design.md`; guide:
+  `docs/mcp-server.md`.
 - **2026-08-17**: Added `.claude/roadmap-azure-parity-and-beyond.md` — a phased
   roadmap built on the parity doc's gap analysis (close remaining Azure gaps,
   then platform maturity, then self-hosted-native differentiators). README's

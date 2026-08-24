@@ -3357,3 +3357,33 @@ transaction-scoped variant of the repository methods it needs — either a
 `WithTx(*db.Tx)` factory on each repository interface, or a narrower
 unit-of-work abstraction passed into `RestoreSecret`/`RestoreKey` — so the
 three (or more) writes per restore commit or roll back together.
+
+## MCP Server: Known Deferrals
+
+Two items decided deliberately during the `feat/mcp-server` branch (2026-08-24)
+and recorded here rather than left implicit. Neither is a defect in that work.
+
+### D-MCP1: No CLI command to create a service account
+
+`cmd/` has no `service-accounts` group; the capability exists only as
+`POST /api/v1/service-accounts` (`api/oauth2.go`). The MCP server's
+recommended production posture requires a service account, so setting it up
+runs through `curl` — documented that way in `docs/mcp-server.md`.
+
+**Impact**: friction on the recommended path, not a security gap.
+**Fix**: add a `rocketvault service-accounts create` command.
+**Deferred because**: out of scope for the MCP work, which deliberately added
+no new API surface.
+
+### D-MCP2: `query_audit_log` requires a global admin principal
+
+`GET /api/v1/audit/logs` gates on the global admin role (`api/audit.go:68`),
+not a data action, so no per-vault grant unlocks it. An MCP server running as
+a least-privilege service account gets 403 from that tool every time.
+
+**Impact**: audit querying and least privilege are mutually exclusive through
+MCP. Both the tool's error and the runbook say so.
+**Fix**: a `Microsoft.KeyVault/vaults/audit/read` data action would let this be
+granted per vault.
+**Deferred because**: changing the audit route's authorization is a server
+change with its own security review, well beyond this branch.
