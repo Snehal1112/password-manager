@@ -73,6 +73,10 @@ Whether you need to secure application secrets, manage RSA/ECDSA keys, rotate cr
 - **Health Monitoring**: Comprehensive system health metrics and monitoring
 - **REST API**: Full RESTful API with OpenAPI/Swagger documentation
 - **CLI Interface**: Complete command-line interface for all operations
+- **MCP server**: expose the vault to Claude Code or Claude Desktop with
+  `rocketvault mcp`. Read-only by default, with independently gated tiers for
+  writes, destructive operations, crypto and secret values. See
+  [the MCP server guide](docs/mcp-server.md).
 - **Multi-Database Support**: SQLite (development) and PostgreSQL (production)
 - **Cryptographic Operations**: RSA (2048/3072/4096-bit), ECDSA, AES key generation and management
 - **Key Crypto Operations**: Sign, verify, encrypt, decrypt, wrap, and unwrap via HTTP API

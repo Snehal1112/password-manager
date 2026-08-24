@@ -81,6 +81,8 @@ rocketvault/
 │   ├── retry/             # Retry logic and middleware
 │   ├── signing/           # JWT asymmetric signing key storage (OS keychain)
 │   ├── vaultclient/       # Client library for consuming secrets from a RocketVault instance
+│   ├── vaultapi/          # Typed REST client for the RocketVault API (used by mcpserver; CLI remote mode next)
+│   ├── mcpserver/         # Model Context Protocol server — tier-gated tool surface over vaultapi
 │   └── validation/        # Input validation
 ├── scripts/
 │   └── docsgen/            # Standalone Go module rendering the docs site (see Build and Run > Documentation)
