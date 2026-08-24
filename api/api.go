@@ -70,6 +70,8 @@ func Init(options ...Options) *API {
 	r.ApiRoot = api.rootRouter.PathPrefix(api.basePath).Subrouter()
 	r.ApiRoot.Use(
 		mw.CORSMiddleware,
+		mw.SecurityHeadersMiddleware,
+		mw.RequestBodySizeLimitMiddleware,
 		mw.RateLimitMiddleware,
 		mw.AuthenticationMiddleware,
 		mw.VaultResolutionMiddleware,
@@ -121,15 +123,15 @@ func Init(options ...Options) *API {
 	// Rate limited because every request (success or failure) now writes an
 	// audit log entry, and this endpoint is reachable without authentication.
 	r.OAuth2 = api.rootRouter.PathPrefix(api.basePath).Subrouter()
-	r.OAuth2.Use(mw.CORSMiddleware, mw.RateLimitMiddleware)
+	r.OAuth2.Use(mw.CORSMiddleware, mw.SecurityHeadersMiddleware, mw.RequestBodySizeLimitMiddleware, mw.RateLimitMiddleware)
 
 	// Config is public — registered on rootRouter to bypass auth middleware.
 	r.Config = api.rootRouter.PathPrefix(api.basePath).Subrouter()
-	r.Config.Use(mw.CORSMiddleware)
+	r.Config.Use(mw.CORSMiddleware, mw.SecurityHeadersMiddleware)
 
 	// JWKS is public — registered on rootRouter to bypass auth middleware.
 	r.JWKS = api.rootRouter.NewRoute().Subrouter()
-	r.JWKS.Use(mw.CORSMiddleware)
+	r.JWKS.Use(mw.CORSMiddleware, mw.SecurityHeadersMiddleware)
 
 	// Metrics is public — registered on rootRouter to bypass auth middleware,
 	// matching the Prometheus convention of an unversioned /metrics path.
