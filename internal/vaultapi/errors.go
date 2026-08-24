@@ -81,6 +81,12 @@ func hintFor(e *APIError) string {
 	case KindUnauthorized:
 		return "not authenticated — run `rocketvault users login`, or check the MCP service-account credentials"
 	case KindForbidden:
+		// The audit route gates on the global admin role, not on a data
+		// action (api/audit.go:66). Suggesting a vault role here would send
+		// the operator to a grant that cannot help.
+		if strings.HasPrefix(e.Path, auditLogsPath) {
+			return "audit querying requires the global admin role; no per-vault role assignment grants it"
+		}
 		resource, verb := resourceAndVerb(e.Method, e.Path)
 		action := fmt.Sprintf("Microsoft.KeyVault/vaults/%s/%s", resource, verb)
 		role := roleFor(resource, verb)
