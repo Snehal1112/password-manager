@@ -133,3 +133,36 @@ func (c *Client) GetSecret(ctx context.Context, vault, name string) (*Secret, er
 		NotBefore:     wire.NotBefore,
 	}, nil
 }
+
+// SecretVersion is one entry of a secret's version history.
+//
+// It has no value field on purpose. The versions route returns metadata only,
+// and omitting the field means a stray server-side value can never surface
+// through this type.
+type SecretVersion struct {
+	Version   int    `json:"version"`
+	CreatedAt string `json:"created_at,omitempty"`
+	Enabled   bool   `json:"enabled"`
+}
+
+// GetSecretVersions returns a secret's version history, newest last.
+//
+// The route encodes the metadata slice directly (api/secrets.go:112), so the
+// response is a bare JSON array rather than a wrapper object.
+func (c *Client) GetSecretVersions(ctx context.Context, vault, name string) ([]SecretVersion, error) {
+	if vault == "" {
+		return nil, fmt.Errorf("vaultapi: vault is required to list secret versions")
+	}
+
+	id, err := c.Resolver().Resolve(ctx, vault, KindSecrets, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var versions []SecretVersion
+	path := fmt.Sprintf("/api/v1/vaults/%s/secrets/%s/versions", vault, id)
+	if err := c.Do(ctx, http.MethodGet, path, nil, &versions); err != nil {
+		return nil, err
+	}
+	return versions, nil
+}

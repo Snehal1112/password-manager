@@ -160,3 +160,82 @@ func TestGetSecret_UnknownNameReportsNotFound(t *testing.T) {
 	_, err := newClientForTest(t, srv).GetSecret(context.Background(), "prod", "nope")
 	require.ErrorContains(t, err, "no secrets named")
 }
+
+func TestGetSecretVersions_DecodesABareArray(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		// The handler encodes the slice directly, with no wrapper object.
+		_, _ = w.Write([]byte(`[
+			{"version":1,"created_at":"2026-06-01T00:00:00Z","enabled":false},
+			{"version":2,"created_at":"2026-07-01T00:00:00Z","enabled":true}
+		]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetSecretVersions(context.Background(), "prod", dbSecretID)
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/vaults/prod/secrets/"+dbSecretID+"/versions", gotPath)
+	require.Len(t, got, 2)
+	require.Equal(t, 1, got[0].Version)
+	require.False(t, got[0].Enabled)
+	require.Equal(t, 2, got[1].Version)
+	require.True(t, got[1].Enabled)
+}
+
+func TestGetSecretVersions_ResolvesNameFirst(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/vaults/prod/secrets" {
+			_, _ = w.Write([]byte(`{"secrets":[{"id":"` + dbSecretID + `","name":"db-password"}],"total":1}`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"version":1,"created_at":"2026-06-01T00:00:00Z","enabled":true}]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetSecretVersions(context.Background(), "prod", "db-password")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "/api/v1/vaults/prod/secrets/"+dbSecretID+"/versions", paths[1])
+}
+
+func TestGetSecretVersions_EmptyHistoryIsNotAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetSecretVersions(context.Background(), "prod", dbSecretID)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestGetSecretVersions_CarriesNoValueField(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Even if the server were to send one, it must not surface.
+		_, _ = w.Write([]byte(`[{"version":1,"value":"` + plaintext + `","enabled":true}]`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetSecretVersions(context.Background(), "prod", dbSecretID)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), plaintext,
+		"version metadata has no value field, so a stray server value is dropped")
+}
+
+func TestGetSecretVersions_RequiresVault(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+
+	_, err := newClientForTest(t, srv).GetSecretVersions(context.Background(), "", "db-password")
+	require.ErrorContains(t, err, "vault is required")
+}
