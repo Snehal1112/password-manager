@@ -13,16 +13,19 @@ var contextCmd = &cobra.Command{
 	Long: `Save, inspect, and switch between named remote RocketVault servers. A
 context records a server URL plus an optional default username and vault in
 ~/.rocketvault/contexts.json; 'context use' marks one active, 'context
-current' prints it, and 'context remove' deletes it.
+current' prints it, 'context unset' clears the active one without deleting
+it, and 'context remove' deletes it outright.
 
 This group touches only that local file. It needs no session, no
 .rocketvault.yaml, and no database, so it works on a machine that has never
 run a RocketVault server. It is also the only resource group exempt from the
-remote-target guard: remote mode is not implemented for the others yet, so
-while a context is active — or --server or ROCKETVAULT_ADDR is set — they
-fail with "remote mode ... is not yet supported" rather than quietly acting
-on the local instance. Removing the current context clears it and puts the
-CLI back in local mode.
+remote-target guard: remote mode is not implemented for every other group
+yet (the secrets group is, as of 2026-08), so while a context is active — or
+--server or ROCKETVAULT_ADDR is set — a command with no remote adapter fails
+with "remote mode ... is not yet supported" rather than quietly acting on
+the local instance. 'context unset' and 'context remove' of the current
+context both clear it and put the CLI back in local mode; unset keeps the
+saved context around to switch back to later, remove deletes it.
 
 --server names the target when adding a context. --ca-cert and
 --insecure-skip-verify configure TLS trust for the remote connections
@@ -37,7 +40,10 @@ are not stored in a context.`,
   rocketvault context list
   rocketvault context current
 
-  # Stop targeting a remote server
+  # Switch back to local mode, keeping the context saved
+  rocketvault context unset
+
+  # Stop targeting a remote server for good
   rocketvault context remove prod`,
 }
 
@@ -47,5 +53,6 @@ func init() {
 	contextcli.InitContextList(contextCmd)
 	contextcli.InitContextUse(contextCmd)
 	contextcli.InitContextCurrent(contextCmd)
+	contextcli.InitContextUnset(contextCmd)
 	contextcli.InitContextRemove(contextCmd)
 }

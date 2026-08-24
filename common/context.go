@@ -143,6 +143,22 @@ func CurrentContext() (*Context, string, error) {
 	return &ctx, store.Current, nil
 }
 
+// UnsetCurrentContext clears the current-context pointer, putting the CLI
+// back in local mode, without deleting any saved context -- unlike
+// RemoveContext, which does both. A no-op (not an error) if no context is
+// currently set.
+func UnsetCurrentContext() error {
+	store, err := loadContextStore()
+	if err != nil {
+		return err
+	}
+	if store.Current == "" {
+		return nil
+	}
+	store.Current = ""
+	return saveContextStore(store)
+}
+
 // RemoveContext deletes a named context. If it was the current context, the
 // current pointer is cleared too. Removing a non-existent context is not an
 // error.

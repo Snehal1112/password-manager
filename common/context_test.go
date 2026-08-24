@@ -84,6 +84,36 @@ func TestRemoveContext_ClearsCurrentIfActive(t *testing.T) {
 	}
 }
 
+func TestUnsetCurrentContext_ClearsCurrentButKeepsContext(t *testing.T) {
+	withTempContextsDir(t)
+	AddContext("prod", Context{Server: "https://vault.prod.example.com"})
+	UseContext("prod")
+
+	if err := UnsetCurrentContext(); err != nil {
+		t.Fatalf("UnsetCurrentContext: %v", err)
+	}
+
+	ctx, name, err := CurrentContext()
+	if err != nil || ctx != nil || name != "" {
+		t.Fatalf("CurrentContext() after unset = %+v, %q, %v; want nil, \"\", nil", ctx, name, err)
+	}
+
+	contexts, _, err := ListContexts()
+	if err != nil {
+		t.Fatalf("ListContexts: %v", err)
+	}
+	if _, ok := contexts["prod"]; !ok {
+		t.Fatal("UnsetCurrentContext must not delete the saved context, only clear the current pointer")
+	}
+}
+
+func TestUnsetCurrentContext_NoneSet_NoError(t *testing.T) {
+	withTempContextsDir(t)
+	if err := UnsetCurrentContext(); err != nil {
+		t.Fatalf("UnsetCurrentContext() with nothing set = %v, want nil (no-op)", err)
+	}
+}
+
 func TestCurrentContext_NoneSet_ReturnsNil(t *testing.T) {
 	withTempContextsDir(t)
 	ctx, name, err := CurrentContext()
