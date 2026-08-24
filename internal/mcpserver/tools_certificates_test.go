@@ -129,3 +129,88 @@ func TestGetCertificate_RequiresAName(t *testing.T) {
 	require.True(t, result.IsError)
 	require.Contains(t, renderContent(result), "name")
 }
+
+func TestListDeleted_ListsEachKind(t *testing.T) {
+	cases := []struct {
+		kind string
+		path string
+		body string
+		want string
+	}{
+		{"secrets", "/api/v1/vaults/default/deleted/secrets",
+			`{"deleted_secrets":[{"id":"` + dbSecretUUID + `","name":"old-password","version":2,
+				"deleted_at":"2026-08-10T00:00:00Z"}],"total":1}`, "old-password"},
+		{"keys", "/api/v1/vaults/default/deleted/keys",
+			`{"deleted_keys":[{"id":"` + signKeyUUID + `","name":"old-key",
+				"deleted_at":"2026-08-10T00:00:00Z"}],"total":1}`, "old-key"},
+		{"certificates", "/api/v1/vaults/default/deleted/certificates",
+			`{"deleted_certificates":[{"id":"` + tlsCertUUID + `","name":"old-cert",
+				"deleted_at":"2026-08-10T00:00:00Z"}],"total":1}`, "old-cert"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			f := newFakeVault(t, map[string]string{tc.path: tc.body})
+			s := f.server(t, testConfig())
+			registerCertificatesReadTools(s)
+
+			var got listDeletedResult
+			structured(t, callTool(t, s, "list_deleted", map[string]any{"type": tc.kind}), &got)
+
+			require.Equal(t, tc.kind, got.Type)
+			require.Len(t, got.Items, 1)
+			require.Equal(t, tc.want, got.Items[0].Name)
+			require.NotEmpty(t, got.Items[0].DeletedAt)
+		})
+	}
+}
+
+func TestListDeleted_RejectsAnUnknownTypeWithoutARequest(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, testConfig())
+	registerCertificatesReadTools(s)
+
+	result := callTool(t, s, "list_deleted", map[string]any{"type": "vaults"})
+	require.True(t, result.IsError)
+	require.Contains(t, renderContent(result), "secrets")
+	require.Contains(t, renderContent(result), "certificates",
+		"the error names the valid values so the model can correct itself")
+	require.Empty(t, f.requested, "an invalid type must not become a request")
+}
+
+func TestListDeleted_RequiresAType(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, testConfig())
+	registerCertificatesReadTools(s)
+
+	result := callTool(t, s, "list_deleted", map[string]any{})
+	require.True(t, result.IsError)
+	require.Contains(t, renderContent(result), "type")
+}
+
+func TestListDeleted_EmptyIsNotAnError(t *testing.T) {
+	f := newFakeVault(t, map[string]string{
+		"/api/v1/vaults/default/deleted/secrets": `{"deleted_secrets":[],"total":0}`,
+	})
+	s := f.server(t, testConfig())
+	registerCertificatesReadTools(s)
+
+	var got listDeletedResult
+	structured(t, callTool(t, s, "list_deleted", map[string]any{"type": "secrets"}), &got)
+	require.Empty(t, got.Items)
+	require.False(t, got.Truncated)
+}
+
+func TestListDeleted_CarriesNoValues(t *testing.T) {
+	f := newFakeVault(t, map[string]string{
+		"/api/v1/vaults/default/deleted/secrets": `{"deleted_secrets":[{"id":"` + dbSecretUUID + `",
+			"name":"old","value":"hunter2-super-secret"}],"total":1}`,
+	})
+	s := f.server(t, testConfig())
+	registerCertificatesReadTools(s)
+
+	result := callTool(t, s, "list_deleted", map[string]any{"type": "secrets"})
+	encoded, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "hunter2-super-secret")
+}

@@ -2,9 +2,12 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"rocketvault/internal/vaultapi"
 )
 
 type listCertificatesArgs struct {
@@ -72,6 +75,10 @@ func registerCertificatesReadTools(s *Server) {
 	registerIf(s, TierRead, "get_certificate",
 		"Get a certificate's metadata and issuance policy, including subject, SANs and renewal settings.",
 		Annotations{ReadOnly: true, Idempotent: true}, s.handleGetCertificate)
+
+	registerIf(s, TierRead, "list_deleted",
+		"List soft-deleted secrets, keys or certificates in a vault, which can be recovered or purged.",
+		Annotations{ReadOnly: true, Idempotent: true}, s.handleListDeleted)
 }
 
 func (s *Server) handleListCertificates(ctx context.Context, _ *mcp.CallToolRequest, args listCertificatesArgs) (*mcp.CallToolResult, listCertificatesResult, error) {
@@ -152,4 +159,85 @@ func (s *Server) handleGetCertificate(ctx context.Context, _ *mcp.CallToolReques
 		}
 	}
 	return nil, result, nil
+}
+
+type listDeletedArgs struct {
+	Type  string `json:"type" jsonschema:"which kind of deleted item to list: secrets, keys or certificates"`
+	Vault string `json:"vault,omitempty" jsonschema:"the vault to list; defaults to the server's configured vault"`
+	Limit int    `json:"limit,omitempty" jsonschema:"maximum number of items to return; capped by the server"`
+}
+
+// deletedItemResult is one soft-deleted item awaiting recovery or purge. It
+// has no value field.
+type deletedItemResult struct {
+	Name      string `json:"name"`
+	ID        string `json:"id"`
+	Version   int    `json:"version,omitempty"`
+	DeletedAt string `json:"deleted_at,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type listDeletedResult struct {
+	Vault     string              `json:"vault"`
+	Type      string              `json:"type"`
+	Items     []deletedItemResult `json:"items"`
+	Truncated bool                `json:"truncated"`
+	Note      string              `json:"note,omitempty"`
+}
+
+// parseDeletedKind validates the type argument.
+//
+// It is checked here rather than left to the schema so an invalid value never
+// becomes a request, and so the error can name the three valid values --
+// which an enum violation reported by the schema layer would not convey as
+// usefully.
+func parseDeletedKind(value string) (vaultapi.Kind, error) {
+	switch value {
+	case "secrets":
+		return vaultapi.KindSecrets, nil
+	case "keys":
+		return vaultapi.KindKeys, nil
+	case "certificates":
+		return vaultapi.KindCertificates, nil
+	case "":
+		return "", fmt.Errorf("list_deleted requires a type: secrets, keys or certificates")
+	default:
+		return "", fmt.Errorf("unknown type %q; valid values are secrets, keys and certificates", value)
+	}
+}
+
+func (s *Server) handleListDeleted(ctx context.Context, _ *mcp.CallToolRequest, args listDeletedArgs) (*mcp.CallToolResult, listDeletedResult, error) {
+	kind, err := parseDeletedKind(args.Type)
+	if err != nil {
+		return errorResult("%s", err), listDeletedResult{}, nil
+	}
+	vault, err := s.ResolveVault(args.Vault)
+	if err != nil {
+		return errorResult("%s", err), listDeletedResult{}, nil
+	}
+
+	limit := s.effectiveLimit(args.Limit)
+	items, truncated, err := s.client.ListDeleted(ctx, vault, kind, limit)
+	if err != nil {
+		return errorResult("could not list deleted %s in vault %q: %s", args.Type, vault, err), listDeletedResult{}, nil
+	}
+
+	results := make([]deletedItemResult, 0, len(items))
+	for _, item := range items {
+		results = append(results, deletedItemResult{
+			Name:      item.Name,
+			ID:        item.ID.String(),
+			Version:   item.Version,
+			DeletedAt: item.DeletedAt,
+			CreatedAt: item.CreatedAt,
+		})
+	}
+
+	return nil, listDeletedResult{
+		Vault:     vault,
+		Type:      args.Type,
+		Items:     results,
+		Truncated: truncated,
+		Note:      truncationNote(truncated, limit),
+	}, nil
 }
