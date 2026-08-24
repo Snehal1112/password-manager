@@ -1,7 +1,12 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -174,4 +179,109 @@ func TestErrorResult_IsMarkedAsAnError(t *testing.T) {
 	text, ok := result.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
 	require.Equal(t, "something went wrong: detail", text.Text)
+}
+
+func TestNewStderrLogger_WritesToStderrNotStdout(t *testing.T) {
+	logger := NewStderrLogger(slog.LevelInfo)
+	require.NotNil(t, logger)
+
+	// The handler must not be pointed at stdout. Capturing os.Stdout here
+	// would be brittle, so assert the constructor's contract by writing a
+	// record and confirming stdout stays clean.
+	stdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = stdout })
+
+	logger.Info("a diagnostic line")
+	require.NoError(t, w.Close())
+
+	captured, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.Empty(t, captured,
+		"stdout is the JSON-RPC channel; a single stray byte corrupts the session")
+}
+
+func TestRegister_LogsOneLinePerCall(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	s, err := New(Deps{Config: testConfig(), Logger: logger, Version: "test"})
+	require.NoError(t, err)
+
+	register(s, "ping", "Echoes.", Annotations{ReadOnly: true},
+		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
+			return nil, pingOut{Echo: in.Message}, nil
+		})
+
+	cs := connect(t, s)
+	_, err = cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "ping", Arguments: map[string]any{"message": "hello"},
+	})
+	require.NoError(t, err)
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(firstJSONLine(t, logs.String()), &entry))
+	require.Equal(t, "ping", entry["tool"])
+	require.Equal(t, "ok", entry["outcome"])
+	require.NotEmpty(t, entry["correlation_id"])
+	require.NotNil(t, entry["duration_ms"])
+}
+
+func TestRegister_LogsFailureOutcome(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	s, err := New(Deps{Config: testConfig(), Logger: logger, Version: "test"})
+	require.NoError(t, err)
+
+	register(s, "failing", "Always fails.", Annotations{ReadOnly: true},
+		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
+			return errorResult("no such secret"), pingOut{}, nil
+		})
+
+	cs := connect(t, s)
+	_, err = cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "failing", Arguments: map[string]any{"message": "x"},
+	})
+	require.NoError(t, err)
+
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(firstJSONLine(t, logs.String()), &entry))
+	require.Equal(t, "error", entry["outcome"])
+}
+
+func TestRegister_LogLineNeverContainsArguments(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	s, err := New(Deps{Config: testConfig(), Logger: logger, Version: "test"})
+	require.NoError(t, err)
+
+	register(s, "ping", "Echoes.", Annotations{ReadOnly: true},
+		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
+			return nil, pingOut{}, nil
+		})
+
+	cs := connect(t, s)
+	_, err = cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "ping", Arguments: map[string]any{"message": "hunter2-secret-argument"},
+	})
+	require.NoError(t, err)
+
+	require.NotContains(t, logs.String(), "hunter2-secret-argument",
+		"tool arguments can carry a secret value and must never be logged")
+}
+
+// firstJSONLine returns the first non-empty line of logs, as bytes.
+func firstJSONLine(t *testing.T, logs string) []byte {
+	t.Helper()
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return []byte(line)
+		}
+	}
+	t.Fatal("no log line was written")
+	return nil
 }

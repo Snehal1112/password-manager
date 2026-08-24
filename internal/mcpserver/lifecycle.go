@@ -50,14 +50,29 @@ func withLifecycle[In, Out any](s *Server, name string, h mcp.ToolHandlerFor[In,
 			}
 		}()
 
+		started := time.Now()
 		result, out, err = h(ctx, req, in)
 
 		// A handler that returned because its deadline expired should say so
 		// in terms the model can act on.
 		if err != nil && ctx.Err() != nil {
 			var zero Out
-			return errorResult("%s timed out after %s", name, s.cfg.RequestTimeout), zero, nil
+			result, out, err = errorResult("%s timed out after %s", name, s.cfg.RequestTimeout), zero, nil
 		}
+
+		// One line per call, on stderr. Arguments are deliberately absent:
+		// they can carry a secret value.
+		outcome := "ok"
+		if err != nil || (result != nil && result.IsError) {
+			outcome = "error"
+		}
+		s.logger.Info("tool call",
+			"tool", name,
+			"outcome", outcome,
+			"correlation_id", correlationID,
+			"duration_ms", time.Since(started).Milliseconds(),
+			"vault", s.cfg.Vault)
+
 		return result, out, err
 	}
 }

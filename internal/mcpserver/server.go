@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -127,4 +128,13 @@ func register[In, Out any](s *Server, name, description string, ann Annotations,
 
 	mcp.AddTool(s.mcpServer, tool, withLifecycle(s, name, h))
 	s.registered = append(s.registered, name)
+}
+
+// NewStderrLogger builds the logger the MCP server should use.
+//
+// It writes to stderr because stdout is the JSON-RPC channel: a single stray
+// byte there corrupts the session. This constructor exists so no caller has
+// to remember that.
+func NewStderrLogger(level slog.Level) *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 }
