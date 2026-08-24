@@ -179,3 +179,150 @@ func TestVerify_RequiresDataAndSignature(t *testing.T) {
 
 	require.Zero(t, probe.calls)
 }
+
+func TestEncrypt_ReturnsCiphertextAndNonce(t *testing.T) {
+	ciphertext := []byte{0xCA, 0xFE}
+	nonce := []byte{0x01, 0x02, 0x03}
+	srv, probe := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","algorithm":"AES256-GCM",
+		"value":"`+base64.StdEncoding.EncodeToString(ciphertext)+`",
+		"nonce":"`+base64.StdEncoding.EncodeToString(nonce)+`","version":2}`)
+
+	got, err := newClientForTest(t, srv).Encrypt(context.Background(), "prod", "signing-key",
+		[]byte("hello"), "AES256-GCM", 0)
+	require.NoError(t, err)
+
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/encrypt", probe.path)
+	require.Equal(t, ciphertext, got.Ciphertext)
+	require.Equal(t, nonce, got.Nonce,
+		"AES-GCM decryption needs this nonce; losing it makes the ciphertext undecryptable")
+	require.Equal(t, 2, got.Version)
+}
+
+func TestEncrypt_OmitsAnAbsentNonce(t *testing.T) {
+	srv, _ := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","algorithm":"RSA-OAEP","value":"AAAA"}`)
+
+	got, err := newClientForTest(t, srv).Encrypt(context.Background(), "prod", "signing-key",
+		[]byte("hello"), "RSA-OAEP", 0)
+	require.NoError(t, err)
+	require.Empty(t, got.Nonce, "RSA-OAEP has no nonce, which is not an error")
+}
+
+func TestEncrypt_EncodesThePlaintext(t *testing.T) {
+	srv, probe := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","value":"AAAA"}`)
+
+	_, err := newClientForTest(t, srv).Encrypt(context.Background(), "prod", "signing-key",
+		[]byte("hello"), "RSA-OAEP", 0)
+	require.NoError(t, err)
+	require.Equal(t, base64.StdEncoding.EncodeToString([]byte("hello")), probe.body["value"])
+}
+
+func TestEncrypt_RejectsEmptyPlaintext(t *testing.T) {
+	srv, probe := cryptoServer(t, `{}`)
+
+	_, err := newClientForTest(t, srv).Encrypt(context.Background(), "prod", "signing-key",
+		nil, "RSA-OAEP", 0)
+	require.ErrorContains(t, err, "plaintext")
+	require.Zero(t, probe.calls)
+}
+
+func TestDecrypt_ReturnsPlaintextAsASecretValue(t *testing.T) {
+	plaintext := []byte("the-decrypted-secret")
+	srv, probe := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","algorithm":"RSA-OAEP",
+		"value":"`+base64.StdEncoding.EncodeToString(plaintext)+`","version":1}`)
+
+	got, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		[]byte{0xCA, 0xFE}, nil, "RSA-OAEP", 0)
+	require.NoError(t, err)
+
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/decrypt", probe.path)
+	require.Equal(t, "the-decrypted-secret", got.Plaintext.Reveal())
+	require.Equal(t, "[REDACTED]", got.Plaintext.String(),
+		"decryption produces plaintext, which is what SecretValue exists for")
+}
+
+func TestDecrypt_MarshallingTheResultNeverLeaksThePlaintext(t *testing.T) {
+	plaintext := []byte("the-decrypted-secret")
+	srv, _ := cryptoServer(t, `{"key_id":"`+rsaKeyID+`",
+		"value":"`+base64.StdEncoding.EncodeToString(plaintext)+`"}`)
+
+	got, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		[]byte{0xCA}, nil, "RSA-OAEP", 0)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "the-decrypted-secret")
+}
+
+func TestDecrypt_SendsTheNonce(t *testing.T) {
+	nonce := []byte{0x01, 0x02, 0x03}
+	srv, probe := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","value":"aGk="}`)
+
+	_, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		[]byte{0xCA}, nonce, "AES256-GCM", 0)
+	require.NoError(t, err)
+	require.Equal(t, base64.StdEncoding.EncodeToString(nonce), probe.body["nonce"])
+}
+
+func TestDecrypt_OmitsAnAbsentNonce(t *testing.T) {
+	srv, probe := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","value":"aGk="}`)
+
+	_, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		[]byte{0xCA}, nil, "RSA-OAEP", 0)
+	require.NoError(t, err)
+
+	_, present := probe.body["nonce"]
+	require.False(t, present)
+}
+
+func TestDecrypt_RejectsEmptyCiphertext(t *testing.T) {
+	srv, probe := cryptoServer(t, `{}`)
+
+	_, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		nil, nil, "RSA-OAEP", 0)
+	require.ErrorContains(t, err, "ciphertext")
+	require.Zero(t, probe.calls)
+}
+
+func TestDecrypt_ErrorNeverContainsThePlaintext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"keys":[{"id":"` + rsaKeyID + `","name":"signing-key"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"denied while decrypting the-decrypted-secret"}`))
+	}))
+	defer srv.Close()
+
+	_, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		[]byte{0xCA}, nil, "RSA-OAEP", 0)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "the-decrypted-secret")
+}
+
+func TestDecrypt_MalformedPlaintextIsAnError(t *testing.T) {
+	srv, _ := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","value":"not-base64!!!"}`)
+
+	_, err := newClientForTest(t, srv).Decrypt(context.Background(), "prod", "signing-key",
+		[]byte{0xCA}, nil, "RSA-OAEP", 0)
+	require.ErrorContains(t, err, "base64")
+}
+
+func TestCrypto_AllFourResolveTheKeyByName(t *testing.T) {
+	// Each operation goes through the same resolver, so a name works
+	// everywhere a UUID does.
+	srv, _ := cryptoServer(t, `{"key_id":"`+rsaKeyID+`","value":"aGk=","valid":true}`)
+	c := newClientForTest(t, srv)
+	ctx := context.Background()
+
+	_, err := c.Sign(ctx, "prod", "signing-key", []byte("d"), "RS256", 0)
+	require.NoError(t, err)
+	_, err = c.Verify(ctx, "prod", "signing-key", []byte("d"), []byte("s"), "RS256", 0)
+	require.NoError(t, err)
+	_, err = c.Encrypt(ctx, "prod", "signing-key", []byte("d"), "RSA-OAEP", 0)
+	require.NoError(t, err)
+	_, err = c.Decrypt(ctx, "prod", "signing-key", []byte("d"), nil, "RSA-OAEP", 0)
+	require.NoError(t, err)
+}
