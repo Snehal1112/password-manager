@@ -58,9 +58,17 @@ func registerSecretsReadTools(s *Server) {
 		"List the secrets in a vault. Returns names, versions and tags only, never secret values.",
 		Annotations{ReadOnly: true, Idempotent: true}, s.handleListSecrets)
 
-	registerIf(s, TierRead, "get_secret",
-		"Get a secret's metadata, tags, expiry and version history. Does not return the secret value.",
-		Annotations{ReadOnly: true, Idempotent: true}, s.handleGetSecret)
+	// The two variants advertise different schemas. With disclosure off,
+	// include_value is not a property the model can name.
+	if s.MayDiscloseValues() {
+		registerIf(s, TierRead, "get_secret",
+			"Get a secret's metadata, tags, expiry and version history. Pass include_value to also return its plaintext value.",
+			Annotations{ReadOnly: true, Idempotent: true}, s.handleGetSecretWithValue)
+	} else {
+		registerIf(s, TierRead, "get_secret",
+			"Get a secret's metadata, tags, expiry and version history. Does not return the secret value.",
+			Annotations{ReadOnly: true, Idempotent: true}, s.handleGetSecret)
+	}
 }
 
 // handleListSecrets implements list_secrets.
@@ -181,5 +189,48 @@ func (s *Server) handleGetSecret(ctx context.Context, _ *mcp.CallToolRequest, ar
 		return failure, getSecretResult{}, nil
 	}
 	// The value is deliberately never populated here.
+	return nil, result, nil
+}
+
+// getSecretArgsWithValue are get_secret's arguments when the server is
+// configured to disclose values.
+//
+// This is a separate type rather than a flag on getSecretArgs because
+// mcp.AddTool infers the input schema from the argument type. Registering
+// this type means include_value is a property the model can see and name;
+// registering the other means no such property exists at all. That is
+// stronger than accepting the argument and refusing it — there is nothing to
+// refuse, and nothing for injected text to ask for.
+type getSecretArgsWithValue struct {
+	Name         string `json:"name" jsonschema:"the secret's name, or its id"`
+	Vault        string `json:"vault,omitempty" jsonschema:"the vault to read from; defaults to the server's configured vault"`
+	IncludeValue bool   `json:"include_value,omitempty" jsonschema:"set true to return the secret's plaintext value"`
+}
+
+// handleGetSecretWithValue implements get_secret when disclosure is enabled.
+func (s *Server) handleGetSecretWithValue(ctx context.Context, _ *mcp.CallToolRequest, args getSecretArgsWithValue) (*mcp.CallToolResult, getSecretResult, error) {
+	if args.Name == "" {
+		return errorResult("get_secret requires a name"), getSecretResult{}, nil
+	}
+	vault, err := s.ResolveVault(args.Vault)
+	if err != nil {
+		return errorResult("%s", err), getSecretResult{}, nil
+	}
+
+	result, failure := s.fetchSecret(ctx, vault, args.Name)
+	if failure != nil {
+		return failure, getSecretResult{}, nil
+	}
+
+	// Permitting disclosure is not the same as disclosing by default: the
+	// caller still has to ask.
+	if args.IncludeValue {
+		secret, err := s.client.GetSecret(ctx, vault, args.Name)
+		if err != nil {
+			return errorResult("could not read the value of %q in vault %q: %s", args.Name, vault, err), getSecretResult{}, nil
+		}
+		value, disclosed := s.discloseValue(secret.Value)
+		result.Value, result.ValueDisclosed = value, disclosed
+	}
 	return nil, result, nil
 }

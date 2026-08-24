@@ -275,3 +275,124 @@ func TestGetSecret_MissingVersionHistoryIsNotFatal(t *testing.T) {
 		"version history is supplementary; losing it must not lose the secret's metadata")
 	require.Empty(t, got.Versions)
 }
+
+// getSecretSchema returns get_secret's advertised input schema as a map.
+func getSecretSchema(t *testing.T, s *Server) map[string]any {
+	t.Helper()
+
+	cs := connect(t, s)
+	tools, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+
+	for _, tool := range tools.Tools {
+		if tool.Name != "get_secret" {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		require.NoError(t, err)
+
+		var schema map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &schema))
+		return schema
+	}
+	t.Fatal("get_secret was not registered")
+	return nil
+}
+
+func TestGetSecret_SchemaOmitsIncludeValueWhenDisclosureIsOff(t *testing.T) {
+	f := newFakeVault(t, secretRoutes())
+	s := f.server(t, testConfig())
+	registerSecretsReadTools(s)
+
+	schema := getSecretSchema(t, s)
+	properties, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+
+	_, present := properties["include_value"]
+	require.False(t, present,
+		"with disclosure off the parameter must not exist at all, so there is nothing to ask for")
+	require.Contains(t, properties, "name")
+}
+
+func TestGetSecret_SchemaOffersIncludeValueWhenDisclosureIsOn(t *testing.T) {
+	f := newFakeVault(t, secretRoutes())
+
+	cfg := testConfig()
+	cfg.AllowSecretValues = true
+	s := f.server(t, cfg)
+	registerSecretsReadTools(s)
+
+	schema := getSecretSchema(t, s)
+	properties, ok := schema["properties"].(map[string]any)
+	require.True(t, ok)
+	require.Contains(t, properties, "include_value")
+}
+
+func TestGetSecret_ReturnsTheValueWhenAskedAndAllowed(t *testing.T) {
+	f := newFakeVault(t, secretRoutes())
+
+	cfg := testConfig()
+	cfg.AllowSecretValues = true
+	s := f.server(t, cfg)
+	registerSecretsReadTools(s)
+
+	var got getSecretResult
+	structured(t, callTool(t, s, "get_secret", map[string]any{
+		"name": "db-password", "include_value": true,
+	}), &got)
+
+	require.Equal(t, "hunter2-super-secret", got.Value)
+	require.True(t, got.ValueDisclosed)
+}
+
+func TestGetSecret_WithholdsTheValueUnlessAsked(t *testing.T) {
+	f := newFakeVault(t, secretRoutes())
+
+	cfg := testConfig()
+	cfg.AllowSecretValues = true
+	s := f.server(t, cfg)
+	registerSecretsReadTools(s)
+
+	result := callTool(t, s, "get_secret", map[string]any{"name": "db-password"})
+	encoded, err := json.Marshal(result)
+	require.NoError(t, err)
+
+	require.NotContains(t, string(encoded), "hunter2-super-secret",
+		"permitting disclosure is not the same as disclosing by default")
+}
+
+func TestGetSecret_ValueDisclosedIsFalseWhenWithheld(t *testing.T) {
+	f := newFakeVault(t, secretRoutes())
+
+	cfg := testConfig()
+	cfg.AllowSecretValues = true
+	s := f.server(t, cfg)
+	registerSecretsReadTools(s)
+
+	var got getSecretResult
+	structured(t, callTool(t, s, "get_secret", map[string]any{"name": "db-password"}), &got)
+	require.False(t, got.ValueDisclosed)
+	require.Empty(t, got.Value)
+}
+
+func TestGetSecret_DescriptionMentionsValueBehaviour(t *testing.T) {
+	f := newFakeVault(t, secretRoutes())
+
+	cfg := testConfig()
+	cfg.AllowSecretValues = true
+	s := f.server(t, cfg)
+	registerSecretsReadTools(s)
+
+	cs := connect(t, s)
+	tools, err := cs.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+
+	for _, tool := range tools.Tools {
+		if tool.Name == "get_secret" {
+			require.Contains(t, tool.Description, "include_value",
+				"the description must tell the model how to ask, since the schema alone is terse")
+			return
+		}
+	}
+	t.Fatal("get_secret was not registered")
+}
