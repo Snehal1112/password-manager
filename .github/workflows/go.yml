@@ -203,6 +203,29 @@ jobs:
             exit 1
           fi
 
+  mcp-integration:
+    name: MCP Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The harness generates a TOTP code for the provisioned admin's login,
+      # since local login always requires one.
+      - name: Install oathtool
+        run: sudo apt-get update && sudo apt-get install -y oathtool
+
+      # Runs the MCP server against a real RocketVault instance. The unit
+      # suite cannot catch a misread wrapper key or field name, because its
+      # fakes were written by whoever wrote the code reading them -- both
+      # would carry the same mistake and agree. This is the check on that.
+      - name: MCP integration suite
+        run: go test -tags=integration ./internal/mcpserver/ -v -timeout 10m
+
   security:
     name: Security Scan
     runs-on: ubuntu-latest
