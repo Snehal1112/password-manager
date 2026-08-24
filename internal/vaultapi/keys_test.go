@@ -228,3 +228,85 @@ func TestGetKeyVersions_CarriesNoPrivateMaterialField(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "LEAKED-PRIVATE")
 }
+
+func TestGetKeyRotationPolicy_ReturnsThePolicy(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + dbSecretID + `","key_id":"` + rsaKeyID + `",
+			"user_id":"` + apiSecretID + `","vault_id":"` + signKeyID + `",
+			"rotate_after_days":90,"notify_before_expiry_days":14,"expiry_days":365,
+			"enabled":true,"next_rotation_at":"2026-11-01T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyRotationPolicy(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/rotationpolicy", gotPath)
+	require.Equal(t, 90, got.RotateAfterDays)
+	require.Equal(t, 14, got.NotifyBeforeExpiryDays)
+	require.Equal(t, 365, got.ExpiryDays)
+	require.True(t, got.Enabled)
+	require.Equal(t, uuid.MustParse(rsaKeyID), got.KeyID)
+}
+
+func TestGetKeyRotationPolicy_AbsentPolicyIsNilNotAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyRotationPolicy(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err, "most keys have no rotation policy, which is an ordinary state")
+	require.Nil(t, got)
+}
+
+func TestGetKeyRotationPolicy_ForbiddenIsStillAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	_, err := newClientForTest(t, srv).GetKeyRotationPolicy(context.Background(), "prod", rsaKeyID)
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr, "absent and denied must not be conflated")
+	require.Equal(t, KindForbidden, apiErr.Kind)
+}
+
+func TestGetKeyRotationPolicy_OmitsInternalIdentifiers(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"` + dbSecretID + `","key_id":"` + rsaKeyID + `",
+			"user_id":"` + apiSecretID + `","vault_id":"` + signKeyID + `","rotate_after_days":90}`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyRotationPolicy(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), apiSecretID, "user_id has no meaning to an agent")
+	require.NotContains(t, string(encoded), signKeyID, "vault_id has no meaning to an agent")
+}
+
+func TestGetKeyRotationPolicy_ResolvesNameFirst(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/vaults/prod/keys" {
+			_, _ = w.Write([]byte(`{"keys":[{"id":"` + rsaKeyID + `","name":"signing-key"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"key_id":"` + rsaKeyID + `","rotate_after_days":30}`))
+	}))
+	defer srv.Close()
+
+	got, err := newClientForTest(t, srv).GetKeyRotationPolicy(context.Background(), "prod", "signing-key")
+	require.NoError(t, err)
+	require.Equal(t, 30, got.RotateAfterDays)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/rotationpolicy", paths[1])
+}

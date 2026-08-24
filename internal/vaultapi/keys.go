@@ -2,6 +2,7 @@ package vaultapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -214,4 +215,69 @@ func (c *Client) GetKeyVersions(ctx context.Context, vault, name string) ([]KeyV
 		})
 	}
 	return versions, nil
+}
+
+// KeyRotationPolicy describes when a key rotates.
+//
+// model.KeyRotationPolicy also carries id, user_id and vault_id. Those are
+// internal identifiers with no meaning to an agent, so they are deliberately
+// not surfaced here.
+type KeyRotationPolicy struct {
+	KeyID                  uuid.UUID  `json:"key_id"`
+	RotateAfterDays        int        `json:"rotate_after_days"`
+	NotifyBeforeExpiryDays int        `json:"notify_before_expiry_days"`
+	ExpiryDays             int        `json:"expiry_days"`
+	Enabled                bool       `json:"enabled"`
+	LastRotatedAt          *time.Time `json:"last_rotated_at,omitempty"`
+	NextRotationAt         time.Time  `json:"next_rotation_at"`
+}
+
+// GetKeyRotationPolicy returns a key's rotation policy, or (nil, nil) when
+// none is set.
+//
+// An absent policy is the ordinary case for most keys, so it is not an error.
+// A denial still is: absent and forbidden must never be conflated, or an
+// operator loses the signal that they lack a grant.
+func (c *Client) GetKeyRotationPolicy(ctx context.Context, vault, name string) (*KeyRotationPolicy, error) {
+	if vault == "" {
+		return nil, fmt.Errorf("vaultapi: vault is required to get a key rotation policy")
+	}
+
+	id, err := c.Resolver().Resolve(ctx, vault, KindKeys, name)
+	if err != nil {
+		return nil, err
+	}
+
+	var wire struct {
+		KeyID                  string     `json:"key_id"`
+		RotateAfterDays        int        `json:"rotate_after_days"`
+		NotifyBeforeExpiryDays int        `json:"notify_before_expiry_days"`
+		ExpiryDays             int        `json:"expiry_days"`
+		Enabled                bool       `json:"enabled"`
+		LastRotatedAt          *time.Time `json:"last_rotated_at"`
+		NextRotationAt         time.Time  `json:"next_rotation_at"`
+	}
+
+	path := fmt.Sprintf("/api/v1/vaults/%s/keys/%s/rotationpolicy", vault, id)
+	if err := c.Do(ctx, http.MethodGet, path, nil, &wire); err != nil {
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && apiErr.Kind == KindNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	keyID, parseErr := uuid.Parse(wire.KeyID)
+	if parseErr != nil {
+		keyID = id
+	}
+	return &KeyRotationPolicy{
+		KeyID:                  keyID,
+		RotateAfterDays:        wire.RotateAfterDays,
+		NotifyBeforeExpiryDays: wire.NotifyBeforeExpiryDays,
+		ExpiryDays:             wire.ExpiryDays,
+		Enabled:                wire.Enabled,
+		LastRotatedAt:          wire.LastRotatedAt,
+		NextRotationAt:         wire.NextRotationAt,
+	}, nil
 }
