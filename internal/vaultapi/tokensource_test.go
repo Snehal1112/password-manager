@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -140,4 +141,115 @@ func TestServiceAccountSource_TrimsTrailingSlashFromBaseURL(t *testing.T) {
 	_, err = src.Token(context.Background())
 	require.NoError(t, err, "a trailing slash must not produce a doubled path")
 	require.False(t, strings.Contains(srv.URL+"//api", "///"))
+}
+
+func TestServiceAccountSource_ConcurrentCallersShareOneFetch(t *testing.T) {
+	var calls int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		<-release // Hold the request open so all callers pile up.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"tok-shared","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec", HTTPClient: srv.Client(),
+	})
+	require.NoError(t, err)
+
+	const callers = 20
+	results := make(chan string, callers)
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			tok, err := src.Token(context.Background())
+			if err != nil {
+				errs <- err
+				return
+			}
+			results <- tok
+		}()
+	}
+
+	// Give every goroutine time to arrive at the fetch, then let it complete.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	require.Empty(t, errs)
+	require.Len(t, results, callers)
+	for tok := range results {
+		require.Equal(t, "tok-shared", tok)
+	}
+	require.EqualValues(t, 1, atomic.LoadInt32(&calls),
+		"concurrent callers must share one in-flight token fetch")
+}
+
+func TestServiceAccountSource_FetchFailurePropagatesToAllWaiters(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"invalid_client"}`))
+	}))
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec", HTTPClient: srv.Client(),
+	})
+	require.NoError(t, err)
+
+	const callers = 10
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := src.Token(context.Background())
+			errs <- err
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(errs)
+
+	require.Len(t, errs, callers)
+	for err := range errs {
+		require.Error(t, err, "every waiter must observe the failure")
+		require.Contains(t, err.Error(), "invalid_client")
+	}
+}
+
+func TestServiceAccountSource_RecoversAfterFailedFetch(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"tok-ok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer srv.Close()
+
+	src, err := NewServiceAccountSource(ServiceAccountConfig{
+		BaseURL: srv.URL, ClientID: "id", ClientSecret: "sec", HTTPClient: srv.Client(),
+	})
+	require.NoError(t, err)
+
+	_, err = src.Token(context.Background())
+	require.Error(t, err, "first attempt fails")
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err, "a failed fetch must not poison the source")
+	require.Equal(t, "tok-ok", tok)
 }

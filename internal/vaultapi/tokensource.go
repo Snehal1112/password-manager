@@ -39,6 +39,18 @@ type ServiceAccountSource struct {
 	mu        sync.Mutex
 	token     string
 	expiresAt time.Time
+
+	// inflight is non-nil while a fetch is running. Callers arriving during
+	// a fetch wait on it rather than issuing their own request.
+	inflight *tokenFetch
+}
+
+// tokenFetch is one in-flight token acquisition shared by every caller that
+// arrives while it runs.
+type tokenFetch struct {
+	done  chan struct{}
+	token string
+	err   error
 }
 
 // NewServiceAccountSource validates cfg and returns a source.
@@ -65,23 +77,53 @@ func NewServiceAccountSource(cfg ServiceAccountConfig) (*ServiceAccountSource, e
 }
 
 // Token returns a cached token when one is still valid, otherwise fetches a
-// new one.
+// new one. Concurrent callers arriving during a fetch share its result rather
+// than each issuing a request, so an expiry does not stampede the token
+// endpoint.
 func (s *ServiceAccountSource) Token(ctx context.Context) (string, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.token != "" && time.Now().Before(s.expiresAt.Add(-s.skew)) {
-		return s.token, nil
+		token := s.token
+		s.mu.Unlock()
+		return token, nil
 	}
 
-	token, expiresIn, err := s.fetch(ctx)
-	if err != nil {
-		return "", err
+	// Join a fetch already in progress.
+	if s.inflight != nil {
+		fetch := s.inflight
+		s.mu.Unlock()
+		select {
+		case <-fetch.done:
+			return fetch.token, fetch.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
-	s.token = token
-	s.expiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
-	return s.token, nil
+
+	// Become the fetcher for everyone else.
+	fetch := &tokenFetch{done: make(chan struct{})}
+	s.inflight = fetch
+	s.mu.Unlock()
+
+	token, expiresIn, err := s.fetch(ctx)
+
+	s.mu.Lock()
+	if err == nil {
+		s.zeroToken()
+		s.token = token
+		s.expiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
+	}
+	s.inflight = nil
+	s.mu.Unlock()
+
+	fetch.token, fetch.err = token, err
+	close(fetch.done)
+	return token, err
 }
+
+// zeroToken clears the cached token. Task 3 gives it a real body.
+func (s *ServiceAccountSource) zeroToken() {}
 
 // tokenResponse mirrors the success body documented at api/oauth2.go:54.
 type tokenResponse struct {
