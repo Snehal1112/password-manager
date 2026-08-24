@@ -125,6 +125,6 @@ func register[In, Out any](s *Server, name, description string, ann Annotations,
 		},
 	}
 
-	mcp.AddTool(s.mcpServer, tool, h)
+	mcp.AddTool(s.mcpServer, tool, withLifecycle(s, name, h))
 	s.registered = append(s.registered, name)
 }

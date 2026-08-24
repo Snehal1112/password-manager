@@ -1,0 +1,66 @@
+package mcpserver
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"rocketvault/internal/vaultapi"
+)
+
+// errorResult builds a failed tool result.
+//
+// Failures are results rather than Go errors on purpose. The SDK's own
+// documentation on IsError notes that a protocol-level error means "the LLM
+// would not be able to see that an error occurred and self-correct".
+func errorResult(format string, args ...any) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf(format, args...)}},
+	}
+}
+
+// withLifecycle wraps a handler with a deadline, a correlation id and panic
+// recovery. register applies it to every tool, so no tool can opt out.
+func withLifecycle[In, Out any](s *Server, name string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (result *mcp.CallToolResult, out Out, err error) {
+		ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
+		defer cancel()
+
+		correlationID := uuid.NewString()
+		ctx = vaultapi.WithCorrelationID(ctx, correlationID)
+
+		// A panic must not escape. The SDK runs handlers on the session's
+		// goroutine, so an unrecovered panic would kill the process -- and
+		// for a stdio server that means the host's session dies
+		// mid-conversation with no diagnostic.
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				var zero Out
+				// The panic value can carry anything, including a secret, so
+				// it is logged but never returned to the model.
+				s.logger.Error("tool panicked",
+					"tool", name,
+					"correlation_id", correlationID,
+					"panic", fmt.Sprint(recovered))
+				result, out, err = errorResult("%s failed with an internal error", name), zero, nil
+			}
+		}()
+
+		result, out, err = h(ctx, req, in)
+
+		// A handler that returned because its deadline expired should say so
+		// in terms the model can act on.
+		if err != nil && ctx.Err() != nil {
+			var zero Out
+			return errorResult("%s timed out after %s", name, s.cfg.RequestTimeout), zero, nil
+		}
+		return result, out, err
+	}
+}
+
+// timeoutFor reports the configured per-call deadline.
+func (s *Server) timeoutFor() time.Duration { return s.cfg.RequestTimeout }
