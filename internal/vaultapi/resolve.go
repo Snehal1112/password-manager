@@ -2,6 +2,7 @@ package vaultapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -9,6 +10,11 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrResourceNotFound wraps every "no such name" resolution failure, so a
+// caller can distinguish it from a denial, an ambiguous name, or an
+// unreachable server with errors.Is rather than matching on message text.
+var ErrResourceNotFound = errors.New("vaultapi: no such resource")
 
 // Kind identifies a vault-scoped resource collection.
 type Kind string
@@ -135,13 +141,16 @@ func (r *Resolver) list(ctx context.Context, vault string, kind Kind) ([]namedIt
 
 // notFoundError reports a missing name, suggesting near misses so the caller
 // can correct a typo without a second round trip.
+//
+// It wraps ErrResourceNotFound so a caller can test for absence with
+// errors.Is rather than matching on this message's wording.
 func notFoundError(vault string, kind Kind, name string, items []namedItem) error {
 	near := nearMisses(name, items)
 	if len(near) == 0 {
-		return fmt.Errorf("vaultapi: no %s named %q in vault %q", kind, name, vault)
+		return fmt.Errorf("vaultapi: no %s named %q in vault %q: %w", kind, name, vault, ErrResourceNotFound)
 	}
-	return fmt.Errorf("vaultapi: no %s named %q in vault %q; did you mean %s?",
-		kind, name, vault, strings.Join(quoteAll(near), ", "))
+	return fmt.Errorf("vaultapi: no %s named %q in vault %q; did you mean %s?: %w",
+		kind, name, vault, strings.Join(quoteAll(near), ", "), ErrResourceNotFound)
 }
 
 // ambiguousError reports a name matching more than one resource, naming every
