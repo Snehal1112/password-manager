@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"rocketvault/internal/retry"
 )
 
 // CorrelationHeader carries a per-request identifier so a tool call can be
@@ -48,6 +50,17 @@ type Config struct {
 	HTTPClient *http.Client
 	// Tokens supplies the bearer token for every request.
 	Tokens TokenSource
+
+	// DisableRetry turns off retry and circuit breaking for idempotent
+	// requests. Tests set it to assert single-attempt behavior; production
+	// callers leave it false.
+	DisableRetry bool
+
+	// RetryPolicy controls retry behavior for idempotent requests. The zero
+	// value (MaxAttempts == 0) defaults to retry.ExternalServicePolicy(),
+	// matching the same field on vaultclient.Config. Tests override it to
+	// keep delays in milliseconds.
+	RetryPolicy retry.Policy
 }
 
 // Client performs authenticated JSON requests against the RocketVault API.
@@ -55,6 +68,10 @@ type Client struct {
 	baseURL string
 	http    *http.Client
 	tokens  TokenSource
+
+	// retrying wraps http for idempotent requests only. It is nil when
+	// DisableRetry is set.
+	retrying *retry.RetryableHTTPClient
 }
 
 // New validates cfg and returns a Client.
@@ -68,11 +85,23 @@ func New(cfg Config) (*Client, error) {
 	if cfg.HTTPClient == nil {
 		return nil, fmt.Errorf("vaultapi: Config.HTTPClient is required")
 	}
-	return &Client{
+	client := &Client{
 		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
 		http:    cfg.HTTPClient,
 		tokens:  cfg.Tokens,
-	}, nil
+	}
+	if !cfg.DisableRetry {
+		policy := cfg.RetryPolicy
+		if policy.MaxAttempts == 0 {
+			policy = retry.ExternalServicePolicy()
+		}
+		client.retrying = retry.NewRetryableHTTPClient(
+			cfg.HTTPClient,
+			policy,
+			retry.NewCircuitBreaker(retry.DefaultCircuitBreaker()),
+		)
+	}
+	return client, nil
 }
 
 // Do performs one request. body is JSON-encoded when non-nil; out is
@@ -84,7 +113,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body, out any) err
 		return err
 	}
 
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return fmt.Errorf("vaultapi: %s %s: %w", method, path, err)
 	}
@@ -131,4 +160,23 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body any) 
 		req.Header.Set(CorrelationHeader, id)
 	}
 	return req, nil
+}
+
+// send routes the request through the retrying client when it is safe to
+// repeat, and through the plain client otherwise.
+//
+// Only GET and HEAD are repeated. Two independent reasons require this:
+// retry.RetryableHTTPClient re-issues the same *http.Request without rewinding
+// its body, so a retried POST would send an empty one; and retrying a
+// non-idempotent mutation risks creating the resource twice when it was the
+// response, not the write, that was lost.
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	if c.retrying != nil && isIdempotent(req.Method) {
+		return c.retrying.Do(req)
+	}
+	return c.http.Do(req)
+}
+
+func isIdempotent(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
