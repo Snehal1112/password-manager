@@ -144,7 +144,44 @@ func startLiveVault(t *testing.T) *liveVault {
 	require.NoError(t, err, "create admin: %s", output)
 
 	totpSecret := parseTOTPSecret(t, string(output))
-	return &liveVault{BaseURL: baseURL, Token: loginToken(t, baseURL, totpSecret)}
+	live := &liveVault{BaseURL: baseURL, Token: loginToken(t, baseURL, totpSecret)}
+
+	// Vault data-plane routes are deny-by-default (CLAUDE.md), with no
+	// bypass for the global admin role -- the same way vault purge has none.
+	// The provisioned admin can manage role assignments (that check does
+	// have an admin bypass), but reading or writing a secret still needs an
+	// explicit grant on the vault, or every write/read/crypto test below
+	// would fail with 403 before reaching the behavior under test.
+	live.grantVaultRole(t, "default", "itadmin", "Key Vault Administrator")
+	return live
+}
+
+// grantVaultRole calls the role-assignment API directly with the harness's
+// admin token, rather than going through the CLI: the CLI's session cache
+// is a separate concern from this harness's raw-token auth, and a direct
+// call is one fewer thing that can be wrong.
+func (l *liveVault) grantVaultRole(t *testing.T, vault, principal, role string) {
+	t.Helper()
+
+	body, err := json.Marshal(map[string]string{
+		"principal": principal,
+		"role":      role,
+	})
+	require.NoError(t, err)
+
+	req, err := http.NewRequest(http.MethodPost, //nolint:noctx
+		l.BaseURL+"/api/v1/vaults/"+vault+"/role-assignments", strings.NewReader(string(body)))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+l.Token)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck
+
+	respBody, _ := io.ReadAll(resp.Body)
+	require.Equal(t, http.StatusCreated, resp.StatusCode,
+		"grant %q to %q in vault %q: %s", role, principal, vault, respBody)
 }
 
 // writeScratchConfig writes a minimal config for the scratch instance.
