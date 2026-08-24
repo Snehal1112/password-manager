@@ -60,7 +60,7 @@ func (s *recordingSecretService) UpdateSecret(_ context.Context, req secretServi
 func (s *recordingSecretService) GetSecret(_ context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error) {
 	return &model.Secret{ID: secretID, UserID: scope.ActorID(), Name: "existing", Value: "plain-value", Version: 1}, nil
 }
-func (s *recordingSecretService) ListSecrets(_ context.Context, scope model.Scope, _ []string) ([]model.Secret, error) {
+func (s *recordingSecretService) ListSecrets(_ context.Context, scope model.Scope, _ []string, _, _ int) ([]model.Secret, error) {
 	s.listCalled = true
 	s.listScope = scope
 	return []model.Secret{}, nil

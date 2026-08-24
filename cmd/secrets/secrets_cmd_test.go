@@ -361,7 +361,7 @@ func TestListCmd_Success_WithFormatter(t *testing.T) {
 		{ID: uuid.New(), Name: "secret-beta", Version: 2, Enabled: false, CreatedAt: time.Now()},
 	}
 
-	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}, 0, 0).
 		Return(secrets, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -386,7 +386,7 @@ func TestListCmd_Success_WithFormatter(t *testing.T) {
 func TestListCmd_ServiceError_FullRunE(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}, 0, 0).
 		Return(nil, fmt.Errorf("database error"))
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 
@@ -405,7 +405,7 @@ func TestListCmd_ServiceError_FullRunE(t *testing.T) {
 func TestListCmd_NoFormatter_FullRunE(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 
-	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}).
+	tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewVaultScope(tc.TestVaultID, tc.TestUserID), []string{}, 0, 0).
 		Return([]model.Secret{}, nil)
 	tc.MockContainer.On("GetSecretService").Return(tc.MockSecretService)
 

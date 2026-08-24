@@ -36,9 +36,9 @@ func (s *retrySecretService) GetSecret(ctx context.Context, secretID uuid.UUID, 
 }
 
 // ListSecrets lists scoped secrets with retry logic.
-func (s *retrySecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+func (s *retrySecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
 	return retried(ctx, s.retryService, func() ([]model.Secret, error) {
-		return s.baseService.ListSecrets(ctx, scope, tags)
+		return s.baseService.ListSecrets(ctx, scope, tags, limit, offset)
 	})
 }
 

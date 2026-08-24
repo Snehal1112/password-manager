@@ -495,11 +495,15 @@ func TestCreateKey_InvalidECDSACurve_Returns400(t *testing.T) {
 // HSM-enabled instance (PKCS#11 has no P-256K mechanism) fell through to an
 // uncaught 500 instead of a clean 400, since crypto.ErrUnsupportedCurve was
 // never special-cased alongside crypto.ErrOctKeysRequireHSM.
+// TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400 also pins the curve-side
+// twin of the algorithm PKCS#11-leak bug (see TestEncryptKey/DecryptKey_HSMRejectsAlgorithm_Returns400):
+// a real HSM's curve rejection wraps raw PKCS#11 text, which must never reach
+// the client.
 func TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400(t *testing.T) {
 	svc := &mockKeyService{}
 	svc.On("CreateECDSAKey", mock.Anything, mock.MatchedBy(func(r keyServices.CreateKeyRequest) bool {
 		return r.Curve == "P-256K"
-	})).Return(nil, fmt.Errorf("failed to generate ECDSA key: %w", crypto.ErrUnsupportedCurve))
+	})).Return(nil, fmt.Errorf("failed to generate ECDSA key: %w: P-256K (rejected by HSM)", crypto.ErrUnsupportedCurve))
 
 	c := newKeyCtx(svc)
 	body, _ := json.Marshal(map[string]any{"name": "eckey", "type": "ECDSA", "curve": "P-256K"})
@@ -512,6 +516,8 @@ func TestCreateKey_ECDSA_P256K_NoHSMMechanism_Returns400(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NotContains(t, w.Body.String(), "rejected by HSM")
+	assert.NotContains(t, w.Body.String(), "PKCS#11")
 	svc.AssertExpectations(t)
 	svc.AssertNotCalled(t, "GetKey", mock.Anything, mock.Anything, mock.Anything)
 }
@@ -582,10 +588,34 @@ func TestCreateKey_OctType_NoHSM_Returns400(t *testing.T) {
 // listKeys
 // ============================================================
 
+// TestListKeys_Pagination_ComputesLimitAndOffsetFromPageParams pins the
+// Page*PerPage offset math: a swapped limit/offset or a dropped multiply
+// would still pass every other listKeys test, since they all use the
+// zero-value Page (offset 0).
+func TestListKeys_Pagination_ComputesLimitAndOffsetFromPageParams(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("ListKeys", mock.Anything, keyLegacyVaultScope(), repositories.KeyFilter{Limit: 10, Offset: 20}).
+		Return([]model.Key{}, nil)
+
+	c := newKeyCtx(svc)
+	c.Params.Page = 2
+	c.Params.PerPage = 10
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/keys?page=2&per_page=10", nil)
+
+	listKeys(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestListKeys_ServiceError_Returns500(t *testing.T) {
 	svc := &mockKeyService{}
 	// Legacy flat route (no vault_name) yields a default-vault scope.
-	svc.On("ListKeys", mock.Anything, keyLegacyVaultScope(), repositories.KeyFilter{}).
+	svc.On("ListKeys", mock.Anything, keyLegacyVaultScope(), repositories.KeyFilter{Limit: 60}).
 		Return([]model.Key{}, errors.New("db error"))
 
 	c := newKeyCtx(svc)
@@ -605,7 +635,7 @@ func TestListKeys_Success_Returns200(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
 	// Legacy flat route (no vault_name) yields a default-vault scope.
-	svc.On("ListKeys", mock.Anything, keyLegacyVaultScope(), repositories.KeyFilter{}).
+	svc.On("ListKeys", mock.Anything, keyLegacyVaultScope(), repositories.KeyFilter{Limit: 60}).
 		Return([]model.Key{*makeKeyModel(keyID)}, nil)
 
 	c := newKeyCtx(svc)

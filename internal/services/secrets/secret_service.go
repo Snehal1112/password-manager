@@ -142,8 +142,10 @@ type SecretService interface {
 	CreateSecret(ctx context.Context, req CreateSecretRequest) (*model.Secret, error)
 	// GetSecret retrieves a decrypted secret authorized by scope.
 	GetSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
-	// ListSecrets lists decrypted secrets authorized by scope.
-	ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	// ListSecrets lists decrypted secrets authorized by scope. limit caps the
+	// number of rows returned (0 means unlimited); offset skips this many
+	// matching rows first and is ignored when limit is 0.
+	ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error)
 	// DeleteSecret soft-deletes a secret authorized by scope.
 	DeleteSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 	// ListDeletedSecrets lists soft-deleted secrets authorized by scope.
@@ -417,10 +419,10 @@ func (s *secretService) GetSecret(ctx context.Context, secretID uuid.UUID, scope
 
 // ListSecrets lists secrets authorized by scope, decrypting values and
 // loading tags for each.
-func (s *secretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+func (s *secretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
 	actor := scope.ActorID().String()
 
-	secretList, err := s.secretRepo.List(ctx, scope, repositories.SecretFilter{Tags: tags})
+	secretList, err := s.secretRepo.List(ctx, scope, repositories.SecretFilter{Tags: tags, Limit: limit, Offset: offset})
 	if err != nil {
 		s.logger.LogAuditError(actor, "list_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)
@@ -605,8 +607,9 @@ func (s *secretService) ExportSecrets(ctx context.Context, req ExportSecretsRequ
 		return nil, fmt.Errorf("invalid format: must be json or csv")
 	}
 
-	// List secrets with optional tag filter, authorized by scope.
-	secretsList, err := s.ListSecrets(ctx, req.Scope, req.FilterTags)
+	// List secrets with optional tag filter, authorized by scope. Export must
+	// see every matching secret, so it is never paginated.
+	secretsList, err := s.ListSecrets(ctx, req.Scope, req.FilterTags, 0, 0)
 	if err != nil {
 		s.logger.LogAuditError(req.Scope.ActorID().String(), "export_secrets", "failed", "Failed to list secrets", err)
 		return nil, fmt.Errorf("failed to list secrets: %w", err)

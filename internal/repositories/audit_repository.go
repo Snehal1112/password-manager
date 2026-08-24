@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"rocketvault/internal/db"
+	"rocketvault/model"
 
 	"github.com/google/uuid"
 )
@@ -28,19 +29,11 @@ type AuditLog struct {
 	PrevHash     string
 }
 
-// AuditFilter specifies query constraints for QueryAuditLogs.
+// AuditFilter specifies query constraints for QueryAuditLogs. Alias for
+// model.AuditFilter: the canonical definition lives in model/ so api/ and
+// cmd/ can construct one without importing this package.
 // Nil pointer fields are ignored (not filtered).
-type AuditFilter struct {
-	From         *time.Time
-	To           *time.Time
-	UserID       *string
-	Action       *string
-	Outcome      *string
-	ResourceType *string
-	ResourceID   *string
-	Source       *string
-	Limit        int // 0 defaults to 100; max 1000
-}
+type AuditFilter = model.AuditFilter
 
 // AuditRepositoryInterface is the contract for persisting audit log records.
 // It satisfies logging.AuditPersister so the logger can write to the DB.

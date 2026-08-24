@@ -208,8 +208,8 @@ func (m *MockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, s
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, scope, tags)
+func (m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, tags, limit, offset)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -1131,10 +1131,10 @@ func TestRetrySecret_ListSecrets_Success(t *testing.T) {
 	base := &MockSecretService{}
 	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
 	expected := []model.Secret{{Name: "sec1"}, {Name: "sec2"}}
-	base.On("ListSecrets", mock.Anything, scope, []string{"tag1"}).Return(expected, nil)
+	base.On("ListSecrets", mock.Anything, scope, []string{"tag1"}, 0, 0).Return(expected, nil)
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.ListSecrets(ctx, scope, []string{"tag1"})
+	result, err := svc.ListSecrets(ctx, scope, []string{"tag1"}, 0, 0)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, result)
 	base.AssertExpectations(t)
@@ -1143,10 +1143,10 @@ func TestRetrySecret_ListSecrets_Success(t *testing.T) {
 func TestRetrySecret_ListSecrets_Error(t *testing.T) {
 	base := &MockSecretService{}
 	scope := model.NewOwnerScope(uuid.Nil, uuid.New())
-	base.On("ListSecrets", mock.Anything, scope, []string(nil)).Return(nil, fmt.Errorf("list failed"))
+	base.On("ListSecrets", mock.Anything, scope, []string(nil), 0, 0).Return(nil, fmt.Errorf("list failed"))
 
 	svc := NewRetrySecretService(base, newNoop())
-	result, err := svc.ListSecrets(ctx, scope, nil)
+	result, err := svc.ListSecrets(ctx, scope, nil, 0, 0)
 	assert.Nil(t, result)
 	assert.Error(t, err)
 	base.AssertExpectations(t)

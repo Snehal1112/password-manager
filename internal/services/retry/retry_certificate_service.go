@@ -1,0 +1,134 @@
+package retry
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+
+	"rocketvault/internal/services/certificates"
+	"rocketvault/model"
+)
+
+// RetryCertificateService wraps certificate operations with retry logic
+type RetryCertificateService interface {
+	certificates.CertificateService
+}
+
+// retryCertificateService implements RetryCertificateService with retry logic
+type retryCertificateService struct {
+	baseService  certificates.CertificateService
+	retryService RetryService
+}
+
+// NewRetryCertificateService creates a new retry-aware certificate service
+func NewRetryCertificateService(baseService certificates.CertificateService, retryService RetryService) RetryCertificateService {
+	return &retryCertificateService{
+		baseService:  baseService,
+		retryService: retryService,
+	}
+}
+
+// CreateSelfSignedCertificate creates a self-signed certificate with retry logic for database operations.
+func (s *retryCertificateService) CreateSelfSignedCertificate(ctx context.Context, req certificates.CreateCertificateRequest) (*certificates.CreateCertificateResult, error) {
+	return retried(ctx, s.retryService, func() (*certificates.CreateCertificateResult, error) {
+		return s.baseService.CreateSelfSignedCertificate(ctx, req)
+	})
+}
+
+// CreateCASignedCertificate creates a CA-signed certificate with retry logic for database operations.
+func (s *retryCertificateService) CreateCASignedCertificate(ctx context.Context, req certificates.CreateCertificateRequest) (*certificates.CreateCertificateResult, error) {
+	return retried(ctx, s.retryService, func() (*certificates.CreateCertificateResult, error) {
+		return s.baseService.CreateCASignedCertificate(ctx, req)
+	})
+}
+
+// GetCertificate retrieves a certificate with retry logic for database operations.
+func (s *retryCertificateService) GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error) {
+	return retried(ctx, s.retryService, func() (*model.Certificate, error) {
+		return s.baseService.GetCertificate(ctx, certID, scope)
+	})
+}
+
+// ListCertificates lists certificates with retry logic for database operations.
+func (s *retryCertificateService) ListCertificates(ctx context.Context, scope model.Scope, filter model.CertificateFilter) ([]model.Certificate, error) {
+	return retried(ctx, s.retryService, func() ([]model.Certificate, error) {
+		return s.baseService.ListCertificates(ctx, scope, filter)
+	})
+}
+
+// UpdateCertificate updates a certificate with retry logic for database operations.
+func (s *retryCertificateService) UpdateCertificate(ctx context.Context, req certificates.UpdateCertificateRequest) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.UpdateCertificate(ctx, req)
+	})
+}
+
+// DeleteCertificate soft-deletes a certificate with retry logic for database operations.
+func (s *retryCertificateService) DeleteCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.DeleteCertificate(ctx, certID, scope)
+	})
+}
+
+// RenewCertificate renews a certificate with retry logic for database operations.
+func (s *retryCertificateService) RenewCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope, validityDays int) (*certificates.CreateCertificateResult, error) {
+	return retried(ctx, s.retryService, func() (*certificates.CreateCertificateResult, error) {
+		return s.baseService.RenewCertificate(ctx, certID, scope, validityDays)
+	})
+}
+
+// ListDeletedCertificates lists soft-deleted certificates with retry logic for database operations.
+func (s *retryCertificateService) ListDeletedCertificates(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	return retried(ctx, s.retryService, func() ([]model.Certificate, error) {
+		return s.baseService.ListDeletedCertificates(ctx, scope)
+	})
+}
+
+// RecoverCertificate restores a soft-deleted certificate with retry logic for database operations.
+func (s *retryCertificateService) RecoverCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.RecoverCertificate(ctx, certID, scope)
+	})
+}
+
+// PurgeCertificate permanently deletes a soft-deleted certificate with retry logic for database operations.
+func (s *retryCertificateService) PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.PurgeCertificate(ctx, certID, scope)
+	})
+}
+
+// ValidateCertificateAccess validates access to a certificate with retry logic for database operations.
+func (s *retryCertificateService) ValidateCertificateAccess(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.ValidateCertificateAccess(ctx, certID, scope)
+	})
+}
+
+// ValidateKeyOwnership validates key ownership with retry logic for database operations.
+func (s *retryCertificateService) ValidateKeyOwnership(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.ValidateKeyOwnership(ctx, keyID, scope)
+	})
+}
+
+// GetCertificatePolicy retrieves a certificate's policy with retry logic for database operations.
+func (s *retryCertificateService) GetCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.CertificatePolicy, error) {
+	return retried(ctx, s.retryService, func() (*model.CertificatePolicy, error) {
+		return s.baseService.GetCertificatePolicy(ctx, certID, scope)
+	})
+}
+
+// UpsertCertificatePolicy creates or replaces a certificate's policy with retry logic for database operations.
+func (s *retryCertificateService) UpsertCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope, req model.UpsertCertificatePolicyRequest) (*model.CertificatePolicy, error) {
+	return retried(ctx, s.retryService, func() (*model.CertificatePolicy, error) {
+		return s.baseService.UpsertCertificatePolicy(ctx, certID, scope, req)
+	})
+}
+
+// DeleteCertificatePolicy removes a certificate's policy with retry logic for database operations.
+func (s *retryCertificateService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	return s.retryService.ExecuteDatabaseOperation(ctx, func() error {
+		return s.baseService.DeleteCertificatePolicy(ctx, certID, scope)
+	})
+}

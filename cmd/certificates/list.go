@@ -17,7 +17,6 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -68,7 +67,7 @@ other vaults are never included; list them one vault at a time.`,
 			return fmt.Errorf("failed to list certificates: %w", err)
 		}
 
-		certs, err := certService.ListCertificates(ctx, model.NewVaultScope(vaultID, claims.UserID), repositories.CertificateFilter{})
+		certs, err := certService.ListCertificates(ctx, model.NewVaultScope(vaultID, claims.UserID), model.CertificateFilter{})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_certificates", "failed", fmt.Sprintf("failed to list certificates: %s", err), err)
 			return fmt.Errorf("failed to list certificates: %w", err)

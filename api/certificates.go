@@ -30,7 +30,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"rocketvault/internal/repositories"
 	certServices "rocketvault/internal/services/certificates"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -255,7 +254,10 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certs, err := certService.ListCertificates(r.Context(), scope, repositories.CertificateFilter{})
+	certs, err := certService.ListCertificates(r.Context(), scope, model.CertificateFilter{
+		Limit:  c.Params.PerPage,
+		Offset: c.Params.Page * c.Params.PerPage,
+	})
 	if err != nil {
 		c.SetInternalError(err)
 		return

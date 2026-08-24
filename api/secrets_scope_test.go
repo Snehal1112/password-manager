@@ -33,7 +33,7 @@ func (s *scopeStubSecretService) GetSecret(_ context.Context, _ uuid.UUID, scope
 	return s.secret, s.secretErr
 }
 
-func (s *scopeStubSecretService) ListSecrets(_ context.Context, scope model.Scope, _ []string) ([]model.Secret, error) {
+func (s *scopeStubSecretService) ListSecrets(_ context.Context, scope model.Scope, _ []string, _, _ int) ([]model.Secret, error) {
 	s.lastScope = scope
 	return s.list, s.listErr
 }

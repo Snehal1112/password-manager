@@ -372,7 +372,7 @@ func TestListSecrets_DecryptsAndLoadsTags(t *testing.T) {
 	tag.On("GetTags", ctx, id2).Return([]string{}, nil)
 
 	svc := newService(repo, crypto, ver, tag, t)
-	got, err := svc.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, userID), nil)
+	got, err := svc.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, userID), nil, 0, 0)
 
 	require.NoError(t, err)
 	require.Len(t, got, 2)

@@ -23,7 +23,7 @@ import (
 type mockSecretService struct {
 	// per-call return values
 	getSecretFn                 func(ctx context.Context, secretID uuid.UUID, scope model.Scope) (*model.Secret, error)
-	listSecretsFn               func(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error)
+	listSecretsFn               func(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error)
 	deleteSecretFn              func(ctx context.Context, secretID uuid.UUID, scope model.Scope) error
 	listDeletedSecretsFn        func(ctx context.Context, scope model.Scope) ([]model.Secret, error)
 	createSecretFn              func(ctx context.Context, req secrets.CreateSecretRequest) (*model.Secret, error)
@@ -49,9 +49,9 @@ func (m *mockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, s
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
+func (m *mockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
 	if m.listSecretsFn != nil {
-		return m.listSecretsFn(ctx, scope, tags)
+		return m.listSecretsFn(ctx, scope, tags, limit, offset)
 	}
 	return nil, errors.New("not implemented")
 }
@@ -454,7 +454,7 @@ func TestCachedSecretService_ListSecrets_DelegatesToBase(t *testing.T) {
 	expected := []model.Secret{{ID: uuid.New(), UserID: userID, Name: "s1"}}
 
 	svc := &mockSecretService{
-		listSecretsFn: func(_ context.Context, gotScope model.Scope, tags []string) ([]model.Secret, error) {
+		listSecretsFn: func(_ context.Context, gotScope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
 			assert.Equal(t, scope, gotScope)
 			return expected, nil
 		},
@@ -463,7 +463,7 @@ func TestCachedSecretService_ListSecrets_DelegatesToBase(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	got, err := cached.ListSecrets(ctx, scope, nil)
+	got, err := cached.ListSecrets(ctx, scope, nil, 0, 0)
 	require.NoError(t, err)
 	assert.Len(t, got, 1)
 	assert.Equal(t, expected[0].ID, got[0].ID)
@@ -473,7 +473,7 @@ func TestCachedSecretService_ListSecrets_BaseError(t *testing.T) {
 	ctx := context.Background()
 
 	svc := &mockSecretService{
-		listSecretsFn: func(_ context.Context, _ model.Scope, _ []string) ([]model.Secret, error) {
+		listSecretsFn: func(_ context.Context, _ model.Scope, _ []string, _, _ int) ([]model.Secret, error) {
 			return nil, errors.New("list error")
 		},
 	}
@@ -481,7 +481,7 @@ func TestCachedSecretService_ListSecrets_BaseError(t *testing.T) {
 	logger := newTestLogger()
 	cached := NewCachedSecretService(svc, c, logger)
 
-	_, err := cached.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, uuid.New()), nil)
+	_, err := cached.ListSecrets(ctx, model.NewOwnerScope(uuid.Nil, uuid.New()), nil, 0, 0)
 	assert.Error(t, err)
 }
 

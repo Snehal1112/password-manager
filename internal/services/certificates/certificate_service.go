@@ -94,7 +94,7 @@ type CertificateService interface {
 	// GetCertificate retrieves a certificate authorized by scope.
 	GetCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) (*model.Certificate, error)
 	// ListCertificates lists certificates authorized by scope.
-	ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error)
+	ListCertificates(ctx context.Context, scope model.Scope, filter model.CertificateFilter) ([]model.Certificate, error)
 	// UpdateCertificate updates a certificate authorized by req.Scope.
 	UpdateCertificate(ctx context.Context, req UpdateCertificateRequest) error
 	// DeleteCertificate soft-deletes a certificate authorized by scope.
@@ -572,7 +572,7 @@ func (s *certificateService) DeleteCertificatePolicy(ctx context.Context, certID
 }
 
 // ListCertificates lists certificates authorized by scope.
-func (s *certificateService) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+func (s *certificateService) ListCertificates(ctx context.Context, scope model.Scope, filter model.CertificateFilter) ([]model.Certificate, error) {
 	certs, err := s.certRepo.List(ctx, scope, filter)
 	if err != nil {
 		s.logger.LogAuditError(scope.ActorID().String(), "list_certificates", "failed", "Failed to list certificates", err)

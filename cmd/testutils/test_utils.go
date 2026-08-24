@@ -491,8 +491,8 @@ func (m *MockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, s
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, scope, tags)
+func (m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, tags, limit, offset)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}

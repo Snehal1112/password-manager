@@ -670,9 +670,9 @@ func (_c *MockSecretService_ListDeletedSecrets_Call) RunAndReturn(run func(conte
 	return _c
 }
 
-// ListSecrets provides a mock function with given fields: ctx, scope, tags
-func (_m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	ret := _m.Called(ctx, scope, tags)
+// ListSecrets provides a mock function with given fields: ctx, scope, tags, limit, offset
+func (_m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit int, offset int) ([]model.Secret, error) {
+	ret := _m.Called(ctx, scope, tags, limit, offset)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListSecrets")
@@ -680,19 +680,19 @@ func (_m *MockSecretService) ListSecrets(ctx context.Context, scope model.Scope,
 
 	var r0 []model.Secret
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, []string) ([]model.Secret, error)); ok {
-		return rf(ctx, scope, tags)
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, []string, int, int) ([]model.Secret, error)); ok {
+		return rf(ctx, scope, tags, limit, offset)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, []string) []model.Secret); ok {
-		r0 = rf(ctx, scope, tags)
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, []string, int, int) []model.Secret); ok {
+		r0 = rf(ctx, scope, tags, limit, offset)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]model.Secret)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, []string) error); ok {
-		r1 = rf(ctx, scope, tags)
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, []string, int, int) error); ok {
+		r1 = rf(ctx, scope, tags, limit, offset)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -709,13 +709,15 @@ type MockSecretService_ListSecrets_Call struct {
 //   - ctx context.Context
 //   - scope model.Scope
 //   - tags []string
-func (_e *MockSecretService_Expecter) ListSecrets(ctx interface{}, scope interface{}, tags interface{}) *MockSecretService_ListSecrets_Call {
-	return &MockSecretService_ListSecrets_Call{Call: _e.mock.On("ListSecrets", ctx, scope, tags)}
+//   - limit int
+//   - offset int
+func (_e *MockSecretService_Expecter) ListSecrets(ctx interface{}, scope interface{}, tags interface{}, limit interface{}, offset interface{}) *MockSecretService_ListSecrets_Call {
+	return &MockSecretService_ListSecrets_Call{Call: _e.mock.On("ListSecrets", ctx, scope, tags, limit, offset)}
 }
 
-func (_c *MockSecretService_ListSecrets_Call) Run(run func(ctx context.Context, scope model.Scope, tags []string)) *MockSecretService_ListSecrets_Call {
+func (_c *MockSecretService_ListSecrets_Call) Run(run func(ctx context.Context, scope model.Scope, tags []string, limit int, offset int)) *MockSecretService_ListSecrets_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(model.Scope), args[2].([]string))
+		run(args[0].(context.Context), args[1].(model.Scope), args[2].([]string), args[3].(int), args[4].(int))
 	})
 	return _c
 }
@@ -725,7 +727,7 @@ func (_c *MockSecretService_ListSecrets_Call) Return(_a0 []model.Secret, _a1 err
 	return _c
 }
 
-func (_c *MockSecretService_ListSecrets_Call) RunAndReturn(run func(context.Context, model.Scope, []string) ([]model.Secret, error)) *MockSecretService_ListSecrets_Call {
+func (_c *MockSecretService_ListSecrets_Call) RunAndReturn(run func(context.Context, model.Scope, []string, int, int) ([]model.Secret, error)) *MockSecretService_ListSecrets_Call {
 	_c.Call.Return(run)
 	return _c
 }

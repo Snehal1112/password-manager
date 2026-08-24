@@ -541,7 +541,7 @@ func (c *ServiceContainer) initializeServices() error {
 	}
 
 	// Initialize key service with cache for invalidation on mutations.
-	c.keyService = keyServices.NewKeyService(keyServices.KeyServiceConfig{
+	baseKeyService := keyServices.NewKeyService(keyServices.KeyServiceConfig{
 		KeyRepository:    c.keyRepository,
 		KeyProvider:      c.keyProvider,
 		KeyCache:         c.keyCache,
@@ -549,6 +549,14 @@ func (c *ServiceContainer) initializeServices() error {
 		Logger:           c.logger,
 		VaultRepository:  c.vaultRepository,
 	})
+
+	// Wrap with retry logic if retry service is available.
+	if c.retryService != nil {
+		c.keyService = retryServices.NewRetryKeyService(baseKeyService, c.retryService)
+		c.logger.Info("Retry logic enabled for key service")
+	} else {
+		c.keyService = baseKeyService
+	}
 
 	// Initialize crypto service with cache and Prometheus metrics.
 	c.keyCryptoService = keyServices.NewCryptoService(keyServices.CryptoServiceConfig{
@@ -560,13 +568,21 @@ func (c *ServiceContainer) initializeServices() error {
 	})
 
 	// Initialize certificate service
-	c.certificateService = certServices.NewCertificateService(certServices.CertificateServiceConfig{
+	baseCertificateService := certServices.NewCertificateService(certServices.CertificateServiceConfig{
 		CertificateRepository: c.certificateRepository,
 		KeyRepository:         c.keyRepository,
 		PolicyRepository:      c.certPolicyRepository,
 		Logger:                c.logger,
 		VaultRepository:       c.vaultRepository,
 	})
+
+	// Wrap with retry logic if retry service is available.
+	if c.retryService != nil {
+		c.certificateService = retryServices.NewRetryCertificateService(baseCertificateService, c.retryService)
+		c.logger.Info("Retry logic enabled for certificate service")
+	} else {
+		c.certificateService = baseCertificateService
+	}
 
 	// Initialize certificate renewal service.
 	c.certRenewalService = certServices.NewCertificateRenewalService(certServices.RenewalServiceConfig{

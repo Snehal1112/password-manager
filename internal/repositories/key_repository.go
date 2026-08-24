@@ -79,13 +79,10 @@ type KeyRepositoryInterface interface {
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
-// KeyFilter narrows a scoped key listing.
-type KeyFilter struct {
-	Type           string // Empty means every type. The keys table really has this column.
-	Tags           []string
-	IncludeDeleted bool
-	OnlyDeleted    bool
-}
+// KeyFilter narrows a scoped key listing. Alias for model.KeyFilter: the
+// canonical definition lives in model/ so api/ and cmd/ can construct one
+// without importing this package.
+type KeyFilter = model.KeyFilter
 
 // keyColumns is the canonical SELECT list shared by every scoped key query.
 const keyColumns = "id, user_id, vault_id, name, value, type, revoked, created_at, enabled, expires_at, not_before, bits, curve, updated_at, deleted_at, purge_protection"
@@ -117,22 +114,19 @@ func scanKeyRow(scan func(dest ...any) error) (model.Key, error) {
 // Read retrieves a key by ID, authorized by scope. Tags are loaded via
 // TagRepository, matching the behaviour of the methods it replaces.
 func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Key, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
+	query := "SELECT " + keyColumns + " FROM keys WHERE id = ? AND deleted_at IS NULL"
+	key, err := ScopedGet(ctx, r.db, query, []any{id.String()}, scope, func(row *sql.Row) (model.Key, error) {
+		return scanKeyRow(row.Scan)
+	})
+	switch {
+	case errors.Is(err, ErrInvalidScope):
 		return nil, err
-	}
-
-	query := "SELECT " + keyColumns + " FROM keys WHERE id = ? AND " + predicate + " AND deleted_at IS NULL"
-	queryArgs := append([]any{id.String()}, args...)
-
-	key, err := scanKeyRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
-	if errors.Is(err, sql.ErrNoRows) {
+	case errors.Is(err, sql.ErrNoRows):
 		if scope.Kind() == model.ScopeAdmin {
 			return nil, fmt.Errorf("key not found")
 		}
 		return nil, fmt.Errorf("key not found or access denied")
-	}
-	if err != nil {
+	case err != nil:
 		return nil, fmt.Errorf("failed to query key: %w", err)
 	}
 
@@ -153,23 +147,21 @@ func (r *KeyRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scop
 // every error path and on success — logging here too would duplicate every
 // scoped update into two audit_logs rows.
 func (r *KeyRepository) Update(ctx context.Context, key *model.Key, scope model.Scope) error {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
-		return err
-	}
-
 	return r.executeWithMetrics("update_key_scoped", func() error {
 		now := time.Now().UTC()
 		key.UpdatedAt = &now
 
-		query := "UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ?, updated_at = ? WHERE id = ? AND " + predicate
-		execArgs := append([]any{
+		query := "UPDATE keys SET name = ?, value = ?, revoked = ?, created_at = ?, enabled = ?, expires_at = ?, not_before = ?, bits = ?, curve = ?, updated_at = ? WHERE id = ?"
+		execArgs := []any{
 			key.Name, key.Value, key.Revoked, key.CreatedAt, key.Enabled,
 			key.ExpiresAt, key.NotBefore, key.Bits, key.Curve, now, key.ID.String(),
-		}, args...)
+		}
 
-		result, execErr := r.db.ExecContext(ctx, query, execArgs...)
+		result, execErr := ScopedExec(ctx, r.db, query, execArgs, scope)
 		if execErr != nil {
+			if errors.Is(execErr, ErrInvalidScope) {
+				return execErr
+			}
 			return fmt.Errorf("failed to update key: %w", execErr)
 		}
 
@@ -219,7 +211,11 @@ func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyF
 	}
 
 	query := "SELECT " + keyColumns + " FROM keys WHERE " +
-		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC"
+		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC, id ASC"
+	if filter.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, filter.Limit, filter.Offset)
+	}
 
 	var keyList []model.Key
 	err = r.executeWithMetrics("list_keys_scoped", func() error {
@@ -229,21 +225,31 @@ func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyF
 		}
 		defer rows.Close() //nolint:errcheck
 
-		tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
 		keyList = make([]model.Key, 0, 50)
 		for rows.Next() {
 			key, scanErr := scanKeyRow(rows.Scan)
 			if scanErr != nil {
 				return fmt.Errorf("failed to scan key: %w", scanErr)
 			}
-			key.Tags, scanErr = tagRepo.GetTags(ctx, key.ID)
-			if scanErr != nil {
-				return fmt.Errorf("failed to read tags for key: %w", scanErr)
-			}
 			keyList = append(keyList, key)
 		}
 		if rowsErr := rows.Err(); rowsErr != nil {
 			return fmt.Errorf("row iteration error: %w", rowsErr)
+		}
+
+		// Batch-fetch tags for every returned key in one query instead of one
+		// GetTags query per row.
+		ids := make([]uuid.UUID, len(keyList))
+		for i, key := range keyList {
+			ids[i] = key.ID
+		}
+		tagRepo := db.NewTagRepository[model.Key](r.db, "key_tags", "key_id")
+		tagsByID, tagErr := tagRepo.GetTagsForMany(ctx, ids)
+		if tagErr != nil {
+			return fmt.Errorf("failed to read tags for keys: %w", tagErr)
+		}
+		for i := range keyList {
+			keyList[i].Tags = tagsByID[keyList[i].ID]
 		}
 		return nil
 	})

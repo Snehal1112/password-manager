@@ -500,7 +500,7 @@ func TestSecretServiceVaultScopedOperations(t *testing.T) {
 	crypto.On("DecryptSecret", "encrypted-list").Return("plain-list", nil).Once()
 	tag.On("GetTags", ctx, secretID).Return([]string{"vault"}, nil).Once()
 
-	list, err := svc.ListSecrets(ctx, vaultScope, []string{"vault"})
+	list, err := svc.ListSecrets(ctx, vaultScope, []string{"vault"}, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "plain-list", list[0].Value)

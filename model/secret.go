@@ -261,7 +261,9 @@ func (r *SecretResponse) ToJson() string {
 
 type ListSecretsResponse struct {
 	Secrets []SecretResponse `json:"secrets"`
-	Total   int              `json:"total"`
+	// Total is len(Secrets): the count in this response, not a count across
+	// every page.
+	Total int `json:"total"`
 }
 
 func (r *ListSecretsResponse) ToJson() string {

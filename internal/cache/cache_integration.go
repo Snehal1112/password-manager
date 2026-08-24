@@ -60,8 +60,8 @@ func (s *CachedSecretService) GetSecret(ctx context.Context, secretID uuid.UUID,
 }
 
 // ListSecrets lists scoped secrets (not cached).
-func (s *CachedSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	return s.secretService.ListSecrets(ctx, scope, tags)
+func (s *CachedSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
+	return s.secretService.ListSecrets(ctx, scope, tags, limit, offset)
 }
 
 // DeleteSecret soft-deletes a scoped secret and evicts it from cache.

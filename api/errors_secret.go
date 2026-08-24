@@ -4,8 +4,8 @@ import (
 	"errors"
 
 	"rocketvault/common"
-	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/secrets"
+	"rocketvault/model"
 )
 
 // writeSecretError maps a secret-service error onto an HTTP response. It
@@ -19,7 +19,7 @@ func writeSecretError(c *Context, err error) {
 		c.SetPermissionError("secret is disabled or outside its valid time window")
 	case errors.Is(err, secrets.ErrSecretNotFound):
 		c.SetNotFound("secret")
-	case errors.Is(err, repositories.ErrSecretPurgeProtected):
+	case errors.Is(err, model.ErrSecretPurgeProtected):
 		c.SetPermissionError("secret has purge protection enabled (directly or via its vault)")
 	case errors.Is(err, secrets.ErrExportPassphraseRequired):
 		c.SetInvalidParam("passphrase: required to produce an encrypted export (encrypt is true, or a passphrase was supplied)")

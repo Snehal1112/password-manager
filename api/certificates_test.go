@@ -439,10 +439,34 @@ func TestCreateCertificate_Success_Returns201(t *testing.T) {
 // listCertificates
 // ============================================================
 
+// TestListCertificates_Pagination_ComputesLimitAndOffsetFromPageParams pins
+// the Page*PerPage offset math: a swapped limit/offset or a dropped multiply
+// would still pass every other listCertificates test, since they all use the
+// zero-value Page (offset 0).
+func TestListCertificates_Pagination_ComputesLimitAndOffsetFromPageParams(t *testing.T) {
+	svc := &mockCertService{}
+	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{Limit: 10, Offset: 20}).
+		Return([]model.Certificate{}, nil)
+
+	c := newCertCtx(svc, certAdminClaims())
+	c.Params.Page = 2
+	c.Params.PerPage = 10
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/certificates?page=2&per_page=10", nil)
+
+	listCertificates(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestListCertificates_ServiceError_Returns500(t *testing.T) {
 	svc := &mockCertService{}
 	// Legacy flat route (no vault_name) yields a default-vault scope.
-	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{}).
+	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{Limit: 60}).
 		Return([]model.Certificate{}, errors.New("db error"))
 
 	c := newCertCtx(svc, certAdminClaims())
@@ -464,7 +488,7 @@ func TestListCertificates_Success_Returns200(t *testing.T) {
 		{ID: uuid.New(), Name: "cert1", CreatedAt: time.Now()},
 	}
 	// Legacy flat route (no vault_name) yields a default-vault scope.
-	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{}).Return(certs, nil)
+	svc.On("ListCertificates", mock.Anything, certLegacyVaultScope(), repositories.CertificateFilter{Limit: 60}).Return(certs, nil)
 
 	c := newCertCtx(svc, certAdminClaims())
 	w := httptest.NewRecorder()

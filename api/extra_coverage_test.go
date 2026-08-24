@@ -341,7 +341,7 @@ func TestDeleteSecret_InvalidSecretIDParam_Returns400(t *testing.T) {
 func TestListSecrets_WithTagFilter_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	// Legacy flat route (no vault_name) uses default-vault visibility via ListSecrets.
-	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{}, nil)
 
 	c := newSecretCtx(svc)
@@ -482,7 +482,7 @@ func TestListSecrets_NonEmptyList_Returns200(t *testing.T) {
 	svc := &mockSecretService{}
 	secretID := uuid.New()
 	// Legacy flat route (no vault_name) uses default-vault visibility via ListSecrets.
-	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{
 			{
 				ID:        secretID,

@@ -46,6 +46,12 @@ func TestZeroScopeRejectedByEveryRepositoryMethod(t *testing.T) {
 			assert.ErrorIs(t, err, ErrInvalidScope)
 			assert.Empty(t, rows)
 		})
+		t.Run("FindByName", func(t *testing.T) {
+			got, err := repo.FindByName(ctx, secret.Name, zero)
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrInvalidScope)
+			assert.Nil(t, got, "no row may be returned for an invalid scope")
+		})
 	})
 
 	t.Run("KeyRepository", func(t *testing.T) {

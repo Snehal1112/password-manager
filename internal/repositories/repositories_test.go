@@ -537,6 +537,31 @@ func TestKeyRepository_Update_NotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
+// TestKeyRepository_Update_VaultScope_NoOpWhenVaultMismatch mirrors
+// TestSecretRepository_Update_VaultScope_NoOpWhenVaultMismatch: a scoped
+// Update against the wrong vault must be rejected and leave the row
+// untouched, proving the ScopedExec retrofit didn't relax cross-vault
+// enforcement.
+func TestKeyRepository_Update_VaultScope_NoOpWhenVaultMismatch(t *testing.T) {
+	t.Parallel()
+	db := setupFullKeyDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	realVault := uuid.New()
+	k := newKey(uuid.New(), realVault, "k1")
+	require.NoError(t, repo.Create(ctx, k))
+
+	k.Name = "should-not-apply"
+	err := repo.Update(ctx, k, model.NewVaultScope(uuid.New(), uuid.Nil)) // wrong vault
+	require.Error(t, err)
+
+	got, err := repo.Read(ctx, k.ID, model.NewVaultScope(realVault, uuid.Nil))
+	require.NoError(t, err)
+	assert.Equal(t, "k1", got.Name) // unchanged
+}
+
 func TestKeyRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {
 	t.Parallel()
 	db := setupFullKeyDB(t)
@@ -594,6 +619,32 @@ func TestCertificateRepository_Update_NotFound(t *testing.T) {
 	err := repo.Update(ctx, cert, model.NewAdminScope(uuid.Nil))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
+}
+
+// TestCertificateRepository_Update_VaultScope_NoOpWhenVaultMismatch mirrors
+// TestSecretRepository_Update_VaultScope_NoOpWhenVaultMismatch: a scoped
+// Update against the wrong vault must be rejected and leave the row (and its
+// tags) untouched, proving the ScopedExec retrofit didn't relax cross-vault
+// enforcement even though certificate Update runs inside a manual
+// transaction.
+func TestCertificateRepository_Update_VaultScope_NoOpWhenVaultMismatch(t *testing.T) {
+	t.Parallel()
+	db := setupFullCertDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	realVault := uuid.New()
+	cert := newCert(uuid.New(), realVault, "c1")
+	require.NoError(t, repo.Create(ctx, cert))
+
+	cert.Name = "should-not-apply"
+	err := repo.Update(ctx, cert, model.NewVaultScope(uuid.New(), uuid.Nil)) // wrong vault
+	require.Error(t, err)
+
+	got, err := repo.Read(ctx, cert.ID, model.NewVaultScope(realVault, uuid.Nil))
+	require.NoError(t, err)
+	assert.Equal(t, "c1", got.Name) // unchanged
 }
 
 func TestCertificateRepository_Delete(t *testing.T) {

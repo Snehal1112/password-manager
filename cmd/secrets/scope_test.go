@@ -61,7 +61,7 @@ func TestSecretsListBuildsAVaultScope(t *testing.T) {
 		return c
 	})
 
-	svc.On("ListSecrets", mock.Anything, model.NewVaultScope(vaultID, userID), mock.Anything).
+	svc.On("ListSecrets", mock.Anything, model.NewVaultScope(vaultID, userID), mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Secret{{ID: uuid.New(), Name: "a"}}, nil).Once()
 
 	require.NoError(t, cmd.Execute())

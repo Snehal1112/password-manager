@@ -25,7 +25,6 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -34,7 +33,6 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/internal/crypto"
-	"rocketvault/internal/repositories"
 	keyservices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -426,16 +424,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		switch {
-		case errors.Is(err, crypto.ErrOctKeysRequireHSM):
-			c.SetInvalidParam("type: OCT key creation requires an HSM-backed key provider (hsm.enabled: true)")
-		case errors.Is(err, crypto.ErrUnsupportedCurve):
-			c.SetInvalidParam("curve: " + err.Error())
-		case errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm: " + err.Error())
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -467,9 +456,11 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keysList, err := keyService.ListKeys(r.Context(), scope, repositories.KeyFilter{
-		Type: r.URL.Query().Get("type"),
-		Tags: c.Params.Tags,
+	keysList, err := keyService.ListKeys(r.Context(), scope, model.KeyFilter{
+		Type:   r.URL.Query().Get("type"),
+		Tags:   c.Params.Tags,
+		Limit:  c.Params.PerPage,
+		Offset: c.Params.Page * c.Params.PerPage,
 	})
 	if err != nil {
 		c.SetInternalError(err)
@@ -781,24 +772,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:      req.Version,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
-			c.SetPermissionError("key_access")
-		case errors.Is(err, keyservices.ErrKeyNotFound):
-			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		// crypto.ErrUnsupportedAlgorithm is a distinct error value from the
-		// keyservices one: it is what isHSMCapabilityError degrades a real
-		// HSM's mechanism rejection to. Both are client-input problems, so
-		// both are a 400 rather than a 500 leaking the PKCS#11 error.
-		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm")
-		case errors.Is(err, repositories.ErrKeyVersionNotFound):
-			c.SetNotFound("key version")
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -857,24 +831,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:    req.Version,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
-			c.SetPermissionError("key_access")
-		case errors.Is(err, keyservices.ErrKeyNotFound):
-			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		// crypto.ErrUnsupportedAlgorithm is a distinct error value from the
-		// keyservices one: it is what isHSMCapabilityError degrades a real
-		// HSM's mechanism rejection to. Both are client-input problems, so
-		// both are a 400 rather than a 500 leaking the PKCS#11 error.
-		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm")
-		case errors.Is(err, repositories.ErrKeyVersionNotFound):
-			c.SetNotFound("key version")
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -933,24 +890,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:   req.Version,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
-			c.SetPermissionError("key_access")
-		case errors.Is(err, keyservices.ErrKeyNotFound):
-			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		// crypto.ErrUnsupportedAlgorithm is a distinct error value from the
-		// keyservices one: it is what isHSMCapabilityError degrades a real
-		// HSM's mechanism rejection to. Both are client-input problems, so
-		// both are a 400 rather than a 500 leaking the PKCS#11 error.
-		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm")
-		case errors.Is(err, repositories.ErrKeyVersionNotFound):
-			c.SetNotFound("key version")
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -1013,24 +953,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:   req.Version,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
-			c.SetPermissionError("key_access")
-		case errors.Is(err, keyservices.ErrKeyNotFound):
-			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		// crypto.ErrUnsupportedAlgorithm is a distinct error value from the
-		// keyservices one: it is what isHSMCapabilityError degrades a real
-		// HSM's mechanism rejection to. Both are client-input problems, so
-		// both are a 400 rather than a 500 leaking the PKCS#11 error.
-		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm")
-		case errors.Is(err, repositories.ErrKeyVersionNotFound):
-			c.SetNotFound("key version")
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -1090,24 +1013,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:   req.Version,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
-			c.SetPermissionError("key_access")
-		case errors.Is(err, keyservices.ErrKeyNotFound):
-			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		// crypto.ErrUnsupportedAlgorithm is a distinct error value from the
-		// keyservices one: it is what isHSMCapabilityError degrades a real
-		// HSM's mechanism rejection to. Both are client-input problems, so
-		// both are a 400 rather than a 500 leaking the PKCS#11 error.
-		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm")
-		case errors.Is(err, repositories.ErrKeyVersionNotFound):
-			c.SetNotFound("key version")
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 
@@ -1179,24 +1085,7 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		Version:    req.Version,
 	})
 	if err != nil {
-		switch {
-		case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):
-			c.SetPermissionError("key_access")
-		case errors.Is(err, keyservices.ErrKeyNotFound):
-			c.SetNotFound("key")
-		case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
-			c.SetPermissionError("key is disabled or outside its valid time window")
-		// crypto.ErrUnsupportedAlgorithm is a distinct error value from the
-		// keyservices one: it is what isHSMCapabilityError degrades a real
-		// HSM's mechanism rejection to. Both are client-input problems, so
-		// both are a 400 rather than a 500 leaking the PKCS#11 error.
-		case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
-			c.SetInvalidParam("algorithm")
-		case errors.Is(err, repositories.ErrKeyVersionNotFound):
-			c.SetNotFound("key version")
-		default:
-			c.SetInternalError(err)
-		}
+		writeKeyError(c, err)
 		return
 	}
 

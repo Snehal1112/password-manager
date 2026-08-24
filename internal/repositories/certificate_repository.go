@@ -46,13 +46,10 @@ type CertificateRepositoryInterface interface {
 	RecoverVaultContents(ctx context.Context, vaultID uuid.UUID, deletedAt time.Time) error
 }
 
-// CertificateFilter narrows a scoped certificate listing. There is no Type
-// field: the certificates table has no type column.
-type CertificateFilter struct {
-	Tags           []string
-	IncludeDeleted bool
-	OnlyDeleted    bool
-}
+// CertificateFilter narrows a scoped certificate listing. Alias for
+// model.CertificateFilter: the canonical definition lives in model/ so api/
+// and cmd/ can construct one without importing this package.
+type CertificateFilter = model.CertificateFilter
 
 // certificateColumns is the canonical SELECT list shared by every scoped query.
 const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before, deleted_at, purge_protection"
@@ -98,22 +95,19 @@ func scanCertificateRow(scan func(dest ...any) error) (model.Certificate, error)
 
 // Read retrieves a certificate by ID, authorized by scope.
 func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Certificate, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
+	query := "SELECT " + certificateColumns + " FROM certificates WHERE id = ? AND deleted_at IS NULL"
+	cert, err := ScopedGet(ctx, r.db, query, []any{id.String()}, scope, func(row *sql.Row) (model.Certificate, error) {
+		return scanCertificateRow(row.Scan)
+	})
+	switch {
+	case errors.Is(err, ErrInvalidScope):
 		return nil, err
-	}
-
-	query := "SELECT " + certificateColumns + " FROM certificates WHERE id = ? AND " + predicate + " AND deleted_at IS NULL"
-	queryArgs := append([]any{id.String()}, args...)
-
-	cert, err := scanCertificateRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
-	if errors.Is(err, sql.ErrNoRows) {
+	case errors.Is(err, sql.ErrNoRows):
 		if scope.Kind() == model.ScopeAdmin {
 			return nil, fmt.Errorf("certificate not found")
 		}
 		return nil, fmt.Errorf("certificate not found or access denied")
-	}
-	if err != nil {
+	case err != nil:
 		return nil, fmt.Errorf("failed to query certificate: %w", err)
 	}
 
@@ -134,11 +128,6 @@ func (r *CertificateRepository) Read(ctx context.Context, id uuid.UUID, scope mo
 // for every error path and on success — logging here too would duplicate
 // every scoped update into two audit_logs rows.
 func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certificate, scope model.Scope) error {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
-		return err
-	}
-
 	return r.executeWithMetrics("update_certificate_scoped", func() error {
 		tx, txErr := r.db.BeginTx(ctx, nil)
 		if txErr != nil {
@@ -149,14 +138,17 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certific
 		// ca_cert_id is deliberately absent: the CA link is set at creation and
 		// immutable afterwards. Renewal writes through this method, so touching
 		// the column here would erase the issuer on the first renewal (B37).
-		query := "UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ?, enabled = ?, not_before = ? WHERE id = ? AND " + predicate
-		execArgs := append([]any{
+		query := "UPDATE certificates SET name = ?, certificate = ?, private_key = ?, created_at = ?, expires_at = ?, auto_renew = ?, renewal_days = ?, enabled = ?, not_before = ? WHERE id = ?"
+		execArgs := []any{
 			cert.Name, cert.Certificate, cert.PrivateKey, cert.CreatedAt, cert.ExpiresAt,
 			cert.AutoRenew, cert.RenewalDays, cert.Enabled, cert.NotBefore, cert.ID.String(),
-		}, args...)
+		}
 
-		result, execErr := tx.ExecContext(ctx, query, execArgs...)
+		result, execErr := ScopedExec(ctx, tx, query, execArgs, scope)
 		if execErr != nil {
+			if errors.Is(execErr, ErrInvalidScope) {
+				return execErr
+			}
 			return fmt.Errorf("failed to update certificate: %w", execErr)
 		}
 
@@ -226,7 +218,11 @@ func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, fil
 	}
 
 	query := "SELECT " + certificateColumns + " FROM certificates WHERE " +
-		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC"
+		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC, id ASC"
+	if filter.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, filter.Limit, filter.Offset)
+	}
 
 	var certList []model.Certificate
 	err = r.executeWithMetrics("list_certificates_scoped", func() error {
@@ -236,21 +232,31 @@ func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, fil
 		}
 		defer rows.Close() //nolint:errcheck
 
-		tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
 		certList = make([]model.Certificate, 0, 50)
 		for rows.Next() {
 			cert, scanErr := scanCertificateRow(rows.Scan)
 			if scanErr != nil {
 				return fmt.Errorf("failed to scan certificate: %w", scanErr)
 			}
-			cert.Tags, scanErr = tagRepo.GetTags(ctx, cert.ID)
-			if scanErr != nil {
-				return fmt.Errorf("failed to read tags for certificate: %w", scanErr)
-			}
 			certList = append(certList, cert)
 		}
 		if rowsErr := rows.Err(); rowsErr != nil {
 			return fmt.Errorf("row iteration error: %w", rowsErr)
+		}
+
+		// Batch-fetch tags for every returned certificate in one query instead
+		// of one GetTags query per row.
+		ids := make([]uuid.UUID, len(certList))
+		for i, cert := range certList {
+			ids[i] = cert.ID
+		}
+		tagRepo := db.NewTagRepository[model.Certificate](r.db, "certificate_tags", "certificate_id")
+		tagsByID, tagErr := tagRepo.GetTagsForMany(ctx, ids)
+		if tagErr != nil {
+			return fmt.Errorf("failed to read tags for certificates: %w", tagErr)
+		}
+		for i := range certList {
+			certList[i].Tags = tagsByID[certList[i].ID]
 		}
 		return nil
 	})

@@ -70,8 +70,8 @@ func (m *mockSecretService) GetSecret(ctx context.Context, secretID uuid.UUID, s
 	return args.Get(0).(*model.Secret), args.Error(1)
 }
 
-func (m *mockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string) ([]model.Secret, error) {
-	args := m.Called(ctx, scope, tags)
+func (m *mockSecretService) ListSecrets(ctx context.Context, scope model.Scope, tags []string, limit, offset int) ([]model.Secret, error) {
+	args := m.Called(ctx, scope, tags, limit, offset)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -394,10 +394,34 @@ func TestCreateSecret_Success_Returns201(t *testing.T) {
 // listSecrets
 // ============================================================
 
+// TestListSecrets_Pagination_ComputesLimitAndOffsetFromPageParams pins the
+// Page*PerPage offset math: a swapped limit/offset or a dropped multiply
+// would still pass every other listSecrets test, since they all use the
+// zero-value Page (offset 0).
+func TestListSecrets_Pagination_ComputesLimitAndOffsetFromPageParams(t *testing.T) {
+	svc := &mockSecretService{}
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything, 10, 20).
+		Return([]model.Secret{}, nil)
+
+	c := newSecretCtx(svc)
+	c.Params.Page = 2
+	c.Params.PerPage = 10
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/secrets?page=2&per_page=10", nil)
+
+	listSecrets(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	svc.AssertExpectations(t)
+}
+
 func TestListSecrets_ServiceError_Returns500(t *testing.T) {
 	svc := &mockSecretService{}
 	// Legacy flat route (no vault_name) yields a default-vault scope via ListSecrets.
-	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{}, errors.New("db error"))
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()
@@ -416,7 +440,7 @@ func TestListSecrets_Success_Returns200(t *testing.T) {
 	secretID := uuid.New()
 	svc := &mockSecretService{}
 	// Legacy flat route (no vault_name) yields a default-vault scope via ListSecrets.
-	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
+	svc.On("ListSecrets", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]model.Secret{*makeSecretModel(secretID)}, nil)
 
 	c := newSecretCtx(svc)
 	w := httptest.NewRecorder()

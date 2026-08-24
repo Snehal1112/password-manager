@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // SOC2Report contains aggregated data for a SOC 2 access-events report.
@@ -45,7 +46,7 @@ type GDPRReport struct {
 
 // ComplianceReportServiceInterface is the read-path contract.
 type ComplianceReportServiceInterface interface {
-	QueryLogs(ctx context.Context, filter repositories.AuditFilter) ([]repositories.AuditLog, int64, bool, error)
+	QueryLogs(ctx context.Context, filter model.AuditFilter) ([]repositories.AuditLog, int64, bool, error)
 	GenerateSOC2Report(ctx context.Context, from, to time.Time) (*SOC2Report, error)
 	GenerateSOC2CSV(ctx context.Context, from, to time.Time) (string, error)
 	GenerateGDPRReport(ctx context.Context, from, to time.Time, subjectID string) (*GDPRReport, error)
@@ -67,7 +68,7 @@ func NewComplianceReportService(repo repositories.AuditRepositoryExtended) Compl
 
 // QueryLogs returns paginated audit logs and an integrity flag.
 // integrityOK is false if any hash chain break is detected in the returned page.
-func (s *ComplianceReportService) QueryLogs(ctx context.Context, filter repositories.AuditFilter) ([]repositories.AuditLog, int64, bool, error) {
+func (s *ComplianceReportService) QueryLogs(ctx context.Context, filter model.AuditFilter) ([]repositories.AuditLog, int64, bool, error) {
 	logs, total, err := s.repo.QueryAuditLogs(ctx, filter)
 	if err != nil {
 		return nil, 0, false, err

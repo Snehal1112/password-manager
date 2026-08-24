@@ -4,6 +4,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -12,6 +13,11 @@ import (
 type TagRepository[T any] interface {
 	AddTags(ctx context.Context, id uuid.UUID, tags []string) error
 	GetTags(ctx context.Context, id uuid.UUID) ([]string, error)
+	// GetTagsForMany retrieves tags for multiple entities in one query,
+	// returned as a map from entity ID to its tag list. An ID with no tags
+	// simply has no entry. Used by scoped list queries to avoid issuing one
+	// GetTags query per row.
+	GetTagsForMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]string, error)
 	ReplaceTags(ctx context.Context, id uuid.UUID, tags []string) error
 }
 
@@ -107,6 +113,48 @@ func (r *tagRepository[T]) GetTags(ctx context.Context, id uuid.UUID) ([]string,
 	}
 
 	return tags, nil
+}
+
+// GetTagsForMany retrieves tags for multiple entities in one query. Returns
+// an empty map for an empty ids slice without querying.
+func (r *tagRepository[T]) GetTagsForMany(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]string, error) {
+	result := make(map[uuid.UUID][]string, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	placeholders := strings.Repeat(",?", len(ids))[1:]
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id.String()
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		fmt.Sprintf("SELECT %s, tag FROM %s WHERE %s IN (%s)", r.idColumn, r.table, r.idColumn, placeholders),
+		args...,
+	)
+	if err != nil {
+		logrus.Error("Failed to query tags: ", err)
+		return nil, fmt.Errorf("failed to query tags: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var idStr, tag string
+		if err := rows.Scan(&idStr, &tag); err != nil {
+			logrus.Error("Failed to scan tag: ", err)
+			return nil, fmt.Errorf("failed to scan tag: %w", err)
+		}
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse tag owner id: %w", err)
+		}
+		result[id] = append(result[id], tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+	return result, nil
 }
 
 // ReplaceTags replaces all tags for an entity in the database.

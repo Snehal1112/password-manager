@@ -1660,6 +1660,43 @@ func TestKeyRepository_ListInVault_WithTags(t *testing.T) {
 	assert.Equal(t, k1.ID, tagged[0].ID)
 }
 
+// TestKeyRepository_List_TagsPopulatedCorrectlyPerEntity guards
+// List's batch tag-fetch (GetTagsForMany) against cross-contamination: three
+// keys each get a distinct, disjoint tag set, and every returned key's .Tags
+// must match only its own — not a neighbor's, not merged, not empty.
+func TestKeyRepository_List_TagsPopulatedCorrectlyPerEntity(t *testing.T) {
+	t.Parallel()
+	db := setupFullKeyDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewKeyRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	k1 := newKey(userID, vaultID, "key-a")
+	k1.Tags = []string{"team:payments", "env:prod"}
+	k2 := newKey(userID, vaultID, "key-b")
+	k2.Tags = []string{"team:auth"}
+	k3 := newKey(userID, vaultID, "key-c") // no tags at all
+
+	require.NoError(t, repo.Create(ctx, k1))
+	require.NoError(t, repo.Create(ctx, k2))
+	require.NoError(t, repo.Create(ctx, k3))
+
+	all, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.KeyFilter{})
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+
+	byID := make(map[uuid.UUID][]string, len(all))
+	for _, k := range all {
+		byID[k.ID] = k.Tags
+	}
+	assert.ElementsMatch(t, []string{"team:payments", "env:prod"}, byID[k1.ID])
+	assert.ElementsMatch(t, []string{"team:auth"}, byID[k2.ID])
+	assert.Empty(t, byID[k3.ID])
+}
+
 func TestCertificateRepository_SoftDelete_NotFound(t *testing.T) {
 	t.Parallel()
 	db := setupFullCertDB(t)
@@ -1729,6 +1766,44 @@ func TestCertificateRepository_ListInVault_WithTags(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, tagged, 1)
 	assert.Equal(t, c1.ID, tagged[0].ID)
+}
+
+// TestCertificateRepository_List_TagsPopulatedCorrectlyPerEntity guards
+// List's batch tag-fetch (GetTagsForMany) against cross-contamination: three
+// certificates each get a distinct, disjoint tag set, and every returned
+// certificate's .Tags must match only its own — not a neighbor's, not
+// merged, not empty.
+func TestCertificateRepository_List_TagsPopulatedCorrectlyPerEntity(t *testing.T) {
+	t.Parallel()
+	db := setupFullCertDB(t)
+	log := logging.InitLogger()
+	repo := repositories.NewCertificateRepository(rvdb.NewConn(db, rvdb.SQLite), log)
+	ctx := context.Background()
+
+	vaultID := uuid.New()
+	userID := uuid.New()
+
+	c1 := newCert(userID, vaultID, "cert-a")
+	c1.Tags = []string{"team:payments", "env:prod"}
+	c2 := newCert(userID, vaultID, "cert-b")
+	c2.Tags = []string{"team:auth"}
+	c3 := newCert(userID, vaultID, "cert-c") // no tags at all
+
+	require.NoError(t, repo.Create(ctx, c1))
+	require.NoError(t, repo.Create(ctx, c2))
+	require.NoError(t, repo.Create(ctx, c3))
+
+	all, err := repo.List(ctx, model.NewVaultScope(vaultID, uuid.Nil), repositories.CertificateFilter{})
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+
+	byID := make(map[uuid.UUID][]string, len(all))
+	for _, c := range all {
+		byID[c.ID] = c.Tags
+	}
+	assert.ElementsMatch(t, []string{"team:payments", "env:prod"}, byID[c1.ID])
+	assert.ElementsMatch(t, []string{"team:auth"}, byID[c2.ID])
+	assert.Empty(t, byID[c3.ID])
 }
 
 func TestCertificateRepository_ListByUser_ExcludesSoftDeleted(t *testing.T) {

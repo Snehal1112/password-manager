@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"rocketvault/common"
-	"rocketvault/internal/repositories"
 	auditSvc "rocketvault/internal/services/audit"
 	"rocketvault/model"
 )
@@ -247,9 +246,9 @@ func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // parseAuditFilter builds an AuditFilter from URL query parameters.
 // All fields are optional; absent params leave the pointer nil (no filter).
-func parseAuditFilter(r *http.Request) repositories.AuditFilter {
+func parseAuditFilter(r *http.Request) model.AuditFilter {
 	q := r.URL.Query()
-	f := repositories.AuditFilter{}
+	f := model.AuditFilter{}
 
 	if v := q.Get("from"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {

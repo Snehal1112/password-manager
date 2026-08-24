@@ -56,6 +56,11 @@ type SecretFilter struct {
 	Tags           []string
 	IncludeDeleted bool
 	OnlyDeleted    bool
+	// Limit caps the number of rows returned; 0 means unlimited.
+	Limit int
+	// Offset skips this many matching rows before Limit is applied. Ignored
+	// when Limit is 0.
+	Offset int
 }
 
 // scanSecretRow scans one secrets row in the canonical column order used by
@@ -206,22 +211,19 @@ func (r *SecretRepository) create(ctx context.Context, ex db.DBTX, secret *model
 // the access check: a row outside the scope is indistinguishable from a row
 // that does not exist.
 func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID, scope model.Scope) (*model.Secret, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
+	query := "SELECT " + secretColumns + " FROM secrets WHERE id = ? AND deleted_at IS NULL"
+	secret, err := ScopedGet(ctx, r.db, query, []any{id.String()}, scope, func(row *sql.Row) (model.Secret, error) {
+		return scanSecretRow(row.Scan)
+	})
+	switch {
+	case errors.Is(err, ErrInvalidScope):
 		return nil, err
-	}
-
-	query := "SELECT " + secretColumns + " FROM secrets WHERE id = ? AND " + predicate + " AND deleted_at IS NULL"
-	queryArgs := append([]any{id.String()}, args...)
-
-	secret, err := scanSecretRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
-	if errors.Is(err, sql.ErrNoRows) {
+	case errors.Is(err, sql.ErrNoRows):
 		if scope.Kind() == model.ScopeAdmin {
 			return nil, fmt.Errorf("secret not found")
 		}
 		return nil, fmt.Errorf("secret not found or access denied")
-	}
-	if err != nil {
+	case err != nil:
 		return nil, fmt.Errorf("failed to query secret: %w", err)
 	}
 	return &secret, nil
@@ -230,19 +232,16 @@ func (r *SecretRepository) Read(ctx context.Context, id uuid.UUID, scope model.S
 // FindByName looks up the active secret named name, authorized by scope. It
 // mirrors Read's scoping rules exactly, keyed on name instead of id.
 func (r *SecretRepository) FindByName(ctx context.Context, name string, scope model.Scope) (*model.Secret, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
+	query := "SELECT " + secretColumns + " FROM secrets WHERE name = ? AND deleted_at IS NULL"
+	secret, err := ScopedGet(ctx, r.db, query, []any{name}, scope, func(row *sql.Row) (model.Secret, error) {
+		return scanSecretRow(row.Scan)
+	})
+	switch {
+	case errors.Is(err, ErrInvalidScope):
 		return nil, err
-	}
-
-	query := "SELECT " + secretColumns + " FROM secrets WHERE name = ? AND " + predicate + " AND deleted_at IS NULL"
-	queryArgs := append([]any{name}, args...)
-
-	secret, err := scanSecretRow(r.db.QueryRowContext(ctx, query, queryArgs...).Scan)
-	if errors.Is(err, sql.ErrNoRows) {
+	case errors.Is(err, sql.ErrNoRows):
 		return nil, fmt.Errorf("secret %q: %w", name, ErrNotFound)
-	}
-	if err != nil {
+	case err != nil:
 		return nil, fmt.Errorf("failed to query secret by name: %w", err)
 	}
 	return &secret, nil
@@ -258,25 +257,23 @@ func (r *SecretRepository) FindByName(ctx context.Context, name string, scope mo
 // audit row after calling this, for every error path and on success — logging
 // here too would duplicate every scoped update into two audit_logs rows.
 func (r *SecretRepository) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
-		return err
-	}
-
 	logrus.WithFields(logrus.Fields{
 		"secret_id": secret.ID.String(),
 		"scope":     scope.String(),
 		"version":   secret.Version,
 	}).Debug("Updating secret in database")
 
-	query := "UPDATE secrets SET name = ?, value = ?, version = ?, content_type = ?, enabled = ?, expires_at = ?, not_before = ? WHERE id = ? AND " + predicate
-	execArgs := append([]any{
+	query := "UPDATE secrets SET name = ?, value = ?, version = ?, content_type = ?, enabled = ?, expires_at = ?, not_before = ? WHERE id = ?"
+	execArgs := []any{
 		secret.Name, secret.Value, secret.Version, secret.ContentType,
 		secret.Enabled, secret.ExpiresAt, secret.NotBefore, secret.ID.String(),
-	}, args...)
+	}
 
-	result, err := r.db.ExecContext(ctx, query, execArgs...)
+	result, err := ScopedExec(ctx, r.db, query, execArgs, scope)
 	if err != nil {
+		if errors.Is(err, ErrInvalidScope) {
+			return err
+		}
 		return fmt.Errorf("failed to update secret: %w", err)
 	}
 
@@ -316,6 +313,10 @@ func (r *SecretRepository) List(ctx context.Context, scope model.Scope, filter S
 
 	query := "SELECT " + secretColumns + " FROM secrets WHERE " +
 		strings.Join(conditions, " AND ") + " ORDER BY name ASC"
+	if filter.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, filter.Limit, filter.Offset)
+	}
 
 	var secretList []model.Secret
 	err = r.executeWithMetrics("list_secrets_scoped", func() error {

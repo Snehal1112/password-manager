@@ -101,7 +101,7 @@ type KeyService interface {
 	// GetKey retrieves a key authorized by scope and enforces its lifecycle.
 	GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
 	// ListKeys lists keys authorized by scope and narrowed by filter.
-	ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error)
+	ListKeys(ctx context.Context, scope model.Scope, filter model.KeyFilter) ([]model.Key, error)
 	// UpdateKey updates a key authorized by req.Scope.
 	UpdateKey(ctx context.Context, req UpdateKeyRequest) error
 	// DeleteKey soft-deletes a key authorized by scope.
@@ -684,7 +684,7 @@ func (s *keyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 }
 
 // ListKeys lists keys authorized by scope and narrowed by filter.
-func (s *keyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+func (s *keyService) ListKeys(ctx context.Context, scope model.Scope, filter model.KeyFilter) ([]model.Key, error) {
 	keys, err := s.keyRepo.List(ctx, scope, filter)
 	if err != nil {
 		s.logger.LogAuditError(scope.ActorID().String(), "list_keys", "failed", "Failed to list keys", err)

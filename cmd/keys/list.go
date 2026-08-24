@@ -36,7 +36,6 @@ import (
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
-	"rocketvault/internal/repositories"
 	"rocketvault/model"
 )
 
@@ -100,7 +99,7 @@ carrying at least one of the listed tags.`,
 			return fmt.Errorf("vault authorization failed: %w", err)
 		}
 
-		keys, err := keyService.ListKeys(ctx, model.NewVaultScope(vaultID, claims.UserID), repositories.KeyFilter{Type: keyType, Tags: tags})
+		keys, err := keyService.ListKeys(ctx, model.NewVaultScope(vaultID, claims.UserID), model.KeyFilter{Type: keyType, Tags: tags})
 		if err != nil {
 			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("failed to list keys: %s", err), err)
 			return fmt.Errorf("failed to list keys: %w", err)

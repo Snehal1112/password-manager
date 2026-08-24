@@ -193,7 +193,7 @@ func TestSecretsListCommand(t *testing.T) {
 					},
 				}
 				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID),
-					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
+					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 }), mock.Anything, mock.Anything).
 					Return(secrets, nil)
 			},
 			expectedOutput: "api-key",
@@ -213,7 +213,7 @@ func TestSecretsListCommand(t *testing.T) {
 						Tags:    []string{"database"},
 					},
 				}
-				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID), []string{"database"}).
+				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID), []string{"database"}, 0, 0).
 					Return(secrets, nil)
 			},
 			expectedOutput: "db-password",
@@ -224,7 +224,7 @@ func TestSecretsListCommand(t *testing.T) {
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext) {
 				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID),
-					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
+					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 }), mock.Anything, mock.Anything).
 					Return([]model.Secret{}, nil)
 			},
 			expectedOutput: "No secrets found",
@@ -235,7 +235,7 @@ func TestSecretsListCommand(t *testing.T) {
 			args: []string{},
 			setupMocks: func(tc *testutils.TestContext) {
 				tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID),
-					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
+					mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 }), mock.Anything, mock.Anything).
 					Return(nil, fmt.Errorf("database error"))
 			},
 			expectedOutput: "failed to list secrets",
@@ -254,7 +254,7 @@ func TestSecretsListCommand(t *testing.T) {
 				RunE: func(cmd *cobra.Command, args []string) error {
 					tags, _ := cmd.Flags().GetStringSlice("tags")
 
-					secrets, err := tc.MockSecretService.ListSecrets(cmd.Context(), model.NewOwnerScope(uuid.Nil, tc.TestUserID), tags)
+					secrets, err := tc.MockSecretService.ListSecrets(cmd.Context(), model.NewOwnerScope(uuid.Nil, tc.TestUserID), tags, 0, 0)
 					if err != nil {
 						return fmt.Errorf("failed to list secrets: %w", err)
 					}
@@ -413,7 +413,7 @@ func TestSecretsIntegration(t *testing.T) {
 		// Step 2: List secrets (should include new secret)
 		allSecrets := []model.Secret{*createdSecret}
 		tc.MockSecretService.On("ListSecrets", mock.Anything, model.NewOwnerScope(uuid.Nil, tc.TestUserID),
-			mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 })).
+			mock.MatchedBy(func(tags []string) bool { return len(tags) == 0 }), mock.Anything, mock.Anything).
 			Return(allSecrets, nil)
 
 		// Step 3: Get specific secret
@@ -458,7 +458,7 @@ func TestSecretsIntegration(t *testing.T) {
 					cmd := &cobra.Command{
 						Use: "list",
 						RunE: func(cmd *cobra.Command, args []string) error {
-							secrets, err := tc.MockSecretService.ListSecrets(cmd.Context(), model.NewOwnerScope(uuid.Nil, tc.TestUserID), nil)
+							secrets, err := tc.MockSecretService.ListSecrets(cmd.Context(), model.NewOwnerScope(uuid.Nil, tc.TestUserID), nil, 0, 0)
 							if err != nil {
 								return err
 							}

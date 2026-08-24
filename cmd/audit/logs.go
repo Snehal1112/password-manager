@@ -9,7 +9,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
-	"rocketvault/internal/repositories"
+	"rocketvault/model"
 )
 
 // logsCmd queries and displays audit log entries.
@@ -58,7 +58,7 @@ no --vault scoping.`,
 		resourceType, _ := cmd.Flags().GetString("resource-type")
 		limit, _ := cmd.Flags().GetInt("limit")
 
-		filter := repositories.AuditFilter{Limit: limit}
+		filter := model.AuditFilter{Limit: limit}
 
 		if fromStr != "" {
 			t, err := parseDate(fromStr)

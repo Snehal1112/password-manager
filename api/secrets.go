@@ -424,7 +424,7 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretsList, err := secretService.ListSecrets(r.Context(), scope, c.Params.Tags)
+	secretsList, err := secretService.ListSecrets(r.Context(), scope, c.Params.Tags, c.Params.PerPage, c.Params.Page*c.Params.PerPage)
 	if err != nil {
 		writeSecretError(c, err)
 		return

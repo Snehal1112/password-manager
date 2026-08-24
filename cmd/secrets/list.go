@@ -91,7 +91,7 @@ caller's own.
 			return err
 		}
 
-		secretsList, err := secretService.ListSecrets(ctx, model.NewVaultScope(vaultID, userID), tags)
+		secretsList, err := secretService.ListSecrets(ctx, model.NewVaultScope(vaultID, userID), tags, 0, 0)
 		if err != nil {
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}
