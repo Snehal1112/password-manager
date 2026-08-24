@@ -17,4 +17,5 @@ func RegisterAllTools(s *Server) {
 	registerAccessReadTools(s)
 	registerAuditReadTools(s)
 	registerSecretsWriteTools(s)
+	registerVaultsWriteTools(s)
 }
