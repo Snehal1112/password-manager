@@ -125,6 +125,21 @@ func (c *Client) ListKeys(ctx context.Context, vault string, limit int) ([]KeySu
 	return summaries, truncated, nil
 }
 
+// keyFromWire converts a decoded response into a Key.
+func keyFromWire(wire keyWire) (*Key, error) {
+	summary, err := wire.summary()
+	if err != nil {
+		return nil, err
+	}
+	return &Key{
+		KeySummary: summary,
+		Bits:       wire.Bits,
+		Curve:      wire.Curve,
+		PublicJWK:  PublicJWK{N: wire.N, E: wire.E, X: wire.X, Y: wire.Y},
+		UpdatedAt:  wire.UpdatedAt,
+	}, nil
+}
+
 // GetKey fetches one key by name or id, including its public JWK components.
 func (c *Client) GetKey(ctx context.Context, vault, name string) (*Key, error) {
 	if vault == "" {
@@ -142,17 +157,7 @@ func (c *Client) GetKey(ctx context.Context, vault, name string) (*Key, error) {
 		return nil, err
 	}
 
-	summary, err := wire.summary()
-	if err != nil {
-		return nil, err
-	}
-	return &Key{
-		KeySummary: summary,
-		Bits:       wire.Bits,
-		Curve:      wire.Curve,
-		PublicJWK:  PublicJWK{N: wire.N, E: wire.E, X: wire.X, Y: wire.Y},
-		UpdatedAt:  wire.UpdatedAt,
-	}, nil
+	return keyFromWire(wire)
 }
 
 // KeyVersion is one entry of a key's version history, with that version's
