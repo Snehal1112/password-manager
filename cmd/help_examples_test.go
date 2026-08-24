@@ -176,6 +176,8 @@ func TestLeafExamplesDoNotShowCredentials(t *testing.T) {
 
 // Remote mode is rejected by persistentPreRun for everything outside the
 // context group, so advertising these flags elsewhere documents an error path.
+// mcp is the other exception: it replaces persistentPreRun entirely, since a
+// remote target is its normal operating mode, not an edge case.
 func TestExamplesDoNotAdvertiseUnsupportedRemoteFlags(t *testing.T) {
 	remoteFlags := []string{"server", "ca-cert", "insecure-skip-verify"}
 
@@ -184,6 +186,9 @@ func TestExamplesDoNotAdvertiseUnsupportedRemoteFlags(t *testing.T) {
 			return
 		}
 		if cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context") {
+			return
+		}
+		if cmd.Name() == "mcp" {
 			return
 		}
 		for _, line := range exampleInvocations(cmd.Example) {

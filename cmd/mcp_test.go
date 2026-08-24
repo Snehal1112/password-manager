@@ -1,14 +1,19 @@
 package cmd
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/common"
 	"rocketvault/config"
+	"rocketvault/internal/mcpserver"
 	"rocketvault/internal/vaultapi"
 )
 
@@ -16,6 +21,19 @@ func resetMCPViper(t *testing.T) {
 	t.Helper()
 	viper.Reset()
 	t.Cleanup(viper.Reset)
+}
+
+// withEmptySessionCache ensures no cached CLI session is found.
+//
+// common.SessionBaseDir is a package-level var computed once at package init
+// from $HOME, so t.Setenv("HOME", ...) has no effect on it. Overriding it
+// directly is the documented and already-established convention elsewhere in
+// this codebase.
+func withEmptySessionCache(t *testing.T) {
+	t.Helper()
+	original := common.SessionBaseDir
+	common.SessionBaseDir = t.TempDir()
+	t.Cleanup(func() { common.SessionBaseDir = original })
 }
 
 func TestResolveMCPBaseURL_PrefersTheServerFlag(t *testing.T) {
@@ -84,12 +102,7 @@ func TestResolveMCPTokenSource_RequireServiceAccountRefusesTheSession(t *testing
 }
 
 func TestResolveMCPTokenSource_FailsWhenNothingResolves(t *testing.T) {
-	// common.SessionBaseDir is a package-level var computed once at package
-	// init from $HOME, so t.Setenv("HOME", ...) has no effect on it here.
-	// Override it directly, per its own "Overridable in tests" contract.
-	original := common.SessionBaseDir
-	common.SessionBaseDir = t.TempDir()
-	t.Cleanup(func() { common.SessionBaseDir = original })
+	withEmptySessionCache(t)
 
 	cfg := config.MCPConfig{}
 	_, _, err := resolveMCPTokenSource(cfg, "https://vault.example.com", http.DefaultClient)
@@ -100,9 +113,7 @@ func TestResolveMCPTokenSource_FailsWhenNothingResolves(t *testing.T) {
 }
 
 func TestResolveMCPTokenSource_NeverReturnsANilSourceWithoutAnError(t *testing.T) {
-	original := common.SessionBaseDir
-	common.SessionBaseDir = t.TempDir()
-	t.Cleanup(func() { common.SessionBaseDir = original })
+	withEmptySessionCache(t)
 
 	source, _, err := resolveMCPTokenSource(config.MCPConfig{}, "https://vault.example.com", http.DefaultClient)
 	if err == nil {
@@ -138,3 +149,115 @@ func TestMCPCommand_HasNoLocalOnlyRequirement(t *testing.T) {
 
 var _ = common.SessionCache{}
 var _ vaultapi.TokenSource = nil
+
+// captureStdout runs fn with os.Stdout redirected, returning what was written.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	original := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	defer func() { os.Stdout = original }()
+
+	fn()
+
+	require.NoError(t, w.Close())
+	captured, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return string(captured)
+}
+
+func TestMCPStartup_WritesNothingToStdout(t *testing.T) {
+	resetMCPViper(t)
+	withEmptySessionCache(t)
+
+	captured := captureStdout(t, func() {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("server", "https://vault.example.com", "")
+		cmd.Flags().String("ca-cert", "", "")
+		cmd.Flags().Bool("insecure-skip-verify", false, "")
+
+		logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+		// This fails on identity, which is the point: even the failure path
+		// must not touch stdout.
+		_, _, _ = buildMCPServer(cmd, logger)
+	})
+
+	require.Empty(t, captured,
+		"stdout is the JSON-RPC channel; a single stray byte corrupts the session")
+}
+
+func TestMCPStartup_LocalFallbackLogsToStderrNotStdout(t *testing.T) {
+	resetMCPViper(t)
+	viper.Set("server.listen_addr", ":8774")
+	withEmptySessionCache(t)
+
+	captured := captureStdout(t, func() {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("server", "", "")
+		cmd.Flags().String("ca-cert", "", "")
+		cmd.Flags().Bool("insecure-skip-verify", false, "")
+
+		logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+		_, _, _ = buildMCPServer(cmd, logger)
+	})
+
+	require.Empty(t, captured,
+		"the fallback notice is a diagnostic and belongs on stderr")
+}
+
+func TestMCPStartup_InsecureWarningGoesToStderr(t *testing.T) {
+	resetMCPViper(t)
+	withEmptySessionCache(t)
+
+	captured := captureStdout(t, func() {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("server", "https://vault.example.com", "")
+		cmd.Flags().String("ca-cert", "", "")
+		cmd.Flags().Bool("insecure-skip-verify", true, "")
+
+		logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+		_, _, _ = buildMCPServer(cmd, logger)
+	})
+
+	require.Empty(t, captured,
+		"cliclient.WarnIfInsecure writes to stderr; confirm nothing redirects it")
+}
+
+func TestMCPStartup_FailureMessagesAreActionable(t *testing.T) {
+	resetMCPViper(t)
+	withEmptySessionCache(t)
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("server", "https://vault.example.com", "")
+	cmd.Flags().String("ca-cert", "", "")
+	cmd.Flags().Bool("insecure-skip-verify", false, "")
+
+	logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+	_, _, err := buildMCPServer(cmd, logger)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rocketvault users login")
+}
+
+func TestMCPStartup_InvalidConfigFailsBeforeAnyNetworkWork(t *testing.T) {
+	resetMCPViper(t)
+	viper.Set("mcp.max_results", 5000) // Above the ceiling.
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("server", "https://vault.example.com", "")
+	cmd.Flags().String("ca-cert", "", "")
+	cmd.Flags().Bool("insecure-skip-verify", false, "")
+
+	logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+	_, _, err := buildMCPServer(cmd, logger)
+
+	require.ErrorContains(t, err, "max_results",
+		"a bad config must fail at startup, not at the first tool call")
+}
+
+func TestMCPCommand_HasACheckFlag(t *testing.T) {
+	require.NotNil(t, mcpCmd.Flags().Lookup("check"),
+		"a misconfiguration otherwise surfaces as an opaque handshake failure in the host")
+}
