@@ -15,16 +15,27 @@ type listVaultsArgs struct {
 	Limit          int  `json:"limit,omitempty" jsonschema:"maximum number of vaults to return; capped by the server"`
 }
 
+// vaultTag is one vault tag, key and value both wrapped.
+//
+// A vault tag's key is operator-written free text exactly like its value --
+// the only restriction model.ValidateVaultTags enforces is length, not
+// character set -- so a bare map[string]Untrusted would leave the key
+// unwrapped as a raw JSON object key. This shape wraps both sides.
+type vaultTag struct {
+	Key   Untrusted `json:"key"`
+	Value Untrusted `json:"value"`
+}
+
 type vaultResult struct {
-	Name             string               `json:"name"`
-	ID               string               `json:"id"`
-	Enabled          bool                 `json:"enabled"`
-	PurgeProtection  bool                 `json:"purge_protection"`
-	RetentionDays    int                  `json:"retention_days"`
-	Tags             map[string]Untrusted `json:"tags,omitempty"`
-	CreatedAt        string               `json:"created_at,omitempty"`
-	DeletedAt        string               `json:"deleted_at,omitempty"`
-	ScheduledPurgeAt string               `json:"scheduled_purge_at,omitempty"`
+	Name             string     `json:"name"`
+	ID               string     `json:"id"`
+	Enabled          bool       `json:"enabled"`
+	PurgeProtection  bool       `json:"purge_protection"`
+	RetentionDays    int        `json:"retention_days"`
+	Tags             []vaultTag `json:"tags,omitempty"`
+	CreatedAt        string     `json:"created_at,omitempty"`
+	DeletedAt        string     `json:"deleted_at,omitempty"`
+	ScheduledPurgeAt string     `json:"scheduled_purge_at,omitempty"`
 }
 
 type listVaultsResult struct {
@@ -87,9 +98,9 @@ func (s *Server) handleListVaults(ctx context.Context, _ *mcp.CallToolRequest, a
 			ScheduledPurgeAt: vault.ScheduledPurgeAt,
 		}
 		if len(vault.Tags) > 0 {
-			entry.Tags = make(map[string]Untrusted, len(vault.Tags))
+			entry.Tags = make([]vaultTag, 0, len(vault.Tags))
 			for key, value := range vault.Tags {
-				entry.Tags[key] = Wrap(value)
+				entry.Tags = append(entry.Tags, vaultTag{Key: Wrap(key), Value: Wrap(value)})
 			}
 		}
 		permitted = append(permitted, entry)

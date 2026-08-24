@@ -135,6 +135,19 @@ func TestResolveVault_EmptyAllowlistPermitsAnyVault(t *testing.T) {
 		"an empty allowlist defers to RBAC, which already bounds what the principal can reach")
 }
 
+func TestResolveVault_RejectsAMalformedVaultName(t *testing.T) {
+	// Every other identifier that reaches a vaultapi URL path is a resolved
+	// UUID; the vault segment is the one caller-supplied string that is not.
+	// Validating it here, before it can reach path construction, is defense
+	// in depth independent of whether any transport-level exploit exists.
+	s := newTestServer(t)
+
+	_, err := s.ResolveVault("prod/../../secrets")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "not permitted",
+		"this must fail validation, not the allowlist check")
+}
+
 func TestResolveVault_ErrorNamesThePermittedVaults(t *testing.T) {
 	cfg := testConfig()
 	cfg.Vault = "staging"

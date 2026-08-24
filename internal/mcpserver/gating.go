@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"rocketvault/model"
 )
 
 // Tier is a capability group that config enables as a unit.
@@ -74,6 +76,16 @@ func (s *Server) ResolveVault(requested string) (string, error) {
 	}
 	if vault == "" {
 		return "", fmt.Errorf("no vault was given and no default is configured")
+	}
+
+	// Validated before it can reach a URL path segment in vaultapi. Every
+	// other identifier that lands in a path is a resolved UUID; a vault name
+	// is the one that flows through as a caller-supplied string, so this is
+	// where it earns the same guarantee -- defense in depth against a
+	// malformed name ever reaching request construction, independent of
+	// whatever the transport or the server's own routing would do with it.
+	if err := model.ValidateVaultName(vault); err != nil {
+		return "", fmt.Errorf("%w", err)
 	}
 
 	if len(s.cfg.AllowedVaults) == 0 {
