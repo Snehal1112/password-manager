@@ -170,6 +170,7 @@ rocketvault/
 - **[CLI Usage Guide](docs/cli-guide.md)**: Step-by-step CLI walkthrough, first-time setup to everyday use
 - **[Setup Guide](doc/setup.md)**: Installation and initial configuration
 - **[v4.0.0 Azure RBAC Release Notes](docs/release-notes/v4.0.0-azure-rbac.md)**: Breaking changes, role table, and upgrade procedure
+- **[MCP Server Guide](docs/mcp-server.md)**: Running `rocketvault mcp` for Claude Code and Claude Desktop, capability tiers, and service-account setup
 
 ## Service Layer Architecture (NEW)
 
