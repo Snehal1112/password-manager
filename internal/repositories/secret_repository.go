@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -296,51 +295,38 @@ func (r *SecretRepository) Update(ctx context.Context, secret *model.Secret, sco
 // List lists secrets authorized by scope and narrowed by filter. The
 // soft-delete predicate is applied in SQL rather than by discarding rows in Go.
 func (r *SecretRepository) List(ctx context.Context, scope model.Scope, filter SecretFilter) ([]model.Secret, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
-		return nil, err
-	}
-
-	conditions := []string{predicate}
+	where := "1 = 1" // Base predicate ScopedList's appended "AND <scope>" attaches to when no filter condition below fires.
 	switch {
 	case filter.OnlyDeleted:
-		conditions = append(conditions, "deleted_at IS NOT NULL")
+		where = "deleted_at IS NOT NULL"
 	case filter.IncludeDeleted:
 		// No deleted_at constraint.
 	default:
-		conditions = append(conditions, "deleted_at IS NULL")
+		where = "deleted_at IS NULL"
 	}
 
-	query := "SELECT " + secretColumns + " FROM secrets WHERE " +
-		strings.Join(conditions, " AND ") + " ORDER BY name ASC"
+	query := "SELECT " + secretColumns + " FROM secrets WHERE " + where
+
+	tail := " ORDER BY name ASC"
+	var tailArgs []any
 	if filter.Limit > 0 {
-		query += " LIMIT ? OFFSET ?"
-		args = append(args, filter.Limit, filter.Offset)
+		tail += " LIMIT ? OFFSET ?"
+		tailArgs = []any{filter.Limit, filter.Offset}
 	}
 
 	var secretList []model.Secret
-	err = r.executeWithMetrics("list_secrets_scoped", func() error {
-		rows, queryErr := r.db.QueryContext(ctx, query, args...)
-		if queryErr != nil {
-			return fmt.Errorf("failed to query secrets: %w", queryErr)
-		}
-		defer rows.Close() //nolint:errcheck
-
-		secretList = make([]model.Secret, 0, 50)
-		for rows.Next() {
-			secret, scanErr := scanSecretRow(rows.Scan)
-			if scanErr != nil {
-				return fmt.Errorf("failed to scan secret: %w", scanErr)
-			}
-			secretList = append(secretList, secret)
-		}
-		if rowsErr := rows.Err(); rowsErr != nil {
-			return fmt.Errorf("row iteration error: %w", rowsErr)
-		}
-		return nil
+	err := r.executeWithMetrics("list_secrets_scoped", func() error {
+		var listErr error
+		secretList, listErr = ScopedList(ctx, r.db, query, nil, scope, tail, tailArgs, func(rows *sql.Rows) (model.Secret, error) {
+			return scanSecretRow(rows.Scan)
+		})
+		return listErr
 	})
 	if err != nil {
-		return nil, err
+		if errors.Is(err, ErrInvalidScope) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to query secrets: %w", err)
 	}
 
 	logrus.WithFields(logrus.Fields{

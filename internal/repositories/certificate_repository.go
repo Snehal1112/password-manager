@@ -194,21 +194,18 @@ func (r *CertificateRepository) Update(ctx context.Context, cert *model.Certific
 
 // List lists certificates authorized by scope and narrowed by filter.
 func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
-		return nil, err
-	}
-
-	conditions := []string{predicate}
+	where := "1 = 1" // Base predicate ScopedList's appended "AND <scope>" attaches to when no filter condition below fires.
 	switch {
 	case filter.OnlyDeleted:
-		conditions = append(conditions, "deleted_at IS NOT NULL")
+		where = "deleted_at IS NOT NULL"
 	case filter.IncludeDeleted:
 		// No deleted_at constraint.
 	default:
-		conditions = append(conditions, "deleted_at IS NULL")
+		where = "deleted_at IS NULL"
 	}
 
+	conditions := []string{where}
+	var args []any
 	if len(filter.Tags) > 0 {
 		placeholders := strings.Repeat(",?", len(filter.Tags))[1:]
 		conditions = append(conditions, fmt.Sprintf("id IN (SELECT certificate_id FROM certificate_tags WHERE tag IN (%s))", placeholders))
@@ -217,31 +214,23 @@ func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, fil
 		}
 	}
 
-	query := "SELECT " + certificateColumns + " FROM certificates WHERE " +
-		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC, id ASC"
+	query := "SELECT " + certificateColumns + " FROM certificates WHERE " + strings.Join(conditions, " AND ")
+
+	tail := " ORDER BY created_at DESC, id ASC"
+	var tailArgs []any
 	if filter.Limit > 0 {
-		query += " LIMIT ? OFFSET ?"
-		args = append(args, filter.Limit, filter.Offset)
+		tail += " LIMIT ? OFFSET ?"
+		tailArgs = []any{filter.Limit, filter.Offset}
 	}
 
 	var certList []model.Certificate
-	err = r.executeWithMetrics("list_certificates_scoped", func() error {
-		rows, queryErr := r.db.QueryContext(ctx, query, args...)
-		if queryErr != nil {
-			return fmt.Errorf("failed to query certificates: %w", queryErr)
-		}
-		defer rows.Close() //nolint:errcheck
-
-		certList = make([]model.Certificate, 0, 50)
-		for rows.Next() {
-			cert, scanErr := scanCertificateRow(rows.Scan)
-			if scanErr != nil {
-				return fmt.Errorf("failed to scan certificate: %w", scanErr)
-			}
-			certList = append(certList, cert)
-		}
-		if rowsErr := rows.Err(); rowsErr != nil {
-			return fmt.Errorf("row iteration error: %w", rowsErr)
+	err := r.executeWithMetrics("list_certificates_scoped", func() error {
+		var listErr error
+		certList, listErr = ScopedList(ctx, r.db, query, args, scope, tail, tailArgs, func(rows *sql.Rows) (model.Certificate, error) {
+			return scanCertificateRow(rows.Scan)
+		})
+		if listErr != nil {
+			return listErr
 		}
 
 		// Batch-fetch tags for every returned certificate in one query instead
@@ -261,7 +250,10 @@ func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, fil
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		if errors.Is(err, ErrInvalidScope) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to query certificates: %w", err)
 	}
 
 	logrus.WithField("count", len(certList)).Debug("Certificates listed successfully")

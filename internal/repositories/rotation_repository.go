@@ -180,7 +180,7 @@ func (r *rotationPolicyRepository) List(ctx context.Context, scope model.Scope) 
 		SELECT id, user_id, vault_id, name, description, interval_days, enabled, reminder_days, auto_rotate, created_at, updated_at
 		FROM rotation_policies WHERE 1=1
 	`
-	policies, err := ScopedList(ctx, r.db, query, nil, scope, func(rows *sql.Rows) (model.RotationPolicy, error) {
+	policies, err := ScopedList(ctx, r.db, query, nil, scope, "", nil, func(rows *sql.Rows) (model.RotationPolicy, error) {
 		var policy model.RotationPolicy
 		var id, userID, vaultID string
 		if err := rows.Scan(&id, &userID, &vaultID, &policy.Name, &policy.Description,
@@ -498,7 +498,7 @@ func (r *rotationPolicyRepository) GetDueRotations(ctx context.Context, scope mo
 		JOIN rotation_policies rp ON sp.policy_id = rp.id
 		WHERE rp.enabled = TRUE AND sp.next_rotation_at <= ?
 	`
-	due, err := ScopedList(ctx, r.db, query, []any{time.Now()}, scope, scanSecretPolicyRow)
+	due, err := ScopedList(ctx, r.db, query, []any{time.Now()}, scope, "", nil, scanSecretPolicyRow)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to get due rotations")
 		return nil, fmt.Errorf("failed to get due rotations: %w", err)
@@ -547,7 +547,7 @@ func (r *rotationPolicyRepository) GetUpcomingReminders(ctx context.Context, sco
 		WHERE rr.acknowledged = FALSE AND rr.next_reminder_at <= ?
 	`
 	now := time.Now().Format(time.RFC3339)
-	reminders, err := ScopedList(ctx, r.db, query, []any{now}, scope, scanRotationReminderRow)
+	reminders, err := ScopedList(ctx, r.db, query, []any{now}, scope, "", nil, scanRotationReminderRow)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to get upcoming reminders")
 		return nil, fmt.Errorf("failed to get upcoming reminders: %w", err)

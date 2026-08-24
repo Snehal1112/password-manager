@@ -36,13 +36,16 @@ func ScopedExec(ctx context.Context, conn rvdb.DBTX, query string, args []any, s
 
 // ScopedList runs query (a "SELECT ... WHERE <predicate>" missing only its
 // trailing scope clause) with the scope predicate appended, scanning every
-// row with scan.
-func ScopedList[T any](ctx context.Context, conn rvdb.DBTX, query string, args []any, scope model.Scope, scan func(*sql.Rows) (T, error)) ([]T, error) {
+// row with scan. tail, if non-empty, is appended after the scope predicate —
+// e.g. " ORDER BY name ASC LIMIT ? OFFSET ?" — with its own placeholders
+// bound by tailArgs; pass "", nil when the query needs no such clause.
+func ScopedList[T any](ctx context.Context, conn rvdb.DBTX, query string, args []any, scope model.Scope, tail string, tailArgs []any, scan func(*sql.Rows) (T, error)) ([]T, error) {
 	predicate, predArgs, err := scopePredicate(scope)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := conn.QueryContext(ctx, query+" AND "+predicate, append(append([]any{}, args...), predArgs...)...)
+	fullArgs := append(append(append([]any{}, args...), predArgs...), tailArgs...)
+	rows, err := conn.QueryContext(ctx, query+" AND "+predicate+tail, fullArgs...)
 	if err != nil {
 		return nil, err
 	}

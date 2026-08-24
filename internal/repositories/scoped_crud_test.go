@@ -95,7 +95,7 @@ func TestScopedList_VaultScopeFiltersRows(t *testing.T) {
 	require.NoError(t, err)
 
 	rows, err := ScopedList(context.Background(), conn, `SELECT name FROM widgets WHERE 1=1`, nil,
-		model.NewVaultScope(vaultA, uuid.New()), func(r *sql.Rows) (string, error) {
+		model.NewVaultScope(vaultA, uuid.New()), "", nil, func(r *sql.Rows) (string, error) {
 			var name string
 			return name, r.Scan(&name)
 		})

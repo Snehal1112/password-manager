@@ -100,7 +100,7 @@ func (r *KeyRotationPolicyRepository) GetDuePolicies(ctx context.Context, scope 
 		WHERE enabled = TRUE AND rotate_after_days > 0 AND next_rotation_at <= ?
 		  AND key_id IN (SELECT id FROM keys WHERE deleted_at IS NULL AND type != ?)
 	`
-	due, err := ScopedList(ctx, r.db, query, []any{time.Now().UTC(), model.KeyTypeOct}, scope, scanKeyRotationPolicyRows)
+	due, err := ScopedList(ctx, r.db, query, []any{time.Now().UTC(), model.KeyTypeOct}, scope, "", nil, scanKeyRotationPolicyRows)
 	if err != nil {
 		r.log.WithError(err).Error("Failed to get due key rotation policies")
 		return nil, fmt.Errorf("failed to get due key rotation policies: %w", err)

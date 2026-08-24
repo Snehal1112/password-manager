@@ -183,21 +183,18 @@ func (r *KeyRepository) Update(ctx context.Context, key *model.Key, scope model.
 
 // List lists keys authorized by scope and narrowed by filter.
 func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyFilter) ([]model.Key, error) {
-	predicate, args, err := scopePredicate(scope)
-	if err != nil {
-		return nil, err
-	}
-
-	conditions := []string{predicate}
+	where := "1 = 1" // Base predicate ScopedList's appended "AND <scope>" attaches to when no filter condition below fires.
 	switch {
 	case filter.OnlyDeleted:
-		conditions = append(conditions, "deleted_at IS NOT NULL")
+		where = "deleted_at IS NOT NULL"
 	case filter.IncludeDeleted:
 		// No deleted_at constraint.
 	default:
-		conditions = append(conditions, "deleted_at IS NULL")
+		where = "deleted_at IS NULL"
 	}
 
+	conditions := []string{where}
+	var args []any
 	if filter.Type != "" {
 		conditions = append(conditions, "type = ?")
 		args = append(args, filter.Type)
@@ -210,31 +207,23 @@ func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyF
 		}
 	}
 
-	query := "SELECT " + keyColumns + " FROM keys WHERE " +
-		strings.Join(conditions, " AND ") + " ORDER BY created_at DESC, id ASC"
+	query := "SELECT " + keyColumns + " FROM keys WHERE " + strings.Join(conditions, " AND ")
+
+	tail := " ORDER BY created_at DESC, id ASC"
+	var tailArgs []any
 	if filter.Limit > 0 {
-		query += " LIMIT ? OFFSET ?"
-		args = append(args, filter.Limit, filter.Offset)
+		tail += " LIMIT ? OFFSET ?"
+		tailArgs = []any{filter.Limit, filter.Offset}
 	}
 
 	var keyList []model.Key
-	err = r.executeWithMetrics("list_keys_scoped", func() error {
-		rows, queryErr := r.db.QueryContext(ctx, query, args...)
-		if queryErr != nil {
-			return fmt.Errorf("failed to query keys: %w", queryErr)
-		}
-		defer rows.Close() //nolint:errcheck
-
-		keyList = make([]model.Key, 0, 50)
-		for rows.Next() {
-			key, scanErr := scanKeyRow(rows.Scan)
-			if scanErr != nil {
-				return fmt.Errorf("failed to scan key: %w", scanErr)
-			}
-			keyList = append(keyList, key)
-		}
-		if rowsErr := rows.Err(); rowsErr != nil {
-			return fmt.Errorf("row iteration error: %w", rowsErr)
+	err := r.executeWithMetrics("list_keys_scoped", func() error {
+		var listErr error
+		keyList, listErr = ScopedList(ctx, r.db, query, args, scope, tail, tailArgs, func(rows *sql.Rows) (model.Key, error) {
+			return scanKeyRow(rows.Scan)
+		})
+		if listErr != nil {
+			return listErr
 		}
 
 		// Batch-fetch tags for every returned key in one query instead of one
@@ -254,7 +243,10 @@ func (r *KeyRepository) List(ctx context.Context, scope model.Scope, filter KeyF
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		if errors.Is(err, ErrInvalidScope) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("failed to query keys: %w", err)
 	}
 
 	logrus.WithField("count", len(keyList)).Debug("Keys listed successfully")
