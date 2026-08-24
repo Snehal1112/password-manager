@@ -30,6 +30,10 @@ type fakeVault struct {
 	requested []string
 	// status overrides the response status for a given path.
 	status map[string]int
+	// writeResponse is returned for non-GET requests.
+	writeResponse string
+	// lastWriteBody records the decoded body of the most recent write.
+	lastWriteBody map[string]any
 }
 
 func newFakeVault(t *testing.T, routes map[string]string) *fakeVault {
@@ -38,6 +42,19 @@ func newFakeVault(t *testing.T, routes map[string]string) *fakeVault {
 	f := &fakeVault{routes: routes, status: map[string]int{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.requested = append(f.requested, r.URL.Path)
+
+		if r.Method != http.MethodGet {
+			_ = json.NewDecoder(r.Body).Decode(&f.lastWriteBody)
+			if code, ok := f.status[r.URL.Path]; ok {
+				w.WriteHeader(code)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if f.writeResponse != "" {
+				_, _ = w.Write([]byte(f.writeResponse))
+			}
+			return
+		}
 
 		if code, ok := f.status[r.URL.Path]; ok {
 			w.WriteHeader(code)
