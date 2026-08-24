@@ -227,3 +227,29 @@ func TestMCPConfig_RejectsBlankEntriesInAllowedVaults(t *testing.T) {
 	_, err := LoadMCPConfig()
 	require.ErrorContains(t, err, "allowed_vaults")
 }
+
+func TestExampleConfig_MCPSectionParsesAndIsRestrictive(t *testing.T) {
+	resetViper(t)
+	viper.SetConfigFile("../.rocketvault.yaml.example")
+	viper.SetConfigType("yaml")
+	require.NoError(t, viper.ReadInConfig(), "the example file must be valid YAML")
+
+	cfg, err := LoadMCPConfig()
+	require.NoError(t, err, "the shipped example must be a valid configuration")
+
+	require.False(t, cfg.AllowWrite, "the example must not ship with writes enabled")
+	require.False(t, cfg.AllowDestructive)
+	require.False(t, cfg.AllowCrypto)
+	require.False(t, cfg.AllowSecretValues)
+	require.True(t, cfg.ConfirmDestructive)
+}
+
+func TestExampleConfig_ShipsNoClientSecret(t *testing.T) {
+	resetViper(t)
+	viper.SetConfigFile("../.rocketvault.yaml.example")
+	viper.SetConfigType("yaml")
+	require.NoError(t, viper.ReadInConfig())
+
+	require.Empty(t, viper.GetString("mcp.client_secret"),
+		"a committed example file must never carry a real secret")
+}

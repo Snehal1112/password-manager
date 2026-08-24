@@ -282,3 +282,54 @@ hsm:
   token_label: rocketvault
   pin: "GENERATE_WITH: a PIN of your choosing, never committed"
   slot_id: 0   # 0 = auto-detect by token_label
+
+# Model Context Protocol server (`rocketvault mcp`).
+#
+# Every capability below defaults to false. With no changes, the server exposes
+# 10 read-only tools and no secret values. Each flag only narrows what the
+# authenticated principal's role assignments already permit -- it can never
+# widen them, because the API enforces authorization independently.
+mcp:
+  # Default vault for tools that do not name one.
+  vault: default
+
+  # Pin the server to specific vaults. Empty means any vault the principal can
+  # reach. If set, `vault` above must be one of these.
+  allowed_vaults: []
+
+  # Capability tiers. Each is independent.
+  allow_write: false          # create and update: set_secret, create_key, ...
+  allow_destructive: false    # delete, purge, revoke
+  allow_crypto: false         # sign, verify, encrypt, decrypt
+  allow_secret_values: false  # let get_secret return plaintext
+
+  # Refuse the cached CLI session and require a service account. Set this true
+  # in production: under a session the agent acts as the logged-in human, and
+  # its actions become indistinguishable from theirs in the audit log.
+  require_service_account: false
+
+  # Require destructive tools to echo the exact resource name. Leave this on
+  # unless you have a specific reason: it costs one argument and blocks a
+  # drive-by purge triggered by injected text.
+  confirm_destructive: true
+
+  # Cap rows returned per list tool. Hard ceiling is 200 -- an unbounded audit
+  # query would otherwise pour thousands of rows into the model's context.
+  max_results: 50
+
+  # Per-tool-call deadline.
+  request_timeout: "30s"
+
+  # Bound how fast tools may be called, so a looping agent degrades its own
+  # calls rather than the vault.
+  rate_limit:
+    reads_per_minute: 120
+    writes_per_minute: 20
+
+  # Service-account credentials. Prefer the environment variable
+  # ROCKETVAULT_MCP_CLIENT_SECRET, which takes precedence over the value here,
+  # so the secret need not be written to disk at all.
+  #
+  # Never commit a real secret to this example file.
+  client_id: ""
+  client_secret: ""
