@@ -23,13 +23,16 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
@@ -78,6 +81,10 @@ passed, and can be set either way.`,
 		contentType, _ := cmd.Flags().GetString("content-type")
 
 		ctx := cmd.Context()
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsUpdateRemote(cmd, ctx, target, secretID.String(), value, tags, contentType)
+		}
 
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
@@ -134,6 +141,42 @@ passed, and can be set either way.`,
 		fmt.Printf("Secret %s updated successfully\n", secretID)
 		return nil
 	},
+}
+
+// runSecretsUpdateRemote is "secrets update"'s remote-mode path.
+func runSecretsUpdateRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, id, value string, tags []string, contentType string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	req := model.UpdateSecretRequest{Value: value}
+	if len(tags) > 0 {
+		req.Tags = tags
+	}
+	if cmd.Flags().Changed("content-type") {
+		req.ContentType = &contentType
+	}
+	if cmd.Flags().Changed("purge-protection") {
+		purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
+		req.PurgeProtection = &purgeProtection
+	}
+
+	if _, err := cliclient.UpdateSecretRemote(ctx, httpClient, token, target.Server, vault, id, req); err != nil {
+		return fmt.Errorf("failed to update secret: %w", err)
+	}
+
+	fmt.Printf("Secret %s updated successfully\n", id)
+	return nil
 }
 
 // InitSecretsUpdate adds the update command to the secrets command.

@@ -23,8 +23,10 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -32,6 +34,7 @@ import (
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
@@ -90,6 +93,15 @@ Imported, skipped, and failed counts are all printed when the run finishes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
+		format := strings.ToLower(importFormat)
+		if format != "json" && format != "csv" {
+			return fmt.Errorf("unsupported format: %s (supported: json, csv)", importFormat)
+		}
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsImportRemote(cmd, ctx, target, format)
+		}
+
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
@@ -103,11 +115,6 @@ Imported, skipped, and failed counts are all printed when the run finishes.`,
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || sc == nil {
 			return fmt.Errorf("service container not available in context")
-		}
-
-		format := strings.ToLower(importFormat)
-		if format != "json" && format != "csv" {
-			return fmt.Errorf("unsupported format: %s (supported: json, csv)", importFormat)
 		}
 
 		if _, err := os.Stat(importFile); os.IsNotExist(err) {
@@ -183,6 +190,64 @@ Imported, skipped, and failed counts are all printed when the run finishes.`,
 
 		return nil
 	},
+}
+
+// runSecretsImportRemote is "secrets import"'s remote-mode path. format and
+// data were already resolved by the caller. Unlike local mode, the server's
+// ImportResponse only reports imported/total counts, not per-record
+// skip/fail details -- api/secrets.go's importSecrets handler doesn't
+// return them, so they can't be surfaced here either.
+func runSecretsImportRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, format string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+
+	if _, err := os.Stat(importFile); os.IsNotExist(err) {
+		return fmt.Errorf("import file does not exist: %s", importFile)
+	}
+	data, err := os.ReadFile(importFile)
+	if err != nil {
+		return fmt.Errorf("failed to read import file: %w", err)
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	// A sealed export is only detected, never opened, here: the server
+	// decrypts it itself when given the passphrase form field (see
+	// ImportSecretsRemote), so the raw (possibly still-encrypted) bytes are
+	// sent as-is. A plaintext file is never prompted for, matching local mode.
+	var passphrase string
+	if common.IsSealedExport(data) {
+		var phErr error
+		passphrase, phErr = common.ResolvePassphrase(common.PassphraseSource{
+			File:   importPassphraseFile,
+			EnvVar: exportPassphraseEnvVar,
+			Prompt: "Import passphrase: ",
+		})
+		if phErr != nil {
+			if errors.Is(phErr, common.ErrNoPassphraseAvailable) {
+				return fmt.Errorf("%s is an encrypted export but no passphrase is available: "+
+					"pass --passphrase-file or set %s", importFile, exportPassphraseEnvVar)
+			}
+			return fmt.Errorf("failed to resolve import passphrase: %w", phErr)
+		}
+	}
+
+	result, err := cliclient.ImportSecretsRemote(ctx, httpClient, token, target.Server, vault, data, format, importOverwrite, passphrase)
+	if err != nil {
+		return fmt.Errorf("failed to import secrets: %w", err)
+	}
+
+	fmt.Printf("Secrets imported successfully\nImported: %d\nTotal: %d\n", result.ImportedCount, result.TotalCount)
+	return nil
 }
 
 // InitSecretsImport initializes the secrets import command.

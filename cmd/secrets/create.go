@@ -23,7 +23,9 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	secretsServices "rocketvault/internal/services/secrets"
@@ -78,6 +81,11 @@ it has been soft-deleted.`,
 		contentType, _ := cmd.Flags().GetString("content-type")
 
 		ctx := cmd.Context()
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsCreateRemote(cmd, ctx, target, name, value, tags, contentType)
+		}
+
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
@@ -132,6 +140,42 @@ it has been soft-deleted.`,
 		}
 		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
 	},
+}
+
+// runSecretsCreateRemote is "secrets create"'s remote-mode path.
+func runSecretsCreateRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, name, value string, tags []string, contentType string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+	fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+	if !ok {
+		return fmt.Errorf("output formatter not available in context")
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	req := model.CreateSecretRequest{Name: name, Value: value, Tags: tags, ContentType: contentType}
+	if cmd.Flags().Changed("purge-protection") {
+		purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
+		req.PurgeProtection = &purgeProtection
+	}
+
+	secret, err := cliclient.CreateSecretRemote(ctx, httpClient, token, target.Server, vault, req)
+	if err != nil {
+		return err
+	}
+
+	headers := []string{"ID", "Name", "Version", "Enabled", "Created"}
+	row := []string{secret.ID, secret.Name, strconv.Itoa(secret.Version), strconv.FormatBool(secret.Enabled), secret.CreatedAt}
+	return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
 }
 
 // InitSecretsCreate initializes the create command for secrets.

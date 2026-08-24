@@ -23,7 +23,9 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -31,6 +33,7 @@ import (
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	"rocketvault/model"
 )
@@ -66,6 +69,10 @@ held in another vault is not visible to this command.`,
 		}
 
 		ctx := cmd.Context()
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsDeleteRemote(cmd, ctx, target, secretID.String())
+		}
 
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
@@ -105,6 +112,30 @@ held in another vault is not visible to this command.`,
 		}).Info("Secret deleted successfully")
 		return nil
 	},
+}
+
+// runSecretsDeleteRemote is "secrets delete"'s remote-mode path.
+func runSecretsDeleteRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, id string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	if err := cliclient.DeleteSecretRemote(ctx, httpClient, token, target.Server, vault, id); err != nil {
+		return fmt.Errorf("failed to delete secret: %w", err)
+	}
+
+	logrus.WithFields(logrus.Fields{"secret_id": id, "server": target.Server}).Info("Secret deleted successfully")
+	return nil
 }
 
 // InitSecretsDelete initializes the delete command for secrets

@@ -439,6 +439,7 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 			Tags:      secret.Tags,
 			Version:   secret.Version,
 			CreatedAt: secret.CreatedAt.Format(time.RFC3339),
+			Enabled:   secret.Enabled,
 		}
 	}
 

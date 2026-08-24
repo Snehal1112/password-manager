@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,6 +21,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
 	"rocketvault/model"
@@ -543,4 +548,242 @@ func TestPersistentPreRun_RemoteTarget_HelpAndCompletion_RunCleanly(t *testing.T
 		os.Args = previousArgs
 		rootCmd.SetArgs(nil)
 	}
+}
+
+// TestIsLocalOnlyCommand pins which commands are exempt from the
+// remote-target guard because they never talk to any server, local or
+// remote -- see isLocalOnlyCommand in cmd/root.go.
+func TestIsLocalOnlyCommand(t *testing.T) {
+	vaultAccessCmd := &cobra.Command{Use: "vault-access"}
+	rolesCmd := &cobra.Command{Use: "roles"}
+	vaultAccessCmd.AddCommand(rolesCmd)
+
+	secretsCmd := &cobra.Command{Use: "secrets"}
+	genPasswordCmd := &cobra.Command{Use: "generate-password"}
+	listCmd := &cobra.Command{Use: "list"}
+	secretsCmd.AddCommand(genPasswordCmd)
+	secretsCmd.AddCommand(listCmd)
+
+	cases := []struct {
+		name string
+		cmd  *cobra.Command
+		want bool
+	}{
+		{"vault-access roles", rolesCmd, true},
+		{"secrets generate-password", genPasswordCmd, true},
+		{"secrets list (remote-capable, not local-only)", listCmd, false},
+		{"vault-access (parent; not itself local-only)", vaultAccessCmd, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isLocalOnlyCommand(tc.cmd))
+		})
+	}
+}
+
+// TestIsRemoteCapableCommand pins which commands are let through the
+// remote-target guard because they have their own remote adapter -- see
+// isRemoteCapableCommand in cmd/root.go.
+func TestIsRemoteCapableCommand(t *testing.T) {
+	secretsCmd := &cobra.Command{Use: "secrets"}
+	subs := map[string]*cobra.Command{}
+	for _, name := range []string{"list", "get", "create", "update", "delete", "export", "import", "generate-password"} {
+		c := &cobra.Command{Use: name}
+		secretsCmd.AddCommand(c)
+		subs[name] = c
+	}
+
+	keysCmd := &cobra.Command{Use: "keys"}
+	keysListCmd := &cobra.Command{Use: "list"}
+	keysCmd.AddCommand(keysListCmd)
+
+	cases := []struct {
+		name string
+		cmd  *cobra.Command
+		want bool
+	}{
+		{"secrets list", subs["list"], true},
+		{"secrets get", subs["get"], true},
+		{"secrets create", subs["create"], true},
+		{"secrets update", subs["update"], true},
+		{"secrets delete", subs["delete"], true},
+		{"secrets export", subs["export"], true},
+		{"secrets import", subs["import"], true},
+		{"secrets generate-password (local-only, not remote-capable)", subs["generate-password"], false},
+		{"keys list (different resource group, no remote adapter yet)", keysListCmd, false},
+		{"secrets (parent; not itself remote-capable)", secretsCmd, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isRemoteCapableCommand(tc.cmd))
+		})
+	}
+}
+
+func TestResolveRemoteAuthentication_UsernamePassword_Success(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	previousExpiry := viper.Get("jwt.expiry")
+	viper.Set("jwt.expiry", time.Hour)
+	t.Cleanup(func() { viper.Set("jwt.expiry", previousExpiry) })
+
+	userID := uuid.New()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/users/login", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(model.LoginResponse{
+			Token: "tok", RefreshToken: "rtok", UserID: userID.String(), Username: "admin", Roles: []string{"admin"},
+		})
+	}))
+	defer srv.Close()
+
+	target := &cliclient.Target{Server: srv.URL}
+	c := newAuthTestCmd("admin", "pass123", "123456")
+	result, err := resolveRemoteAuthentication(c, target, srv.Client())
+
+	require.NoError(t, err)
+	assert.Equal(t, "tok", result.Token)
+
+	cached, err := common.LoadSessionForServer(common.SanitizeServerKey(srv.URL), "admin")
+	require.NoError(t, err)
+	require.NotNil(t, cached)
+	assert.Equal(t, "tok", cached.Token)
+	assert.Equal(t, common.SanitizeServerKey(srv.URL), cached.ServerKey)
+}
+
+func TestResolveRemoteAuthentication_UsernameOnly_LoadsNamedCachedSession(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
+	serverKey := common.SanitizeServerKey(target.Server)
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "cached-tok", Username: "admin", ServerKey: serverKey, ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	c := newAuthTestCmd("admin", "", "")
+	result, err := resolveRemoteAuthentication(c, target, http.DefaultClient)
+
+	require.NoError(t, err)
+	assert.Equal(t, "cached-tok", result.Token)
+}
+
+// TestResolveRemoteAuthentication_CurrentSession_WrongServer_NotUsed verifies
+// that the global "current session" pointer (see common/session.go) is never
+// reused across servers: a cached current session for one server must not
+// leak its token into a request against a different one.
+func TestResolveRemoteAuthentication_CurrentSession_WrongServer_NotUsed(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "other-server-tok", Username: "admin",
+		ServerKey: common.SanitizeServerKey("https://other.example.com"),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
+	c := newAuthTestCmd("", "", "")
+	_, err := resolveRemoteAuthentication(c, target, http.DefaultClient)
+
+	require.Error(t, err, "a cached session for a different server must not be reused")
+}
+
+func TestResolveRemoteAuthentication_ExpiredCache_RefreshesTransparently(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	userID := uuid.New()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/refresh", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(model.RefreshTokenResponse{
+			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID.String(), Username: "admin", Roles: []string{"admin"},
+			ExpiresAt: time.Now().Add(time.Hour),
+		})
+	}))
+	defer srv.Close()
+
+	target := &cliclient.Target{Server: srv.URL}
+	serverKey := common.SanitizeServerKey(srv.URL)
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "old-tok", RefreshToken: "old-refresh", Username: "admin", ServerKey: serverKey,
+		ExpiresAt: time.Now().Add(-time.Minute),
+	}))
+
+	c := newAuthTestCmd("", "", "")
+	result, err := resolveRemoteAuthentication(c, target, srv.Client())
+
+	require.NoError(t, err)
+	assert.Equal(t, "new-tok", result.Token)
+
+	cached, err := common.LoadSessionForServer(serverKey, "admin")
+	require.NoError(t, err)
+	require.NotNil(t, cached)
+	assert.Equal(t, "new-tok", cached.Token, "the refreshed token must be re-cached")
+}
+
+func TestResolveRemoteAuthentication_NoCredsNoCache_ReturnsError(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
+	c := newAuthTestCmd("", "", "")
+	_, err := resolveRemoteAuthentication(c, target, http.DefaultClient)
+	assert.Error(t, err)
+}
+
+// TestPersistentPreRun_RemoteTarget_SecretsList_UsesRemoteAdapter is the
+// end-to-end proof that "secrets list --server <url>" actually reaches the
+// remote server instead of either falling back to a local instance or being
+// rejected by the remote-target guard (which every other resource-group
+// command still hits -- see TestPersistentPreRun_RemoteTarget_NonContext-
+// Command_ReturnsError). No local .rocketvault.yaml or database exists in
+// this test's working directory, so a fall-through to local mode would fail
+// loudly rather than silently -- this test would catch that regression.
+func TestPersistentPreRun_RemoteTarget_SecretsList_UsesRemoteAdapter(t *testing.T) {
+	dir := t.TempDir()
+	common.SessionBaseDir = filepath.Join(dir, "sessions")
+
+	origWd, err := os.Getwd()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+	require.NoError(t, os.Chdir(dir))
+
+	previousSettings := viper.AllSettings()
+	viper.Reset()
+	t.Cleanup(func() {
+		viper.Reset()
+		_ = viper.MergeConfigMap(previousSettings)
+	})
+
+	userID := uuid.New()
+	var loginHit, listHit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/users/login":
+			loginHit = true
+			_ = json.NewEncoder(w).Encode(model.LoginResponse{
+				Token: "tok", RefreshToken: "rtok", UserID: userID.String(), Username: "admin", Roles: []string{"admin"},
+			})
+		case "/api/v1/secrets":
+			listHit = true
+			assert.Equal(t, "Bearer tok", r.Header.Get("Authorization"))
+			_ = json.NewEncoder(w).Encode(model.ListSecretsResponse{
+				Secrets: []model.SecretResponse{{ID: "id-1", Name: "api-key", Version: 1, Enabled: true, CreatedAt: "2026-01-01T00:00:00Z"}},
+				Total:   1,
+			})
+		default:
+			t.Fatalf("unexpected request to %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	previousArgs := os.Args
+	os.Args = []string{"rocketvault", "secrets", "list"}
+	t.Cleanup(func() { os.Args = previousArgs })
+
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetArgs([]string{"secrets", "list", "--server", srv.URL, "--username", "admin", "--password", "pass123", "--totp-code", "123456"})
+	t.Cleanup(func() { rootCmd.SetArgs(nil); rootCmd.SetOut(nil) })
+
+	err = rootCmd.ExecuteContext(context.Background())
+	require.NoError(t, err)
+	assert.True(t, loginHit, "expected the remote server's login endpoint to be called")
+	assert.True(t, listHit, "expected the remote server's secrets list endpoint to be called")
+	assert.Contains(t, out.String(), "api-key")
 }

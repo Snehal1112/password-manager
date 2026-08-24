@@ -23,7 +23,9 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +35,7 @@ import (
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	"rocketvault/model"
@@ -71,6 +74,10 @@ member created.`,
 		}
 
 		ctx := cmd.Context()
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsGetRemote(cmd, ctx, target, secretID.String())
+		}
 
 		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
 		if !ok {
@@ -115,6 +122,47 @@ member created.`,
 		}
 		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
 	},
+}
+
+// runSecretsGetRemote is "secrets get"'s remote-mode path.
+func runSecretsGetRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, id string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+	fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+	if !ok {
+		return fmt.Errorf("output formatter not available in context")
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	secret, err := cliclient.GetSecretRemote(ctx, httpClient, token, target.Server, vault, id)
+	if err != nil {
+		return err
+	}
+
+	headers := []string{"ID", "Name", "Value", "Version", "Enabled", "ContentType", "Tags", "Expires", "NotBefore", "Created"}
+	row := []string{
+		secret.ID,
+		secret.Name,
+		secret.Value,
+		strconv.Itoa(secret.Version),
+		strconv.FormatBool(secret.Enabled),
+		secret.ContentType,
+		strings.Join(secret.Tags, ","),
+		formatOptionalTime(secret.ExpiresAt),
+		formatOptionalTime(secret.NotBefore),
+		secret.CreatedAt,
+	}
+	return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
 }
 
 // InitSecretsGet initializes the get command for secrets

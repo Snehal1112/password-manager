@@ -29,6 +29,15 @@ var (
 	ContentTypeKey      = &contextKey{"content_type"}
 	ServiceContainerKey = &contextKey{"service_container"}
 	OutputFormatterKey  = &contextKey{"output_formatter"}
+	// RemoteTargetKey holds the *cliclient.Target a remote-capable command
+	// is running against, when a remote target resolved. Absent in local
+	// mode. Typed as `any` here (common must not import internal/cliclient)
+	// -- callers assert to *cliclient.Target.
+	RemoteTargetKey = &contextKey{"remote_target"}
+	// RemoteHTTPClientKey holds the *http.Client configured with this
+	// invocation's TLS trust options, for remote-capable commands to reuse
+	// rather than building their own. Absent in local mode.
+	RemoteHTTPClientKey = &contextKey{"remote_http_client"}
 )
 
 // contextsFilePath sits alongside the sessions/ directory, at

@@ -23,7 +23,9 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +35,7 @@ import (
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
 	"rocketvault/model"
@@ -67,6 +70,10 @@ caller's own.
 		tags, _ := cmd.Flags().GetStringSlice("tags")
 
 		ctx := cmd.Context()
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsListRemote(cmd, ctx, target, tags)
+		}
 
 		userID, ok := ctx.Value(common.UserIDKey).(uuid.UUID)
 		if !ok {
@@ -108,6 +115,49 @@ caller's own.
 		}
 		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
 	},
+}
+
+// runSecretsListRemote is "secrets list"'s remote-mode path: it calls
+// target.Server's HTTP API instead of the local service container. The
+// bearer token and configured *http.Client were set up by
+// remotePersistentPreRun (cmd/root.go) and stashed in ctx.
+func runSecretsListRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, tags []string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+	fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+	if !ok {
+		return fmt.Errorf("output formatter not available in context")
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	secretsList, err := cliclient.ListSecretsRemote(ctx, httpClient, token, target.Server, vault, tags)
+	if err != nil {
+		return err
+	}
+
+	headers := []string{"ID", "Name", "Version", "Enabled", "Tags", "Created"}
+	rows := make([][]string, len(secretsList))
+	for i, s := range secretsList {
+		rows[i] = []string{
+			s.ID,
+			s.Name,
+			strconv.Itoa(s.Version),
+			strconv.FormatBool(s.Enabled),
+			strings.Join(s.Tags, ","),
+			s.CreatedAt,
+		}
+	}
+	return fmtr.Write(cmd.OutOrStdout(), headers, rows)
 }
 
 // InitSecretsList initializes the list command for secrets

@@ -23,8 +23,10 @@ THE SOFTWARE.
 package secrets
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +35,7 @@ import (
 
 	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	secretServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
@@ -98,6 +101,15 @@ permissions, and any missing parent directories are created.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 
+		format := strings.ToLower(exportFormat)
+		if format != "json" && format != "csv" {
+			return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
+		}
+
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runSecretsExportRemote(cmd, ctx, target, format)
+		}
+
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
 		if !ok {
 			return fmt.Errorf("unauthorized: missing authentication claims")
@@ -111,11 +123,6 @@ permissions, and any missing parent directories are created.`,
 		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || sc == nil {
 			return fmt.Errorf("service container not available in context")
-		}
-
-		format := strings.ToLower(exportFormat)
-		if format != "json" && format != "csv" {
-			return fmt.Errorf("unsupported format: %s (supported: json, csv)", exportFormat)
 		}
 
 		// Resolve the target vault by name and check the caller holds a role
@@ -191,6 +198,82 @@ permissions, and any missing parent directories are created.`,
 			format, encryption, exportFile)
 		return nil
 	},
+}
+
+// runSecretsExportRemote is "secrets export"'s remote-mode path. Format was
+// already validated by the caller.
+func runSecretsExportRemote(cmd *cobra.Command, ctx context.Context, target *cliclient.Target, format string) error {
+	httpClient, ok := ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	if !ok || httpClient == nil {
+		return fmt.Errorf("remote HTTP client not available in context")
+	}
+	token, ok := ctx.Value(common.TokenKey).(string)
+	if !ok || token == "" {
+		return fmt.Errorf("remote session token not available in context")
+	}
+
+	vault, _ := cmd.Flags().GetString("vault")
+	if vault == "" {
+		vault = target.Vault
+	}
+
+	if !exportEncrypt && exportPassphraseFile != "" {
+		return fmt.Errorf("--passphrase-file was given with --encrypt=false: " +
+			"drop one, since a plaintext export has no passphrase")
+	}
+	var passphrase string
+	var err error
+	if exportEncrypt {
+		passphrase, err = common.ResolvePassphrase(common.PassphraseSource{
+			File:    exportPassphraseFile,
+			EnvVar:  exportPassphraseEnvVar,
+			Prompt:  "Export passphrase: ",
+			Confirm: true,
+		})
+		if err != nil {
+			if errors.Is(err, common.ErrNoPassphraseAvailable) {
+				return fmt.Errorf("export encryption is on but no passphrase is available: "+
+					"pass --passphrase-file, set %s, or pass --encrypt=false to write plaintext deliberately",
+					exportPassphraseEnvVar)
+			}
+			return fmt.Errorf("failed to resolve export passphrase: %w", err)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr,
+			"Warning: --encrypt=false — %s will hold every exported secret's name, "+
+				"plaintext value and tags in the clear.\n", exportFile) //nolint:errcheck
+	}
+
+	allTags := append(exportTags, exportFilterTags...)
+
+	data, err := cliclient.ExportSecretsRemote(ctx, httpClient, token, target.Server, vault, model.ExportSecretsRequest{
+		Format:      format,
+		Tags:        allTags,
+		IncludeTags: true,
+		Encrypt:     exportEncrypt,
+		Passphrase:  passphrase,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to export secrets: %w", err)
+	}
+
+	dir := filepath.Dir(exportFile)
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("failed to create output directory: %w", err)
+		}
+	}
+	if err := os.WriteFile(exportFile, data, 0o600); err != nil {
+		return fmt.Errorf("failed to write export file: %w", err)
+	}
+
+	encryption := "none (plaintext)"
+	if exportEncrypt {
+		encryption = "passphrase (argon2id + AES-256-GCM)"
+	}
+	fmt.Printf("Secrets exported successfully\nFormat: %s\nEncryption: %s\nFile: %s\n",
+		format, encryption, exportFile)
+	return nil
 }
 
 // InitSecretsExport registers the export sub-command under the given parent.

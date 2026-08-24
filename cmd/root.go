@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -198,6 +199,46 @@ func isCobraBuiltinCommand(cmd *cobra.Command) bool {
 	return cmd.Parent() != nil && cmd.Parent().Name() == "completion"
 }
 
+// isLocalOnlyCommand reports whether cmd never needs to contact any
+// server -- local or remote -- so it must be exempt from the remote-target
+// guard the same way isContextGroup and isCobraBuiltinCommand are.
+// "vault-access roles" reads only compiled-in role definitions (see its own
+// doc comment: "Requires no authentication: this reads only compiled-in
+// role definitions, never the database.") -- --server or an active context
+// must not block it, since it was never going to touch a server either way.
+func isLocalOnlyCommand(cmd *cobra.Command) bool {
+	if cmd.Name() == "roles" && cmd.Parent() != nil && cmd.Parent().Name() == "vault-access" {
+		return true
+	}
+	// generate-password is pure local RNG (see cmd/secrets/generate.go): it
+	// stores nothing and touches no vault, local or remote, so it needs no
+	// local/remote distinction any more than "vault-access roles" does.
+	return cmd.Name() == "generate-password" && cmd.Parent() != nil && cmd.Parent().Name() == "secrets"
+}
+
+// remoteCapableSecretsCommands are the "secrets" subcommands with their own
+// remote-mode adapter in internal/cliclient/secrets.go — see
+// docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md's
+// Command Support Matrix. Other resource groups (keys, certificates,
+// vaults, vault-access, users, audit) still go through the remote-target
+// guard until each gets its own adapter.
+var remoteCapableSecretsCommands = map[string]bool{
+	"list":   true,
+	"get":    true,
+	"create": true,
+	"update": true,
+	"delete": true,
+	"export": true,
+	"import": true,
+}
+
+// isRemoteCapableCommand reports whether cmd has its own remote-mode
+// adapter and should be let through the remote-target guard instead of
+// being rejected by it.
+func isRemoteCapableCommand(cmd *cobra.Command) bool {
+	return cmd.Parent() != nil && cmd.Parent().Name() == "secrets" && remoteCapableSecretsCommands[cmd.Name()]
+}
+
 // isSystemCommand reports whether cmd is exempt from persistentPreRun's
 // authentication requirement -- either because it performs no vault/data
 // operation at all (e.g. "health", "roles", "generate-password"), or
@@ -358,6 +399,143 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 	}, nil
 }
 
+// resolveRemoteAuthentication is resolveAuthentication's remote-mode
+// counterpart: same three-tier precedence (fresh login > cached session for
+// an explicit --username > whichever session is "current"), but every call
+// goes to target.Server over HTTP instead of the local service container.
+//
+// The "current" session pointer is global across servers (see
+// common/session.go), so when no --username is given, a cached current
+// session is only used if it actually belongs to this target -- otherwise a
+// different server's token could leak into a request against this one.
+func resolveRemoteAuthentication(cmd *cobra.Command, target *cliclient.Target, httpClient *http.Client) (*authServices.AuthenticationResult, error) {
+	username, _ := cmd.Flags().GetString("username")
+	password, _ := cmd.Flags().GetString("password")
+	totpCode, _ := cmd.Flags().GetString("totp-code")
+	if username == "" {
+		username = target.Username // context's default username, if any
+	}
+
+	serverKey := common.SanitizeServerKey(target.Server)
+
+	if username != "" && password != "" {
+		result, err := cliclient.LoginRemote(cmd.Context(), httpClient, target.Server, username, password, totpCode)
+		if err != nil {
+			return nil, err
+		}
+		if saveErr := common.SaveSession(&common.SessionCache{
+			Token:        result.Token,
+			RefreshToken: result.RefreshToken,
+			UserID:       result.UserID,
+			Username:     result.Username,
+			Roles:        result.Roles,
+			ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
+			ServerKey:    serverKey,
+		}); saveErr != nil {
+			logrus.WithError(saveErr).Warn("failed to cache remote CLI session")
+		}
+		return result, nil
+	}
+
+	var cached *common.SessionCache
+	var err error
+	if username != "" {
+		cached, err = common.LoadSessionForServer(serverKey, username)
+	} else {
+		cached, err = common.LoadCurrentSession()
+		if cached != nil && cached.ServerKey != serverKey {
+			cached = nil
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cached session: %w", err)
+	}
+	if cached == nil {
+		return nil, fmt.Errorf("no credentials provided and no cached session found for server %s; pass --username/--password/--totp-code", target.Server)
+	}
+
+	if time.Now().Before(cached.ExpiresAt) {
+		return &authServices.AuthenticationResult{
+			Token:        cached.Token,
+			RefreshToken: cached.RefreshToken,
+			UserID:       cached.UserID,
+			Username:     cached.Username,
+			Roles:        cached.Roles,
+		}, nil
+	}
+
+	refreshed, err := cliclient.RefreshRemote(cmd.Context(), httpClient, target.Server, cached.RefreshToken)
+	if err != nil {
+		return nil, fmt.Errorf("cached session expired and refresh failed: %w", err)
+	}
+
+	if saveErr := common.SaveSession(&common.SessionCache{
+		Token:        refreshed.Token,
+		RefreshToken: refreshed.RefreshToken,
+		UserID:       refreshed.UserID,
+		Username:     refreshed.Username,
+		Roles:        refreshed.Roles,
+		ExpiresAt:    refreshed.ExpiresAt,
+		ServerKey:    serverKey,
+	}); saveErr != nil {
+		logrus.WithError(saveErr).Warn("failed to cache refreshed remote CLI session")
+	}
+
+	return &authServices.AuthenticationResult{
+		Token:        refreshed.Token,
+		RefreshToken: refreshed.RefreshToken,
+		UserID:       refreshed.UserID,
+		Username:     refreshed.Username,
+		Roles:        refreshed.Roles,
+	}, nil
+}
+
+// remotePersistentPreRun is the remote-mode counterpart of persistentPreRun
+// for commands with their own remote adapter (see isRemoteCapableCommand).
+// It never boots the local DB or service container: it configures a TLS
+// trust-aware HTTP client, authenticates against target.Server, and stashes
+// the token/target/client in the command's context for the adapter to use.
+func remotePersistentPreRun(cmd *cobra.Command, target *cliclient.Target) error {
+	caCertPath, _ := cmd.Flags().GetString("ca-cert")
+	if caCertPath == "" {
+		caCertPath = os.Getenv("ROCKETVAULT_CA_CERT")
+	}
+	insecureSkipVerify, _ := cmd.Flags().GetBool("insecure-skip-verify")
+
+	opts := cliclient.HTTPClientOptions{CACertPath: caCertPath, InsecureSkipVerify: insecureSkipVerify}
+	cliclient.WarnIfInsecure(opts)
+	httpClient, err := cliclient.NewHTTPClient(opts)
+	if err != nil {
+		return fmt.Errorf("failed to configure remote TLS trust: %w", err)
+	}
+
+	authResult, err := resolveRemoteAuthentication(cmd, target, httpClient)
+	if err != nil {
+		cmd.PrintErrln("Error: remote authentication failed -", err.Error())
+		return errors.New("remote authentication failed")
+	}
+
+	ctx := context.WithValue(cmd.Context(), common.TokenKey, authResult.Token)
+	ctx = context.WithValue(ctx, common.UserIDKey, authResult.UserID)
+	ctx = context.WithValue(ctx, common.RemoteTargetKey, target)
+	ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+
+	outputFlag, _ := cmd.Flags().GetString("output")
+	fmtr, fmtrErr := formatter.New(formatter.Format(outputFlag))
+	if fmtrErr != nil {
+		return fmt.Errorf("invalid --output value %q: must be table, json, or yaml", outputFlag)
+	}
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, fmtr)
+	cmd.SetContext(ctx)
+
+	logrus.WithFields(logrus.Fields{
+		"command": cmd.Short,
+		"server":  target.Server,
+		"user":    authResult.Username,
+	}).Info("Authenticated against remote server")
+	return nil
+}
+
 // persistentPreRun is a Cobra persistent pre-run function that initializes logging,
 // database connection, and authentication context for the command execution.
 // It checks for restricted commands, initializes the logger and database, and
@@ -399,18 +577,24 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// internal/cliclient.RequireLocal), this guard should be deleted
 	// entirely.
 	isContextGroup := cmd.Name() == "context" || (cmd.Parent() != nil && cmd.Parent().Name() == "context")
-	if !isContextGroup && !isCobraBuiltinCommand(cmd) {
-		serverFlag, _ := cmd.Flags().GetString("server")
-		target, targetErr := cliclient.ResolveTarget(serverFlag)
-		if targetErr != nil {
-			return fmt.Errorf("failed to resolve remote target: %w", targetErr)
-		}
-		if target != nil {
-			return fmt.Errorf(
-				"remote mode (--server/ROCKETVAULT_ADDR/context %q) is not yet supported for %q; unset it to run against the local instance",
-				target.Server, cmd.CommandPath(),
-			)
-		}
+	serverFlag, _ := cmd.Flags().GetString("server")
+	target, targetErr := cliclient.ResolveTarget(serverFlag)
+	if targetErr != nil {
+		return fmt.Errorf("failed to resolve remote target: %w", targetErr)
+	}
+
+	// A "secrets" subcommand with its own remote adapter (see
+	// isRemoteCapableCommand) hands off to a dedicated remote pre-run
+	// instead of booting the local DB/service container at all.
+	if target != nil && isRemoteCapableCommand(cmd) {
+		return remotePersistentPreRun(cmd, target)
+	}
+
+	if target != nil && !isContextGroup && !isCobraBuiltinCommand(cmd) && !isLocalOnlyCommand(cmd) {
+		return fmt.Errorf(
+			"remote mode (--server/ROCKETVAULT_ADDR/context %q) is not yet supported for %q; unset it to run against the local instance",
+			target.Server, cmd.CommandPath(),
+		)
 	}
 
 	// Initialize the logger.
@@ -427,13 +611,13 @@ func persistentPreRun(cmd *cobra.Command, args []string) error {
 	// a nil-pointer panic deep inside an unrelated command instead of a
 	// clean error here.
 	//
-	// context/help/completion are exempt, same as the remote-target guard
+	// context/help/completion/vault-access roles/secrets generate-password are exempt, same as the remote-target guard
 	// above: they are documented as local-only/no-DB and must keep working
 	// even with no database configured at all (e.g. `rocketvault context
 	// list` before .rocketvault.yaml exists).
 	database := db.NewRepository(log)
 	if err := database.InitializeDB(); err != nil {
-		if !isContextGroup && !isCobraBuiltinCommand(cmd) {
+		if !isContextGroup && !isCobraBuiltinCommand(cmd) && !isLocalOnlyCommand(cmd) {
 			return fmt.Errorf("database initialization failed: %w", err)
 		}
 		log.WithError(err).Warn("Database initialization failed; continuing since this command does not require it")
