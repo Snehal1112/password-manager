@@ -18,6 +18,14 @@ func writeConfig() config.MCPConfig {
 	return cfg
 }
 
+// destructiveConfig returns a config with the destructive tier enabled.
+func destructiveConfig() config.MCPConfig {
+	cfg := testConfig()
+	cfg.AllowWrite = true
+	cfg.AllowDestructive = true
+	return cfg
+}
+
 func TestSetSecret_IsAbsentWithoutAllowWrite(t *testing.T) {
 	f := newFakeVault(t, map[string]string{})
 	s := f.server(t, testConfig())
