@@ -99,6 +99,22 @@ func (c *Client) ListSecrets(ctx context.Context, vault string, limit int) ([]Se
 	return summaries, truncated, nil
 }
 
+// secretFromWire converts a decoded response into a Secret.
+func secretFromWire(wire secretWire) (*Secret, error) {
+	summary, err := wire.summary()
+	if err != nil {
+		return nil, err
+	}
+	return &Secret{
+		SecretSummary: summary,
+		Value:         SecretValue(wire.Value),
+		ContentType:   wire.ContentType,
+		Enabled:       wire.Enabled,
+		ExpiresAt:     wire.ExpiresAt,
+		NotBefore:     wire.NotBefore,
+	}, nil
+}
+
 // GetSecret fetches one secret by name or id.
 //
 // The response always carries the plaintext value; there is no server-side
@@ -120,18 +136,7 @@ func (c *Client) GetSecret(ctx context.Context, vault, name string) (*Secret, er
 		return nil, err
 	}
 
-	summary, err := wire.summary()
-	if err != nil {
-		return nil, err
-	}
-	return &Secret{
-		SecretSummary: summary,
-		Value:         SecretValue(wire.Value),
-		ContentType:   wire.ContentType,
-		Enabled:       wire.Enabled,
-		ExpiresAt:     wire.ExpiresAt,
-		NotBefore:     wire.NotBefore,
-	}, nil
+	return secretFromWire(wire)
 }
 
 // SecretVersion is one entry of a secret's version history.
