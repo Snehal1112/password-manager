@@ -50,6 +50,7 @@ resource.`,
 
   # Get another user's record as JSON (requires admin role)
   rocketvault users get <user-id> --output json`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
 		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)

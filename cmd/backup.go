@@ -246,9 +246,9 @@ func runBackupCreate(cmd *cobra.Command) error {
 		return fmt.Errorf("backup failed: %w", err)
 	}
 
-	fmt.Printf("✅ Backup created successfully!\n")
-	fmt.Printf("📁 File: %s\n", backupOutput)
-	fmt.Printf("🔒 Encrypted: %t\n", backupEncrypt)
+	fmt.Printf("Backup created successfully.\n")
+	fmt.Printf("File: %s\n", backupOutput)
+	fmt.Printf("Encrypted: %t\n", backupEncrypt)
 
 	return nil
 }
@@ -288,7 +288,7 @@ func runBackupList(cmd *cobra.Command) error {
 	}
 
 	w.Flush() //nolint:errcheck,gosec
-	fmt.Printf("\n📊 Found %d backup files in %s\n", len(backups), backupListDir)
+	fmt.Printf("\nFound %d backup files in %s\n", len(backups), backupListDir)
 
 	return nil
 }
@@ -330,15 +330,15 @@ func runBackupRestore(cmd *cobra.Command) error {
 	logger := ctx.Value(common.LogKey).(*logging.Logger)
 
 	// Confirm destructive operation
-	fmt.Printf("⚠️  WARNING: This will replace all existing data in the database!\n")
-	fmt.Printf("📁 Backup file: %s\n", backupRestoreFile)
-	fmt.Printf("🔓 Decrypt: %t\n", backupRestoreDecrypt)
+	fmt.Printf("WARNING: This will replace all existing data in the database.\n")
+	fmt.Printf("Backup file: %s\n", backupRestoreFile)
+	fmt.Printf("Decrypt: %t\n", backupRestoreDecrypt)
 	fmt.Print("Are you sure you want to continue? (type 'yes' to confirm): ")
 
 	var confirmation string
 	fmt.Scanln(&confirmation)
 	if confirmation != "yes" {
-		fmt.Println("❌ Restore cancelled")
+		fmt.Println("Restore cancelled.")
 		return nil
 	}
 
@@ -355,7 +355,7 @@ func runBackupRestore(cmd *cobra.Command) error {
 		return fmt.Errorf("restore failed: %w", err)
 	}
 
-	fmt.Printf("✅ Database restored successfully from %s\n", backupRestoreFile)
+	fmt.Printf("Database restored successfully from %s\n", backupRestoreFile)
 
 	return nil
 }

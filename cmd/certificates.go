@@ -28,10 +28,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// certificateCmd represents the certificate command
+// certificateCmd represents the certificates command
 var certificateCmd = &cobra.Command{
-	Use:   "certificate",
-	Short: "Manage certificates",
+	Use:     "certificates",
+	Aliases: []string{"certificate"},
+	Short:   "Manage certificates",
 	Long: `Manage the X.509 certificates held in a vault: issue a self-signed or
 CA-signed certificate over a key that already lives in that vault, inspect and
 list certificates, update their metadata, renew them, and delete them.
@@ -51,14 +52,14 @@ sign the new certificate with a CA certificate instead of itself.`,
   rocketvault users login --username admin
 
   # Issue a self-signed certificate over an existing key
-  rocketvault certificate create --name <name> --key-id <key-id> \
+  rocketvault certificates create --name <name> --key-id <key-id> \
     --validity-days 365
 
   # List the certificates in a named vault
-  rocketvault certificate list --vault payments
+  rocketvault certificates list --vault payments
 
   # Renew a certificate before it expires
-  rocketvault certificate renew <id>`,
+  rocketvault certificates renew <id>`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Show help when command is called without subcommands
 		cmd.Help() //nolint:errcheck,gosec
