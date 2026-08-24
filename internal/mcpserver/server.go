@@ -30,13 +30,17 @@ type Deps struct {
 	Logger *slog.Logger
 	// Version is reported to the host during initialization.
 	Version string
+	// BaseURL is the RocketVault API server this instance talks to, reported
+	// by --check.
+	BaseURL string
 }
 
 // Server is the RocketVault MCP server.
 type Server struct {
-	cfg    config.MCPConfig
-	client *vaultapi.Client
-	logger *slog.Logger
+	cfg     config.MCPConfig
+	client  *vaultapi.Client
+	logger  *slog.Logger
+	baseURL string
 
 	mcpServer *mcp.Server
 	// registered names every tool that was actually registered, which is a
@@ -72,6 +76,7 @@ func New(deps Deps) (*Server, error) {
 		cfg:       deps.Config,
 		client:    deps.Client,
 		logger:    logger,
+		baseURL:   deps.BaseURL,
 		mcpServer: mcpServer,
 		limits:    newLimiter(deps.Config.RateLimit),
 	}, nil
@@ -94,6 +99,25 @@ func (s *Server) RegisteredTools() []string {
 // Run serves the protocol over transport until the context is cancelled.
 func (s *Server) Run(ctx context.Context, transport mcp.Transport) error {
 	return s.mcpServer.Run(ctx, transport)
+}
+
+// BaseURL reports which server this instance talks to.
+func (s *Server) BaseURL() string { return s.baseURL }
+
+// EnabledTiers names the capability tiers this configuration enables.
+func (s *Server) EnabledTiers() []string {
+	tiers := []string{TierRead.String()}
+	for _, tier := range []Tier{TierWrite, TierDestructive, TierCrypto} {
+		if s.TierEnabled(tier) {
+			tiers = append(tiers, tier.String())
+		}
+	}
+	return tiers
+}
+
+// ProbeVaults makes one live call, to verify connectivity and credentials.
+func (s *Server) ProbeVaults(ctx context.Context) ([]vaultapi.Vault, bool, error) {
+	return s.client.ListVaults(ctx, false, 0)
 }
 
 // Annotations describes a tool's effects, in the terms a host needs to decide

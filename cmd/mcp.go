@@ -218,6 +218,7 @@ func buildMCPServer(cmd *cobra.Command, logger *slog.Logger) (*mcpserver.Server,
 		Config:  cfg,
 		Logger:  logger,
 		Version: rootCmd.Version,
+		BaseURL: baseURL,
 	})
 	if err != nil {
 		return nil, "", err
@@ -255,9 +256,4 @@ func runMCP(cmd *cobra.Command, _ []string) error {
 	}
 	logger.Info("mcp server stopped")
 	return nil
-}
-
-// runMCPCheck is implemented in plan 17.
-func runMCPCheck(_ *cobra.Command, _ *mcpserver.Server, _ string) error {
-	return fmt.Errorf("--check is not implemented yet")
 }
