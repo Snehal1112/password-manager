@@ -42,6 +42,8 @@ type Server struct {
 	// registered names every tool that was actually registered, which is a
 	// function of the enabled capability tiers.
 	registered []string
+	// limits bounds how fast tools may be called.
+	limits *limiter
 }
 
 // New builds a server with no tools registered. Later plans add tools
@@ -71,6 +73,7 @@ func New(deps Deps) (*Server, error) {
 		client:    deps.Client,
 		logger:    logger,
 		mcpServer: mcpServer,
+		limits:    newLimiter(deps.Config.RateLimit),
 	}, nil
 }
 
@@ -110,7 +113,7 @@ type Annotations struct {
 // defaults to true. A tool added straight through mcp.AddTool would therefore
 // advertise itself as destructive and open-world unless its author remembered
 // to say otherwise. Centralising that here makes the safe case automatic.
-func register[In, Out any](s *Server, name, description string, ann Annotations, h mcp.ToolHandlerFor[In, Out]) {
+func register[In, Out any](s *Server, tier Tier, name, description string, ann Annotations, h mcp.ToolHandlerFor[In, Out]) {
 	destructive := ann.Destructive
 	// A vault is a closed world: these tools touch only this server.
 	openWorld := false
@@ -126,7 +129,7 @@ func register[In, Out any](s *Server, name, description string, ann Annotations,
 		},
 	}
 
-	mcp.AddTool(s.mcpServer, tool, withLifecycle(s, name, h))
+	mcp.AddTool(s.mcpServer, tool, withLifecycle(s, tier, name, h))
 	s.registered = append(s.registered, name)
 }
 

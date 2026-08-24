@@ -23,10 +23,21 @@ func errorResult(format string, args ...any) *mcp.CallToolResult {
 	}
 }
 
-// withLifecycle wraps a handler with a deadline, a correlation id and panic
-// recovery. register applies it to every tool, so no tool can opt out.
-func withLifecycle[In, Out any](s *Server, name string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
+// withLifecycle wraps a handler with a rate-limit check, a deadline, a
+// correlation id and panic recovery. register applies it to every tool, so no
+// tool can opt out.
+func withLifecycle[In, Out any](s *Server, tier Tier, name string, h mcp.ToolHandlerFor[In, Out]) mcp.ToolHandlerFor[In, Out] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, in In) (result *mcp.CallToolResult, out Out, err error) {
+		// The limit is checked before the handler, before the vault guard,
+		// and before any network call, so a refused call costs nothing.
+		if !s.limits.allow(tier) {
+			var zero Out
+			s.logger.Warn("tool call refused by rate limit", "tool", name, "tier", tier.String())
+			return errorResult(
+				"%s was refused by the rate limit for %s operations; wait before retrying",
+				name, tier.String()), zero, nil
+		}
+
 		ctx, cancel := context.WithTimeout(ctx, s.cfg.RequestTimeout)
 		defer cancel()
 

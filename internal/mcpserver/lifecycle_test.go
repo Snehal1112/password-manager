@@ -19,7 +19,7 @@ import (
 
 func TestRegister_RecoversFromAPanic(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "boom", "Panics on purpose.", Annotations{ReadOnly: true},
+	register(s, TierRead, "boom", "Panics on purpose.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			panic("deliberate panic")
 		})
@@ -36,11 +36,11 @@ func TestRegister_RecoversFromAPanic(t *testing.T) {
 
 func TestRegister_PanicDoesNotKillTheSession(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "boom", "Panics on purpose.", Annotations{ReadOnly: true},
+	register(s, TierRead, "boom", "Panics on purpose.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			panic("deliberate panic")
 		})
-	register(s, "ping", "Echoes.", Annotations{ReadOnly: true},
+	register(s, TierRead, "ping", "Echoes.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{Echo: in.Message}, nil
 		})
@@ -61,7 +61,7 @@ func TestRegister_PanicDoesNotKillTheSession(t *testing.T) {
 
 func TestRegister_PanicMessageDoesNotLeakInternals(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "boom", "Panics on purpose.", Annotations{ReadOnly: true},
+	register(s, TierRead, "boom", "Panics on purpose.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			panic("secret-value-in-panic-hunter2")
 		})
@@ -89,7 +89,7 @@ func TestRegister_AppliesTheRequestTimeout(t *testing.T) {
 	s, err := New(Deps{Config: cfg, Logger: discardLogger(), Version: "test"})
 	require.NoError(t, err)
 
-	register(s, "slow", "Sleeps past the deadline.", Annotations{ReadOnly: true},
+	register(s, TierRead, "slow", "Sleeps past the deadline.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			select {
 			case <-ctx.Done():
@@ -118,7 +118,7 @@ func TestRegister_DeadlineIsVisibleToTheHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	var hadDeadline bool
-	register(s, "check", "Reports whether it has a deadline.", Annotations{ReadOnly: true},
+	register(s, TierRead, "check", "Reports whether it has a deadline.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			_, hadDeadline = ctx.Deadline()
 			return nil, pingOut{}, nil
@@ -136,7 +136,7 @@ func TestRegister_AttachesACorrelationID(t *testing.T) {
 	s := newTestServer(t)
 
 	var seen string
-	register(s, "check", "Reports its correlation id.", Annotations{ReadOnly: true},
+	register(s, TierRead, "check", "Reports its correlation id.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			seen = vaultapi.CorrelationIDFrom(ctx)
 			return nil, pingOut{}, nil
@@ -154,7 +154,7 @@ func TestRegister_CorrelationIDDiffersPerCall(t *testing.T) {
 	s := newTestServer(t)
 
 	var seen []string
-	register(s, "check", "Reports its correlation id.", Annotations{ReadOnly: true},
+	register(s, TierRead, "check", "Reports its correlation id.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			seen = append(seen, vaultapi.CorrelationIDFrom(ctx))
 			return nil, pingOut{}, nil
@@ -210,7 +210,7 @@ func TestRegister_LogsOneLinePerCall(t *testing.T) {
 	s, err := New(Deps{Config: testConfig(), Logger: logger, Version: "test"})
 	require.NoError(t, err)
 
-	register(s, "ping", "Echoes.", Annotations{ReadOnly: true},
+	register(s, TierRead, "ping", "Echoes.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{Echo: in.Message}, nil
 		})
@@ -236,7 +236,7 @@ func TestRegister_LogsFailureOutcome(t *testing.T) {
 	s, err := New(Deps{Config: testConfig(), Logger: logger, Version: "test"})
 	require.NoError(t, err)
 
-	register(s, "failing", "Always fails.", Annotations{ReadOnly: true},
+	register(s, TierRead, "failing", "Always fails.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return errorResult("no such secret"), pingOut{}, nil
 		})
@@ -259,7 +259,7 @@ func TestRegister_LogLineNeverContainsArguments(t *testing.T) {
 	s, err := New(Deps{Config: testConfig(), Logger: logger, Version: "test"})
 	require.NoError(t, err)
 
-	register(s, "ping", "Echoes.", Annotations{ReadOnly: true},
+	register(s, TierRead, "ping", "Echoes.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{}, nil
 		})

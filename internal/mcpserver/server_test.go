@@ -36,7 +36,7 @@ func TestServer_RegistersNoToolsByDefault(t *testing.T) {
 
 func TestRegister_ExposesTheToolOverTheProtocol(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "ping", "Echo a message back.", Annotations{ReadOnly: true, Idempotent: true},
+	register(s, TierRead, "ping", "Echo a message back.", Annotations{ReadOnly: true, Idempotent: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{Echo: in.Message}, nil
 		})
@@ -48,7 +48,7 @@ func TestRegister_ExposesTheToolOverTheProtocol(t *testing.T) {
 
 func TestRegister_RoundTripsTypedArgumentsAndResults(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "ping", "Echo a message back.", Annotations{ReadOnly: true, Idempotent: true},
+	register(s, TierRead, "ping", "Echo a message back.", Annotations{ReadOnly: true, Idempotent: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{Echo: "you said: " + in.Message}, nil
 		})
@@ -68,7 +68,7 @@ func TestRegister_RoundTripsTypedArgumentsAndResults(t *testing.T) {
 
 func TestRegister_InfersInputAndOutputSchemas(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "ping", "Echo a message back.", Annotations{ReadOnly: true},
+	register(s, TierRead, "ping", "Echo a message back.", Annotations{ReadOnly: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{}, nil
 		})
@@ -83,7 +83,7 @@ func TestRegister_InfersInputAndOutputSchemas(t *testing.T) {
 
 func TestRegister_ReadOnlyToolIsNotAdvertisedAsDestructive(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "ping", "Echo a message back.", Annotations{ReadOnly: true, Idempotent: true},
+	register(s, TierRead, "ping", "Echo a message back.", Annotations{ReadOnly: true, Idempotent: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{}, nil
 		})
@@ -104,7 +104,7 @@ func TestRegister_ReadOnlyToolIsNotAdvertisedAsDestructive(t *testing.T) {
 
 func TestRegister_DestructiveToolIsAdvertisedAsSuch(t *testing.T) {
 	s := newTestServer(t)
-	register(s, "purge", "Purge an item.", Annotations{Destructive: true},
+	register(s, TierDestructive, "purge", "Purge an item.", Annotations{Destructive: true},
 		func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 			return nil, pingOut{}, nil
 		})
@@ -122,7 +122,7 @@ func TestRegister_DestructiveToolIsAdvertisedAsSuch(t *testing.T) {
 func TestRegister_KeepsRegisteredToolsSorted(t *testing.T) {
 	s := newTestServer(t)
 	for _, name := range []string{"zebra", "alpha", "middle"} {
-		register(s, name, "A tool.", Annotations{ReadOnly: true},
+		register(s, TierRead, name, "A tool.", Annotations{ReadOnly: true},
 			func(ctx context.Context, req *mcp.CallToolRequest, in pingIn) (*mcp.CallToolResult, pingOut, error) {
 				return nil, pingOut{}, nil
 			})

@@ -58,7 +58,7 @@ func registerIf[In, Out any](s *Server, tier Tier, name, description string, ann
 	if !s.TierEnabled(tier) {
 		return
 	}
-	register(s, name, description, ann, h)
+	register(s, tier, name, description, ann, h)
 }
 
 // ResolveVault decides which vault a call targets.
