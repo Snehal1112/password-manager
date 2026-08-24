@@ -108,8 +108,8 @@ func (f *fakeVaultRepo) Purge(_ context.Context, id uuid.UUID) error {
 
 type noopCascade struct {
 	soft, recover, purge int
-	protected             bool
-	protectedErr          error
+	protected            bool
+	protectedErr         error
 }
 
 func (n *noopCascade) SoftDeleteVaultContents(context.Context, uuid.UUID, time.Time) error {
@@ -188,6 +188,26 @@ func TestPurgeVault_RefusedWhenProtected(t *testing.T) {
 	svc := NewVaultService(repo, &noopCascade{}, nil)
 	if err := svc.PurgeVault(context.Background(), "p"); err == nil {
 		t.Fatal("expected purge refusal when purge protection is on")
+	}
+}
+
+// TestPurgeVault_RefusedWhenGlobalPurgeProtectionEnabled pins the
+// instance-wide soft_delete.purge_protection safety switch: it refuses the
+// purge before any repository call, regardless of the vault's own
+// purge_protection flag.
+func TestPurgeVault_RefusedWhenGlobalPurgeProtectionEnabled(t *testing.T) {
+	repo := newFakeRepo()
+	id := uuid.New()
+	repo.byName["p"] = &model.Vault{ID: id, Name: "p"}
+	repo.byID[id.String()] = repo.byName["p"]
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+	svc.SetGlobalPurgeProtection(true)
+	err := svc.PurgeVault(context.Background(), "p")
+	if err == nil {
+		t.Fatal("expected purge refusal when global purge protection is on")
+	}
+	if !errors.Is(err, model.ErrGlobalPurgeProtectionEnabled) {
+		t.Fatalf("expected model.ErrGlobalPurgeProtectionEnabled, got %v", err)
 	}
 }
 

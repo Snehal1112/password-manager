@@ -422,6 +422,24 @@ func TestUpdateSecretSetsPurgeProtectionWhenRequested(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+// TestPurgeSecretBlockedWhenGlobalPurgeProtectionEnabled pins the
+// instance-wide soft_delete.purge_protection safety switch: it refuses the
+// purge before any repository call, regardless of the secret's or its
+// vault's own purge_protection flag.
+func TestPurgeSecretBlockedWhenGlobalPurgeProtectionEnabled(t *testing.T) {
+	repo, svc := newScopeServiceFixture(t)
+	svc.globalPurgeProtection = true
+	ctx := context.Background()
+
+	secretID := uuid.New()
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	err := svc.PurgeSecret(ctx, secretID, scope)
+	assert.ErrorIs(t, err, repositories.ErrGlobalPurgeProtectionEnabled)
+	repo.AssertNotCalled(t, "List", mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "PurgeSecret", mock.Anything, mock.Anything)
+}
+
 func TestPurgeSecretBlockedWhenVaultIsPurgeProtected(t *testing.T) {
 	repo, svc := newScopeServiceFixture(t)
 	ctx := context.Background()

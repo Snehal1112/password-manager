@@ -183,6 +183,10 @@ type secretService struct {
 	// vaultRepo is optional. When set, PurgeSecret refuses to purge a secret
 	// whose containing vault has purge protection enabled.
 	vaultRepo repositories.VaultRepositoryInterface
+	// globalPurgeProtection mirrors soft_delete.purge_protection. When true,
+	// PurgeSecret refuses every purge instance-wide, regardless of this
+	// secret's or its vault's own purge_protection flag.
+	globalPurgeProtection bool
 }
 
 // SecretServiceConfig holds the dependencies for secret service.
@@ -195,6 +199,9 @@ type SecretServiceConfig struct {
 	// VaultRepository is optional; it enables the vault-level purge-protection
 	// cascade check in PurgeSecret.
 	VaultRepository repositories.VaultRepositoryInterface
+	// GlobalPurgeProtection mirrors soft_delete.purge_protection. See
+	// secretService.globalPurgeProtection.
+	GlobalPurgeProtection bool
 }
 
 // NewSecretService creates a new SecretService with the provided dependencies.
@@ -209,12 +216,13 @@ type SecretServiceConfig struct {
 //	A SecretService implementation for secret management operations.
 func NewSecretService(config SecretServiceConfig) SecretService {
 	return &secretService{
-		secretRepo:     config.SecretRepository,
-		cryptoService:  config.CryptoService,
-		versionService: config.VersionService,
-		tagService:     config.TagService,
-		logger:         config.Logger,
-		vaultRepo:      config.VaultRepository,
+		secretRepo:            config.SecretRepository,
+		cryptoService:         config.CryptoService,
+		versionService:        config.VersionService,
+		tagService:            config.TagService,
+		logger:                config.Logger,
+		vaultRepo:             config.VaultRepository,
+		globalPurgeProtection: config.GlobalPurgeProtection,
 	}
 }
 
@@ -934,6 +942,12 @@ func (s *secretService) RecoverSecret(ctx context.Context, secretID uuid.UUID, s
 
 // PurgeSecret permanently deletes a soft-deleted secret authorized by scope.
 func (s *secretService) PurgeSecret(ctx context.Context, secretID uuid.UUID, scope model.Scope) error {
+	if s.globalPurgeProtection {
+		s.logger.LogAuditError(scope.ActorID().String(), "purge_secret", "failed",
+			"Global purge protection is enabled", nil)
+		return repositories.ErrGlobalPurgeProtectionEnabled
+	}
+
 	inScope, err := s.softDeletedInScope(ctx, secretID, scope)
 	if err != nil {
 		return err

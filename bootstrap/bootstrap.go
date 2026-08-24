@@ -307,15 +307,9 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		b.cfg.Logger.Info("Metrics collector started")
 	}
 
-	// Step 2b: Start background purge scheduler when soft-delete is enabled.
+	// Step 2b: Load soft-delete config for the purge scheduler, started below
+	// once the service container's VaultService is available (Step 3).
 	softDeleteCfg := config.LoadSoftDeleteConfig()
-	if softDeleteCfg.Enabled {
-		dialect := db.DialectFromDriver(viper.GetString("database.driver"))
-		conn := db.NewConn(database.GetDB(), dialect)
-		b.purgeScheduler = softdelete.NewPurgeScheduler(conn, softDeleteCfg, b.cfg.Logger)
-		b.purgeScheduler.Start(ctx)
-		b.cfg.Logger.Info("Soft-delete purge scheduler started")
-	}
 
 	// Step 3: Initialize service container (SRP: dependency injection)
 	serviceContainer, err := container.NewServiceContainer(container.Config{
@@ -326,6 +320,17 @@ func (b *bootstrap) setup(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("service container initialization failed: %w", err)
 	}
 	b.serviceContainer = serviceContainer
+
+	// Step 3a: Start background purge scheduler when soft-delete is enabled.
+	// Constructed after the service container so it can auto-purge expired
+	// vaults through VaultService, not just secrets/keys/certificates.
+	if softDeleteCfg.Enabled {
+		dialect := db.DialectFromDriver(viper.GetString("database.driver"))
+		conn := db.NewConn(database.GetDB(), dialect)
+		b.purgeScheduler = softdelete.NewPurgeScheduler(conn, softDeleteCfg, b.cfg.Logger, b.serviceContainer.GetVaultService())
+		b.purgeScheduler.Start(ctx)
+		b.cfg.Logger.Info("Soft-delete purge scheduler started")
+	}
 
 	// Step 2c: Start certificate renewal scheduler, if enabled.
 	if sc := b.serviceContainer.GetCertificateRenewalService(); sc != nil && b.rotationCfg.Certificates.Enabled {

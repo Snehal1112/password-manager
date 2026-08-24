@@ -439,6 +439,24 @@ func TestUpdateKey_SetsPurgeProtectionWhenRequested(t *testing.T) {
 
 // TestPurgeKey_BlockedWhenVaultIsPurgeProtected verifies vault-level purge
 // protection cascades to the per-key purge path.
+// TestPurgeKey_BlockedWhenGlobalPurgeProtectionEnabled pins the
+// instance-wide soft_delete.purge_protection safety switch: it refuses the
+// purge before any repository call, regardless of the key's or its vault's
+// own purge_protection flag.
+func TestPurgeKey_BlockedWhenGlobalPurgeProtectionEnabled(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	keyID := uuid.New()
+
+	repo := &mockKeyRepository{}
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewKeyService(KeyServiceConfig{KeyRepository: repo, Logger: logger, GlobalPurgeProtection: true})
+
+	err := svc.PurgeKey(context.Background(), keyID, scope)
+	assert.ErrorIs(t, err, repositories.ErrGlobalPurgeProtectionEnabled)
+	repo.AssertNotCalled(t, "List", mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "PurgeKey", mock.Anything, mock.Anything)
+}
+
 func TestPurgeKey_BlockedWhenVaultIsPurgeProtected(t *testing.T) {
 	vaultID := uuid.New()
 	keyID := uuid.New()

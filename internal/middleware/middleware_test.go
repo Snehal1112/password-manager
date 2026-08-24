@@ -113,6 +113,7 @@ func (s *stubVaultService) SetWebhookCleaner(_ vaultServices.WebhookCleaner)    
 func (s *stubVaultService) SetTxBeginner(_ vaultServices.TxBeginner)                 {}
 func (s *stubVaultService) SetSecretCacheFlusher(_ vaultServices.SecretCacheFlusher) {}
 func (s *stubVaultService) SetVaultCache(_ vaultServices.VaultCacheInterface)        {}
+func (s *stubVaultService) SetGlobalPurgeProtection(_ bool)                          {}
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {

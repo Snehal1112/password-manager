@@ -21,6 +21,8 @@ func writeSecretError(c *Context, err error) {
 		c.SetNotFound("secret")
 	case errors.Is(err, model.ErrSecretPurgeProtected):
 		c.SetPermissionError("secret has purge protection enabled (directly or via its vault)")
+	case errors.Is(err, model.ErrGlobalPurgeProtectionEnabled):
+		c.SetPermissionError(err.Error())
 	case errors.Is(err, secrets.ErrExportPassphraseRequired):
 		c.SetInvalidParam("passphrase: required to produce an encrypted export (encrypt is true, or a passphrase was supplied)")
 	case errors.Is(err, common.ErrPassphraseRequired):

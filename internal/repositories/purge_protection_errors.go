@@ -17,3 +17,8 @@ var ErrKeyPurgeProtected = model.ErrKeyPurgeProtected
 // because the certificate itself, or the vault containing it, has purge
 // protection enabled. Aliases model.ErrCertPurgeProtected.
 var ErrCertPurgeProtected = model.ErrCertPurgeProtected
+
+// ErrGlobalPurgeProtectionEnabled is returned when a purge operation refuses
+// to act because the instance-wide soft_delete.purge_protection switch is
+// enabled. Aliases model.ErrGlobalPurgeProtectionEnabled.
+var ErrGlobalPurgeProtectionEnabled = model.ErrGlobalPurgeProtectionEnabled

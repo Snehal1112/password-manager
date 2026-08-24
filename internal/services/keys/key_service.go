@@ -154,6 +154,10 @@ type keyService struct {
 	// vaultRepo is optional. When set, PurgeKey refuses to purge a key whose
 	// containing vault has purge protection enabled.
 	vaultRepo repositories.VaultRepositoryInterface
+	// globalPurgeProtection mirrors soft_delete.purge_protection. When true,
+	// PurgeKey refuses every purge instance-wide, regardless of this key's or
+	// its vault's own purge_protection flag.
+	globalPurgeProtection bool
 }
 
 // KeyServiceConfig holds the dependencies for key service.
@@ -168,6 +172,9 @@ type KeyServiceConfig struct {
 	// VaultRepository is optional; it enables the vault-level purge-protection
 	// cascade check in PurgeKey.
 	VaultRepository repositories.VaultRepositoryInterface
+	// GlobalPurgeProtection mirrors soft_delete.purge_protection. See
+	// keyService.globalPurgeProtection.
+	GlobalPurgeProtection bool
 }
 
 // NewKeyService creates a new KeyService with the provided dependencies.
@@ -185,12 +192,13 @@ func NewKeyService(config KeyServiceConfig) KeyService {
 		config.KeyCache = keycache.NewNopCache()
 	}
 	return &keyService{
-		keyRepo:     config.KeyRepository,
-		keyProvider: config.KeyProvider,
-		keyCache:    config.KeyCache,
-		policyRepo:  config.PolicyRepository,
-		logger:      config.Logger,
-		vaultRepo:   config.VaultRepository,
+		keyRepo:               config.KeyRepository,
+		keyProvider:           config.KeyProvider,
+		keyCache:              config.KeyCache,
+		policyRepo:            config.PolicyRepository,
+		logger:                config.Logger,
+		vaultRepo:             config.VaultRepository,
+		globalPurgeProtection: config.GlobalPurgeProtection,
 	}
 }
 
@@ -819,6 +827,12 @@ func (s *keyService) RecoverKey(ctx context.Context, keyID uuid.UUID, scope mode
 
 // PurgeKey permanently deletes a soft-deleted key authorized by scope.
 func (s *keyService) PurgeKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
+	if s.globalPurgeProtection {
+		s.logger.LogAuditError(scope.ActorID().String(), "purge_key", "failed",
+			"Global purge protection is enabled", nil)
+		return repositories.ErrGlobalPurgeProtectionEnabled
+	}
+
 	inScope, err := s.keyDeletedInScope(ctx, keyID, scope)
 	if err != nil {
 		return err

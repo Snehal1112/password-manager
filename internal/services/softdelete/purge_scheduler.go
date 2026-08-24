@@ -10,20 +10,34 @@ import (
 	"rocketvault/config"
 	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/logging"
+	"rocketvault/model"
 )
+
+// VaultPurger lists and purges vaults. Satisfied by
+// internal/services/vaults.VaultService's ListVaults/PurgeVault methods -- a
+// narrow interface naming exactly what this scheduler needs, rather than
+// importing the vaults service package.
+type VaultPurger interface {
+	ListVaults(ctx context.Context, includeDeleted bool) ([]model.Vault, error)
+	PurgeVault(ctx context.Context, name string) error
+}
 
 // PurgeScheduler runs daily and permanently deletes soft-deleted items
 // whose retention period has expired and purge_protection is false.
 type PurgeScheduler struct {
-	db   rvdb.DB
-	cfg  config.SoftDeleteConfig
-	log  *logging.Logger
-	done chan struct{}
+	db     rvdb.DB
+	cfg    config.SoftDeleteConfig
+	log    *logging.Logger
+	done   chan struct{}
+	vaults VaultPurger
 }
 
-// NewPurgeScheduler creates a new PurgeScheduler.
-func NewPurgeScheduler(db rvdb.DB, cfg config.SoftDeleteConfig, log *logging.Logger) *PurgeScheduler {
-	return &PurgeScheduler{db: db, cfg: cfg, log: log, done: make(chan struct{})}
+// NewPurgeScheduler creates a new PurgeScheduler. vaults may be nil, in
+// which case vault auto-purge is skipped (secrets/keys/certificates are
+// still swept normally) -- tests that don't exercise vault behavior are not
+// required to supply one.
+func NewPurgeScheduler(db rvdb.DB, cfg config.SoftDeleteConfig, log *logging.Logger, vaults VaultPurger) *PurgeScheduler {
+	return &PurgeScheduler{db: db, cfg: cfg, log: log, done: make(chan struct{}), vaults: vaults}
 }
 
 // Start launches the scheduler in a background goroutine.
@@ -55,8 +69,15 @@ func (s *PurgeScheduler) run(ctx context.Context) {
 	}
 }
 
-// purgeExpired permanently deletes items past their retention period.
+// purgeExpired permanently deletes items past their retention period. When
+// soft_delete.purge_protection is enabled instance-wide, the entire sweep is
+// skipped -- no table is touched.
 func (s *PurgeScheduler) purgeExpired(ctx context.Context) {
+	if s.cfg.PurgeProtection {
+		s.log.Infof("auto-purge skipped: soft_delete.purge_protection is enabled")
+		return
+	}
+
 	cutoff := time.Now().AddDate(0, 0, -s.cfg.RetentionDays)
 	tables := []string{"secrets", "keys", "certificates"}
 	for _, table := range tables {
@@ -73,5 +94,51 @@ func (s *PurgeScheduler) purgeExpired(ctx context.Context) {
 		if n > 0 {
 			s.log.Infof("auto-purged %d expired items from %s", n, table)
 		}
+	}
+
+	s.purgeExpiredVaults(ctx)
+}
+
+// purgeExpiredVaults auto-purges soft-deleted vaults past their retention
+// window. Unlike secrets/keys/certificates (leaf rows, purged with a single
+// DELETE), a vault owns child rows, so each eligible vault is purged through
+// VaultPurger.PurgeVault, which re-checks protection and cascades correctly
+// -- a raw SQL delete here would either orphan the vault's contents or
+// require duplicating that cascade logic.
+//
+// Each vault's own RetentionDays overrides the global soft_delete.retention_days
+// when set (> 0); otherwise the global value applies, matching secrets/keys/certificates.
+func (s *PurgeScheduler) purgeExpiredVaults(ctx context.Context) {
+	if s.vaults == nil {
+		return
+	}
+
+	vaultList, err := s.vaults.ListVaults(ctx, true)
+	if err != nil {
+		s.log.WithError(err).Error("auto-purge failed to list vaults")
+		return
+	}
+
+	now := time.Now()
+	purged := 0
+	for _, v := range vaultList {
+		if v.DeletedAt == nil || v.PurgeProtection {
+			continue
+		}
+		retentionDays := v.RetentionDays
+		if retentionDays <= 0 {
+			retentionDays = s.cfg.RetentionDays
+		}
+		if !v.DeletedAt.AddDate(0, 0, retentionDays).Before(now) {
+			continue
+		}
+		if err := s.vaults.PurgeVault(ctx, v.Name); err != nil {
+			s.log.WithError(err).Errorf("auto-purge failed for vault %s", v.Name)
+			continue
+		}
+		purged++
+	}
+	if purged > 0 {
+		s.log.Infof("auto-purged %d expired vaults", purged)
 	}
 }

@@ -141,6 +141,11 @@ type ServiceContainer struct {
 	cacheConfig         rvconfig.CacheConfig
 	vaultCache          *vaultcache.Cache
 
+	// globalPurgeProtection mirrors soft_delete.purge_protection: when true,
+	// every purge operation (secret, key, certificate, vault; manual or
+	// scheduled) is refused instance-wide.
+	globalPurgeProtection bool
+
 	// Repositories
 	userRepository              repositories.UserRepositoryInterface
 	secretRepository            repositories.SecretRepositoryInterface
@@ -273,6 +278,12 @@ func (c *ServiceContainer) initializeServices() error {
 		viperCfg = viper.GetViper()
 	}
 
+	// Load the instance-wide purge safety switch. Read directly from Viper
+	// (like CacheConfig's no-override path) since every container -- HTTP
+	// bootstrap and the CLI's own container in cmd/root.go alike -- must see
+	// the same value.
+	c.globalPurgeProtection = rvconfig.LoadSoftDeleteConfig().PurgeProtection
+
 	// Initialize repositories (data layer). They receive the dialect-aware conn
 	// so every query is rebound for the active engine.
 	c.userRepository = repositories.NewUserRepository(c.conn, c.logger)
@@ -284,6 +295,7 @@ func (c *ServiceContainer) initializeServices() error {
 	c.vaultRepository = repositories.NewVaultRepository(c.conn, c.logger)
 	vaultCascade := vaultServices.NewCascadeAdapter(c.secretRepository, c.keyRepository, c.certificateRepository)
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
+	c.vaultService.SetGlobalPurgeProtection(c.globalPurgeProtection)
 	c.vaultService.SetTxBeginner(c.conn)
 	c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
 	c.vaultService.SetVaultCache(c.vaultCache)
@@ -491,12 +503,13 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize secret service
 	baseSecretService := secretServices.NewSecretService(secretServices.SecretServiceConfig{
-		SecretRepository: c.secretRepository,
-		CryptoService:    c.cryptoService,
-		VersionService:   c.versioningService,
-		TagService:       c.tagService,
-		Logger:           c.logger,
-		VaultRepository:  c.vaultRepository,
+		SecretRepository:      c.secretRepository,
+		CryptoService:         c.cryptoService,
+		VersionService:        c.versioningService,
+		TagService:            c.tagService,
+		Logger:                c.logger,
+		VaultRepository:       c.vaultRepository,
+		GlobalPurgeProtection: c.globalPurgeProtection,
 	})
 
 	// Wrap with retry logic if retry service is available
@@ -542,12 +555,13 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Initialize key service with cache for invalidation on mutations.
 	baseKeyService := keyServices.NewKeyService(keyServices.KeyServiceConfig{
-		KeyRepository:    c.keyRepository,
-		KeyProvider:      c.keyProvider,
-		KeyCache:         c.keyCache,
-		PolicyRepository: c.keyRotationPolicyRepository,
-		Logger:           c.logger,
-		VaultRepository:  c.vaultRepository,
+		KeyRepository:         c.keyRepository,
+		KeyProvider:           c.keyProvider,
+		KeyCache:              c.keyCache,
+		PolicyRepository:      c.keyRotationPolicyRepository,
+		Logger:                c.logger,
+		VaultRepository:       c.vaultRepository,
+		GlobalPurgeProtection: c.globalPurgeProtection,
 	})
 
 	// Wrap with retry logic if retry service is available.
@@ -574,6 +588,7 @@ func (c *ServiceContainer) initializeServices() error {
 		PolicyRepository:      c.certPolicyRepository,
 		Logger:                c.logger,
 		VaultRepository:       c.vaultRepository,
+		GlobalPurgeProtection: c.globalPurgeProtection,
 	})
 
 	// Wrap with retry logic if retry service is available.

@@ -27,6 +27,8 @@ func writeKeyError(c *Context, err error) {
 		c.SetNotFound("key")
 	case errors.Is(err, model.ErrKeyPurgeProtected):
 		c.SetPermissionError("key has purge protection enabled (directly or via its vault)")
+	case errors.Is(err, model.ErrGlobalPurgeProtectionEnabled):
+		c.SetPermissionError(err.Error())
 	case errors.Is(err, crypto.ErrOctKeysRequireHSM):
 		c.SetInvalidParam("type: OCT key creation requires an HSM-backed key provider (hsm.enabled: true)")
 	case errors.Is(err, crypto.ErrUnsupportedCurve):

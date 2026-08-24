@@ -655,6 +655,10 @@ func (m *MockVaultService) SetVaultCache(c vaultServices.VaultCacheInterface) {
 	m.Called(c)
 }
 
+func (m *MockVaultService) SetGlobalPurgeProtection(protected bool) {
+	m.Called(protected)
+}
+
 // ErrVaultNotFoundForTest is returned by test doubles standing in for a
 // vault-lookup failure; production code never checks for this sentinel.
 var ErrVaultNotFoundForTest = errors.New("test: vault not found")

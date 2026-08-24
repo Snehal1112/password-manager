@@ -591,6 +591,24 @@ func TestUpdateCertificate_SetsPurgeProtectionWhenRequested(t *testing.T) {
 
 // TestPurgeCertificate_BlockedWhenVaultIsPurgeProtected verifies vault-level
 // purge protection cascades to the per-certificate purge path.
+// TestPurgeCertificate_BlockedWhenGlobalPurgeProtectionEnabled pins the
+// instance-wide soft_delete.purge_protection safety switch: it refuses the
+// purge before any repository call, regardless of the certificate's or its
+// vault's own purge_protection flag.
+func TestPurgeCertificate_BlockedWhenGlobalPurgeProtectionEnabled(t *testing.T) {
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+	certID := uuid.New()
+
+	repo := &mockCertRepository{}
+	logger := &logging.Logger{Logger: logrus.New()}
+	svc := NewCertificateService(CertificateServiceConfig{CertificateRepository: repo, Logger: logger, GlobalPurgeProtection: true})
+
+	err := svc.PurgeCertificate(context.Background(), certID, scope)
+	assert.ErrorIs(t, err, repositories.ErrGlobalPurgeProtectionEnabled)
+	repo.AssertNotCalled(t, "List", mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "PurgeCertificate", mock.Anything, mock.Anything)
+}
+
 func TestPurgeCertificate_BlockedWhenVaultIsPurgeProtected(t *testing.T) {
 	vaultID := uuid.New()
 	certID := uuid.New()

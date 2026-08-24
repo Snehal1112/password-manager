@@ -130,17 +130,22 @@ type VaultService interface {
 	SetTxBeginner(tb TxBeginner)
 	SetSecretCacheFlusher(f SecretCacheFlusher)
 	SetVaultCache(c VaultCacheInterface)
+	// SetGlobalPurgeProtection mirrors soft_delete.purge_protection. When set
+	// true, PurgeVault refuses every purge instance-wide, regardless of this
+	// vault's or its contents' own purge_protection flag.
+	SetGlobalPurgeProtection(protected bool)
 }
 
 type vaultService struct {
-	repo        repositories.VaultRepositoryInterface
-	cascade     CascadeRepository
-	policies    PolicyCleaner
-	webhooks    WebhookCleaner
-	txBeginner  TxBeginner
-	secretCache SecretCacheFlusher
-	vaultCache  VaultCacheInterface
-	log         *logging.Logger
+	repo                  repositories.VaultRepositoryInterface
+	cascade               CascadeRepository
+	policies              PolicyCleaner
+	webhooks              WebhookCleaner
+	txBeginner            TxBeginner
+	secretCache           SecretCacheFlusher
+	vaultCache            VaultCacheInterface
+	log                   *logging.Logger
+	globalPurgeProtection bool
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
@@ -154,6 +159,10 @@ func (s *vaultService) SetPolicyCleaner(p PolicyCleaner) { s.policies = p }
 // SetWebhookCleaner attaches an optional cleaner that removes a vault's
 // webhook config on purge.
 func (s *vaultService) SetWebhookCleaner(c WebhookCleaner) { s.webhooks = c }
+
+// SetGlobalPurgeProtection sets the instance-wide purge safety switch. See
+// vaultService.globalPurgeProtection.
+func (s *vaultService) SetGlobalPurgeProtection(protected bool) { s.globalPurgeProtection = protected }
 
 // SetTxBeginner attaches an optional transaction beginner. When set,
 // DeleteVault/RecoverVault run their cascade atomically inside one
@@ -442,6 +451,9 @@ func (s *vaultService) RecoverVault(ctx context.Context, name string) error {
 
 // PurgeVault permanently removes a vault, refusing the default and purge-protected vaults.
 func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
+	if s.globalPurgeProtection {
+		return fmt.Errorf("vault %q: %w", name, model.ErrGlobalPurgeProtectionEnabled)
+	}
 	if name == model.DefaultVaultName {
 		return fmt.Errorf("the default vault cannot be purged: %w", ErrDefaultVaultProtected)
 	}

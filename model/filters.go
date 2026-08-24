@@ -59,6 +59,13 @@ var ErrKeyPurgeProtected = errors.New("key has purge protection enabled (directl
 // protection enabled.
 var ErrCertPurgeProtected = errors.New("certificate has purge protection enabled (directly or via its vault)")
 
+// ErrGlobalPurgeProtectionEnabled is returned when a purge operation (secret,
+// key, certificate, or vault; manual or scheduled) refuses to act because the
+// operator has enabled the instance-wide soft_delete.purge_protection safety
+// switch. This is independent of any resource's own purge_protection flag —
+// it blocks every purge regardless of per-item settings.
+var ErrGlobalPurgeProtectionEnabled = errors.New("purge refused: soft_delete.purge_protection is enabled instance-wide")
+
 // ErrKeyVersionNotFound is returned when a requested key version does not
 // exist (or is not visible to the requesting owner). Propagates unwrapped to
 // callers — same pattern as ErrKeyPurgeProtected above.

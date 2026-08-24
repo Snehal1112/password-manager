@@ -132,6 +132,10 @@ type certificateService struct {
 	// vaultRepo is optional. When set, PurgeCertificate refuses to purge a
 	// certificate whose containing vault has purge protection enabled.
 	vaultRepo repositories.VaultRepositoryInterface
+	// globalPurgeProtection mirrors soft_delete.purge_protection. When true,
+	// PurgeCertificate refuses every purge instance-wide, regardless of this
+	// certificate's or its vault's own purge_protection flag.
+	globalPurgeProtection bool
 }
 
 // CertificateServiceConfig holds the dependencies for certificate service.
@@ -143,6 +147,9 @@ type CertificateServiceConfig struct {
 	// VaultRepository is optional; it enables the vault-level purge-protection
 	// cascade check in PurgeCertificate.
 	VaultRepository repositories.VaultRepositoryInterface
+	// GlobalPurgeProtection mirrors soft_delete.purge_protection. See
+	// certificateService.globalPurgeProtection.
+	GlobalPurgeProtection bool
 }
 
 // NewCertificateService creates a new CertificateService with the provided dependencies.
@@ -157,11 +164,12 @@ type CertificateServiceConfig struct {
 //	A CertificateService implementation for certificate management operations.
 func NewCertificateService(config CertificateServiceConfig) CertificateService {
 	return &certificateService{
-		certRepo:   config.CertificateRepository,
-		keyRepo:    config.KeyRepository,
-		policyRepo: config.PolicyRepository,
-		logger:     config.Logger,
-		vaultRepo:  config.VaultRepository,
+		certRepo:              config.CertificateRepository,
+		keyRepo:               config.KeyRepository,
+		policyRepo:            config.PolicyRepository,
+		logger:                config.Logger,
+		vaultRepo:             config.VaultRepository,
+		globalPurgeProtection: config.GlobalPurgeProtection,
 	}
 }
 
@@ -693,6 +701,12 @@ func (s *certificateService) RecoverCertificate(ctx context.Context, certID uuid
 
 // PurgeCertificate permanently deletes a soft-deleted certificate authorized by scope.
 func (s *certificateService) PurgeCertificate(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	if s.globalPurgeProtection {
+		s.logger.LogAuditError(scope.ActorID().String(), "purge_certificate", "failed",
+			"Global purge protection is enabled", nil)
+		return repositories.ErrGlobalPurgeProtectionEnabled
+	}
+
 	inScope, err := s.certDeletedInScope(ctx, certID, scope)
 	if err != nil {
 		return err
