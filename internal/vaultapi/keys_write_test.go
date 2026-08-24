@@ -136,3 +136,128 @@ func TestCreateKey_CarriesNoPrivateMaterial(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "LEAKED")
 }
+
+func TestRotateKey_PostsToTheRotateRoute(t *testing.T) {
+	srv, probe := probeServer(t,
+		`{"keys":[{"id":"`+rsaKeyID+`","name":"signing-key"}]}`,
+		http.StatusOK,
+		`{"id":"`+rsaKeyID+`","name":"signing-key","type":"RSA"}`)
+
+	c := newClientForTest(t, srv)
+	got, err := c.RotateKey(context.Background(), "prod", "signing-key")
+	require.NoError(t, err)
+
+	require.Equal(t, http.MethodPost, probe.method)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/rotate", probe.path)
+	require.Equal(t, "signing-key", got.Name)
+}
+
+func TestRotateKey_SendsNoBody(t *testing.T) {
+	srv, probe := probeServer(t,
+		`{"keys":[{"id":"`+rsaKeyID+`","name":"signing-key"}]}`,
+		http.StatusOK, `{"id":"`+rsaKeyID+`","name":"signing-key"}`)
+
+	c := newClientForTest(t, srv)
+	_, err := c.RotateKey(context.Background(), "prod", "signing-key")
+	require.NoError(t, err)
+	require.Empty(t, probe.body, "the rotate route takes no body")
+}
+
+func TestRotateKey_AcceptsAUUID(t *testing.T) {
+	srv, probe := probeServer(t, `{"keys":[]}`, http.StatusOK, `{"id":"`+rsaKeyID+`","name":"k"}`)
+
+	c := newClientForTest(t, srv)
+	_, err := c.RotateKey(context.Background(), "prod", rsaKeyID)
+	require.NoError(t, err)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/rotate", probe.path)
+}
+
+func TestRotateKey_UnknownNameIsNotFound(t *testing.T) {
+	srv, probe := probeServer(t, `{"keys":[]}`, http.StatusOK, `{}`)
+
+	c := newClientForTest(t, srv)
+	_, err := c.RotateKey(context.Background(), "prod", "nope")
+	require.ErrorIs(t, err, ErrResourceNotFound)
+	require.Zero(t, probe.calls, "an unresolvable name must not produce a rotate call")
+}
+
+func TestRotateKey_IsAttemptedExactlyOnce(t *testing.T) {
+	srv, probe := probeServer(t,
+		`{"keys":[{"id":"`+rsaKeyID+`","name":"signing-key"}]}`,
+		http.StatusInternalServerError, `{}`)
+
+	c := newClientForTest(t, srv)
+	_, err := c.RotateKey(context.Background(), "prod", "signing-key")
+	require.Error(t, err)
+	require.Equal(t, 1, probe.calls,
+		"retrying a lost-response rotate would create a second key version")
+}
+
+func TestUpsertKeyRotationPolicy_PutsAllFourFields(t *testing.T) {
+	srv, probe := probeServer(t,
+		`{"keys":[{"id":"`+rsaKeyID+`","name":"signing-key"}]}`,
+		http.StatusOK,
+		`{"key_id":"`+rsaKeyID+`","rotate_after_days":90,"notify_before_expiry_days":14,
+		  "expiry_days":365,"enabled":true,"next_rotation_at":"2026-11-01T00:00:00Z"}`)
+
+	c := newClientForTest(t, srv)
+	got, err := c.UpsertKeyRotationPolicy(context.Background(), "prod", "signing-key",
+		SetKeyRotationPolicyRequest{
+			RotateAfterDays: 90, NotifyBeforeExpiryDays: 14, ExpiryDays: 365, Enabled: true,
+		})
+	require.NoError(t, err)
+
+	require.Equal(t, http.MethodPut, probe.method)
+	require.Equal(t, "/api/v1/vaults/prod/keys/"+rsaKeyID+"/rotationpolicy", probe.path)
+	require.EqualValues(t, 90, probe.body["rotate_after_days"])
+	require.EqualValues(t, 14, probe.body["notify_before_expiry_days"])
+	require.EqualValues(t, 365, probe.body["expiry_days"])
+	require.Equal(t, true, probe.body["enabled"])
+	require.Equal(t, 90, got.RotateAfterDays)
+}
+
+func TestUpsertKeyRotationPolicy_SendsZeroesRatherThanOmitting(t *testing.T) {
+	// The server's request type has no pointers, so an upsert is always a
+	// full replacement. Omitting a field would be a lie about what happens.
+	srv, probe := probeServer(t,
+		`{"keys":[{"id":"`+rsaKeyID+`","name":"signing-key"}]}`,
+		http.StatusOK, `{"key_id":"`+rsaKeyID+`"}`)
+
+	c := newClientForTest(t, srv)
+	_, err := c.UpsertKeyRotationPolicy(context.Background(), "prod", "signing-key",
+		SetKeyRotationPolicyRequest{RotateAfterDays: 30})
+	require.NoError(t, err)
+
+	for _, field := range []string{"rotate_after_days", "notify_before_expiry_days", "expiry_days", "enabled"} {
+		_, present := probe.body[field]
+		require.True(t, present, "field %q must be sent: this is a full replacement", field)
+	}
+	require.EqualValues(t, 0, probe.body["expiry_days"])
+}
+
+func TestUpsertKeyRotationPolicy_RequiresVaultAndName(t *testing.T) {
+	srv, probe := probeServer(t, `{"keys":[]}`, http.StatusOK, `{}`)
+	c := newClientForTest(t, srv)
+
+	_, err := c.UpsertKeyRotationPolicy(context.Background(), "", "k", SetKeyRotationPolicyRequest{})
+	require.ErrorContains(t, err, "vault is required")
+
+	_, err = c.UpsertKeyRotationPolicy(context.Background(), "prod", "", SetKeyRotationPolicyRequest{})
+	require.ErrorContains(t, err, "name is required")
+
+	require.Zero(t, probe.calls)
+}
+
+func TestUpsertKeyRotationPolicy_ForbiddenSurfacesTheCryptoOfficerHint(t *testing.T) {
+	srv, _ := probeServer(t,
+		`{"keys":[{"id":"`+rsaKeyID+`","name":"signing-key"}]}`,
+		http.StatusForbidden, `{}`)
+
+	c := newClientForTest(t, srv)
+	_, err := c.UpsertKeyRotationPolicy(context.Background(), "prod", "signing-key",
+		SetKeyRotationPolicyRequest{RotateAfterDays: 90})
+
+	var apiErr *APIError
+	require.ErrorAs(t, err, &apiErr)
+	require.Contains(t, apiErr.Hint, "Key Vault Crypto Officer")
+}
