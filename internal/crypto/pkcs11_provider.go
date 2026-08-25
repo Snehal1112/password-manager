@@ -329,7 +329,19 @@ func (p *PKCS11KeyProvider) ImportKey(_ context.Context, keyType string, private
 		if err != nil {
 			return "", fmt.Errorf("marshal ec params: %w", err)
 		}
-		ecPoint, err := asn1.Marshal(elliptic.Marshal(key.Curve, key.X, key.Y))
+		// elliptic.Marshal is deprecated since Go 1.21; ecdh.PublicKey.Bytes()
+		// is the replacement, producing the identical uncompressed-point wire
+		// format (0x04 || X || Y) PKCS#11 expects for CKA_EC_POINT. Safe here
+		// specifically because curveNameFor (above) already restricted
+		// key.Curve to the NIST curves crypto/ecdh supports (P-256/P-384/
+		// P-521) -- ECDH() only fails for curves it doesn't recognize or a
+		// point at infinity, neither of which can occur for a validly
+		// generated key on one of those curves.
+		ecdhPub, err := key.PublicKey.ECDH()
+		if err != nil {
+			return "", fmt.Errorf("pkcs11 import: invalid EC public key: %w", err)
+		}
+		ecPoint, err := asn1.Marshal(ecdhPub.Bytes())
 		if err != nil {
 			return "", fmt.Errorf("marshal ec point: %w", err)
 		}
