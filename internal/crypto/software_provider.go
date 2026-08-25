@@ -2,7 +2,13 @@ package crypto
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"fmt"
 )
 
 // ErrOctKeysRequireHSM is returned by SoftwareKeyProvider.GenerateAESKey.
@@ -38,6 +44,37 @@ func (p *SoftwareKeyProvider) GenerateECDSAKey(_ context.Context, curveName stri
 // GenerateAESKey always fails: see ErrOctKeysRequireHSM.
 func (p *SoftwareKeyProvider) GenerateAESKey(_ context.Context, _ int) (string, error) {
 	return "", ErrOctKeysRequireHSM
+}
+
+// ImportKey PEM-encodes externally-supplied key material, matching
+// GenerateRSAKey/GenerateECDSAKey's existing "handle is PEM" contract.
+// keyType must be "RSA" or "ECDSA" and must match the actual privateKey type.
+func (p *SoftwareKeyProvider) ImportKey(_ context.Context, keyType string, privateKey crypto.PrivateKey) (string, error) {
+	switch keyType {
+	case "RSA":
+		rsaKey, ok := privateKey.(*rsa.PrivateKey)
+		if !ok {
+			return "", fmt.Errorf("ImportKey: keyType=%q but privateKey is not *rsa.PrivateKey", keyType)
+		}
+		der := x509.MarshalPKCS1PrivateKey(rsaKey)
+		block := &pem.Block{Type: "RSA PRIVATE KEY", Bytes: der}
+		return string(pem.EncodeToMemory(block)), nil
+
+	case "ECDSA":
+		ecdsaKey, ok := privateKey.(*ecdsa.PrivateKey)
+		if !ok {
+			return "", fmt.Errorf("ImportKey: keyType=%q but privateKey is not *ecdsa.PrivateKey", keyType)
+		}
+		der, err := x509.MarshalECPrivateKey(ecdsaKey)
+		if err != nil {
+			return "", fmt.Errorf("marshal imported ECDSA key: %w", err)
+		}
+		block := &pem.Block{Type: "EC PRIVATE KEY", Bytes: der}
+		return string(pem.EncodeToMemory(block)), nil
+
+	default:
+		return "", fmt.Errorf("ImportKey: unsupported keyType=%q (must be RSA or ECDSA)", keyType)
+	}
 }
 
 // Sign signs data using the key PEM stored in handle.

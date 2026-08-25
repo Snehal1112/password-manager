@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"context"
+	"crypto"
 )
 
 // KeyProvider abstracts key generation and raw crypto operations.
@@ -22,6 +23,12 @@ type KeyProvider interface {
 	// key creation to Managed HSM, never Standard/Premium vaults, and
 	// SoftwareKeyProvider mirrors that by always returning ErrOctKeysRequireHSM.
 	GenerateAESKey(ctx context.Context, bits int) (handle string, err error)
+
+	// ImportKey imports externally-generated key material and returns an
+	// opaque handle in the same shape GenerateRSAKey/GenerateECDSAKey return
+	// -- PEM for SoftwareKeyProvider, a CKA_LABEL for PKCS11KeyProvider.
+	// keyType is "RSA" or "ECDSA".
+	ImportKey(ctx context.Context, keyType string, privateKey crypto.PrivateKey) (handle string, err error)
 
 	// Sign signs data with the key identified by handle using the given algorithm.
 	Sign(ctx context.Context, handle string, keyType string, data []byte, algorithm SignatureAlgorithm) ([]byte, error)

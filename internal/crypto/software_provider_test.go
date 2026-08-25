@@ -3,6 +3,12 @@ package crypto_test
 import (
 	"context"
 	gocrypto "crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,6 +80,57 @@ func TestSoftwareKeyProvider_Encrypt_Decrypt_RSA_OAEP(t *testing.T) {
 func TestSoftwareKeyProvider_Close_NoError(t *testing.T) {
 	p := crypto.NewSoftwareKeyProvider()
 	assert.NoError(t, p.Close())
+}
+
+func TestSoftwareKeyProvider_ImportKey_RSA(t *testing.T) {
+	p := crypto.NewSoftwareKeyProvider()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	handle, err := p.ImportKey(context.Background(), "RSA", priv)
+	require.NoError(t, err)
+	assert.NotEmpty(t, handle)
+
+	block, _ := pem.Decode([]byte(handle))
+	require.NotNil(t, block, "handle must be PEM, matching GenerateRSAKey's contract")
+	assert.Equal(t, "RSA PRIVATE KEY", block.Type, "block type must match GenerateRSAKeyPEM")
+	parsedKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	require.NoError(t, err)
+	assert.Equal(t, priv.N, parsedKey.N)
+}
+
+func TestSoftwareKeyProvider_ImportKey_ECDSA(t *testing.T) {
+	p := crypto.NewSoftwareKeyProvider()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	handle, err := p.ImportKey(context.Background(), "ECDSA", priv)
+	require.NoError(t, err)
+
+	block, _ := pem.Decode([]byte(handle))
+	require.NotNil(t, block)
+	assert.Equal(t, "EC PRIVATE KEY", block.Type, "block type must match GenerateECDSAKeyPEM")
+	parsedKey, err := x509.ParseECPrivateKey(block.Bytes)
+	require.NoError(t, err)
+	assert.Equal(t, priv.D, parsedKey.D)
+}
+
+func TestSoftwareKeyProvider_ImportKey_MismatchedKeyType_ReturnsError(t *testing.T) {
+	p := crypto.NewSoftwareKeyProvider()
+	ecdsaPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	_, err = p.ImportKey(context.Background(), "RSA", ecdsaPriv)
+	require.Error(t, err)
+}
+
+func TestSoftwareKeyProvider_ImportKey_UnsupportedKeyType_ReturnsError(t *testing.T) {
+	p := crypto.NewSoftwareKeyProvider()
+	rsaPriv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	_, err = p.ImportKey(context.Background(), "UNSUPPORTED", rsaPriv)
+	require.Error(t, err)
 }
 
 // Compile-time interface check.
