@@ -558,6 +558,74 @@ func TestImportKey_InvalidJWK_Returns400(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
+// TestImportKey_ExpiresAtAndNotBefore_ReachService pins that ImportKeyRequest
+// (the API-level struct) threads expires_at/not_before through to the
+// service-layer keyservices.ImportKeyRequest, matching CreateKeyRequest's
+// existing support for both fields. Before this fix the API struct omitted
+// both fields entirely, so they were silently dropped on import even though
+// POST /keys (create) already exposed them.
+func TestImportKey_ExpiresAtAndNotBefore_ReachService(t *testing.T) {
+	keyID := uuid.New()
+	expiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	notBefore := time.Now().Add(-1 * time.Hour).UTC().Truncate(time.Second)
+
+	svc := &mockKeyService{}
+	svc.On("ImportKey", mock.Anything, mock.MatchedBy(func(req keyServices.ImportKeyRequest) bool {
+		return req.Name == "imported-key" &&
+			req.ExpiresAt != nil && req.ExpiresAt.Equal(expiresAt) &&
+			req.NotBefore != nil && req.NotBefore.Equal(notBefore)
+	})).Return(&keyServices.CreateKeyResult{KeyID: keyID, Name: "imported-key", Type: model.KeyTypeRSA}, nil)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyVaultScope()).Return(makeKeyModel(keyID), nil)
+
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name":       "imported-key",
+		"jwk":        json.RawMessage(`{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`),
+		"expires_at": expiresAt,
+		"not_before": notBefore,
+	})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestImportKey_HSMRejectsImport_Returns400 pins the fix for
+// PKCS11KeyProvider.ImportKey leaking a raw backend error as a 500: when the
+// token refuses to import externally-supplied key material (e.g. a
+// FIPS-mode HSM policy against plaintext private-key import), the error
+// must map to a clean 400 via writeKeyError, and the raw PKCS#11 backend
+// text must never reach the response body.
+func TestImportKey_HSMRejectsImport_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("ImportKey", mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("failed to import key: %w: RSA private key material", crypto.ErrKeyImportRejected))
+
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name": "imported-key",
+		"jwk":  json.RawMessage(`{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`),
+	})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.NotContains(t, w.Body.String(), "pkcs11")
+	assert.NotContains(t, w.Body.String(), "CKR_")
+	svc.AssertExpectations(t)
+}
+
 func TestCreateKey_ECDSA_Success_Returns201(t *testing.T) {
 	keyID := uuid.New()
 	svc := &mockKeyService{}
