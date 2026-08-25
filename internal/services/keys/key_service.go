@@ -920,8 +920,8 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model
 	// scope, so no HTTP or CLI caller builds an owner scope for a key
 	// operation anymore -- see cmd/keys/delete.go, which passes
 	// model.NewVaultScope. This branch only still fires from tests that call
-	// DeleteKey directly with a hand-built model.NewOwnerScope carrying a
-	// non-nil vault id. It stays as defense-in-depth for any future direct
+	// DeleteKey directly with a hand-built owner scope carrying a non-nil
+	// vault id. It stays as defense-in-depth for any future direct
 	// caller of this exported method that reintroduces an owner scope.
 	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {
 		s.logger.LogAuditError(actor, "delete_key", "forbidden", "key does not belong to the requested vault", nil)

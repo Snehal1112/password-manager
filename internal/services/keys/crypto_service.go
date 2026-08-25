@@ -319,9 +319,9 @@ func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID uuid.UUID, s
 	// changed scopeFromRequest (api/context.go) to always return a vault scope,
 	// even for legacy flat routes, so no HTTP or CLI caller constructs an owner
 	// scope for a key/crypto operation anymore. This branch only still fires
-	// from tests that call the service directly with a hand-built
-	// model.NewOwnerScope carrying a non-nil vault id (e.g.
-	// crypto_scope_test.go). It stays as defense-in-depth for any future
+	// from tests that call the service directly with a hand-built owner
+	// scope carrying a non-nil vault id (e.g. crypto_scope_test.go). It
+	// stays as defense-in-depth for any future
 	// direct caller of this exported method that reintroduces an owner scope.
 	// DeleteKey/RotateKey (internal/services/keys/key_service.go) carry the
 	// identical conjunction for the identical reason.

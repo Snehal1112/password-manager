@@ -38,11 +38,10 @@ jobs:
           #                           fixtures -- model/scope_test.go and
           #                           internal/repositories/scope_predicate_test.go
           #                           are covered by this same exclusion.
-          #   - cmd/                  CLI direct-owner tools; a documented,
-          #                           separately-tracked deferral (see
-          #                           .claude/multi-vault.md).
-          #   - secrets/versioning_service.go, secrets/rotation_service.go
-          #                           secret rollback keys off the owner
+          #   - secrets/versioning_service.go, secrets/rotation_service.go,
+          #     secrets/scheduler_service.go
+          #                           secret rollback and the rotation
+          #                           scheduler key off the owner
           #                           deliberately; a different subsystem,
           #                           out of P2 scope.
           #   - certificates/certificate_service.go
@@ -59,12 +58,18 @@ jobs:
           # longer has any NewOwnerScope call sites (the createKey/rotateKey
           # read-backs were migrated to vault scope), so the former
           # content-based exclusion for that read-back is gone too.
+          #
+          # cmd/ was excluded here until the keys/certs CLI --vault wiring
+          # landed: every cmd/keys and cmd/certificates command now resolves a
+          # real vault and builds model.NewVaultScope (see
+          # .claude/multi-vault.md's "Known deferrals" refresh), so cmd/ is no
+          # longer excluded either.
           if grep -rn "NewOwnerScope\|ownerScopeFromRequest" --include="*.go" . \
                | grep -v "_test.go" \
                | grep -v "model/scope.go" \
-               | grep -v "cmd/" \
                | grep -v "internal/services/secrets/versioning_service.go" \
                | grep -v "internal/services/secrets/rotation_service.go" \
+               | grep -v "internal/services/secrets/scheduler_service.go" \
                | grep -v "internal/services/certificates/certificate_service.go"; then
             echo "owner scope reached the data plane; P2 retired it" >&2
             exit 1
