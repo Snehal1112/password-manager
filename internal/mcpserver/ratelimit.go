@@ -40,7 +40,7 @@ func (l *limiter) allow(tier Tier) bool {
 	if tier == TierRead {
 		return l.reads.Allow()
 	}
-	// Write, destructive and crypto share one budget: all three are
+	// Write, destructive, crypto and login share one budget: all four are
 	// consequential in a way reads are not.
 	return l.writes.Allow()
 }

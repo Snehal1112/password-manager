@@ -337,6 +337,29 @@ func (l *liveVault) mcpServer(t *testing.T, cfg config.MCPConfig) *Server {
 	return s
 }
 
+// mcpServerWithIdentity is mcpServer, but also returns the SwappableSource so
+// a test can assert a login actually changed the token, not just that
+// subsequent calls still happen to succeed.
+func (l *liveVault) mcpServerWithIdentity(t *testing.T, cfg config.MCPConfig) (*Server, *vaultapi.SwappableSource) {
+	t.Helper()
+
+	swappable := vaultapi.NewSwappableSource(staticLiveToken(l.Token))
+	client, err := vaultapi.New(vaultapi.Config{
+		BaseURL:    l.BaseURL,
+		HTTPClient: &http.Client{Timeout: 15 * time.Second},
+		Tokens:     swappable,
+	})
+	require.NoError(t, err)
+
+	s, err := New(Deps{
+		Client: client, Config: cfg, Logger: discardLogger(), Version: "integration",
+		Identity: swappable,
+	})
+	require.NoError(t, err)
+	RegisterAllTools(s)
+	return s, swappable
+}
+
 // testLogWriter routes subprocess output into the test log.
 type testLogWriter struct {
 	t      *testing.T

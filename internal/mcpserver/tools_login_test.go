@@ -2,8 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
@@ -24,6 +26,9 @@ func serverWithIdentity(t *testing.T, f *fakeVault, swap *vaultapi.SwappableSour
 	s, err := New(Deps{
 		Client: client, Config: cfg, Logger: discardLogger(), Version: "test",
 		Identity: swap,
+		// A real expiry, so a login-issued session is live afterwards and a
+		// Token() call reads the cached token instead of silently refreshing.
+		JWTExpiry: time.Hour,
 	})
 	require.NoError(t, err)
 	return s
@@ -58,6 +63,13 @@ func TestHandleLogin_Success(t *testing.T) {
 	require.Equal(t, "admin", out.Username)
 	require.Equal(t, []string{"admin"}, out.Roles)
 	require.NotEmpty(t, out.ExpiresAt)
+
+	// The caller supplied the credentials, so echoing them back would put
+	// them in the transcript a second time for no reason.
+	require.NotContains(t, renderContent(result), "hunter2")
+	encoded, err := json.Marshal(out)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "hunter2")
 
 	tok, err := swap.Token(context.Background())
 	require.NoError(t, err)

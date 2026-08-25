@@ -358,7 +358,12 @@ func TestLive_LoginSwapsIdentityForSubsequentCalls(t *testing.T) {
 	live := startLiveVault(t)
 	cfg := liveConfig()
 	cfg.AllowInteractiveLogin = true
-	cs := connect(t, live.mcpServer(t, cfg))
+	server, swap := live.mcpServerWithIdentity(t, cfg)
+	cs := connect(t, server)
+
+	ctx := context.Background()
+	before, err := swap.Token(ctx)
+	require.NoError(t, err)
 
 	var login loginResult
 	structured(t, callLive(t, cs, "login", map[string]any{
@@ -369,6 +374,14 @@ func TestLive_LoginSwapsIdentityForSubsequentCalls(t *testing.T) {
 
 	require.Equal(t, "itadmin", login.Username)
 	require.NotEmpty(t, login.ExpiresAt)
+
+	// Both tokens belong to the same admin, so a later call succeeding proves
+	// nothing on its own -- the original token would have worked too. The
+	// token itself having changed is what shows the swap took effect.
+	after, err := swap.Token(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, before, after,
+		"login must replace the server's token, not leave the startup one in place")
 
 	// A read tool called after login must still succeed -- it now runs
 	// under a freshly issued token rather than the harness's original one,

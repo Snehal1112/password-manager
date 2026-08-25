@@ -264,10 +264,16 @@ func TestGatingTable_LoginPresentOnlyWithFlagAndSessionIdentity(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			s, err := New(Deps{
+			deps := Deps{
 				Client: client, Config: cfg, Logger: discardLogger(), Version: "test",
 				IsServiceAccountIdentity: tc.serviceAccount,
-			})
+			}
+			if tc.allowInteractiveLogin && !tc.serviceAccount {
+				// New requires an Identity for exactly this combination,
+				// since it is the one where login gets registered.
+				deps.Identity = vaultapi.NewSwappableSource(staticTestToken("test"))
+			}
+			s, err := New(deps)
 			require.NoError(t, err)
 			RegisterAllTools(s)
 

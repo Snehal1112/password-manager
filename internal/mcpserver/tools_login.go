@@ -43,7 +43,9 @@ func (s *Server) handleLogin(ctx context.Context, _ *mcp.CallToolRequest, args l
 
 	source, identity, err := s.client.Login(ctx, args.Username, args.Password, args.TOTPCode, s.jwtExpiry)
 	if err != nil {
-		return errorResult("login failed: %s", err), loginResult{}, nil
+		return errorResult(
+			"login failed: %s. Check the username and password, and that the TOTP code is current.",
+			err), loginResult{}, nil
 	}
 	s.identity.Set(source)
 

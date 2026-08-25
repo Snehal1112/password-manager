@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/config"
+	"rocketvault/internal/vaultapi"
 )
 
 // serverWithTiers builds a server whose four capability flags are set as
@@ -177,10 +178,16 @@ func TestTierEnabled_LoginRequiresFlagAndSessionIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := testConfig()
 			cfg.AllowInteractiveLogin = tc.allow
-			s, err := New(Deps{
+			deps := Deps{
 				Config: cfg, Logger: discardLogger(), Version: "test",
 				IsServiceAccountIdentity: tc.serviceAccount,
-			})
+			}
+			if tc.allow && !tc.serviceAccount {
+				// New requires an Identity for exactly this combination,
+				// since it is the one where login gets registered.
+				deps.Identity = vaultapi.NewSwappableSource(staticTestToken("test"))
+			}
+			s, err := New(deps)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, s.TierEnabled(TierLogin))
 		})

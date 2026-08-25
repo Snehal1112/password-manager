@@ -35,8 +35,10 @@ type Deps struct {
 	// by --check.
 	BaseURL string
 	// Identity is the swappable token source backing Client's
-	// authentication. Only cmd/mcp.go constructs one; a nil Identity means
-	// no tool can ever change this server's identity at runtime.
+	// authentication. Only cmd/mcp.go constructs one. It is required
+	// whenever the login tool can be registered: New returns an error if it
+	// is nil while AllowInteractiveLogin is set under a session identity,
+	// because that tool's whole job is replacing this source at runtime.
 	Identity *vaultapi.SwappableSource
 	// IsServiceAccountIdentity reports whether this server started under a
 	// service account rather than a cached session. TierLogin uses this to
@@ -76,6 +78,13 @@ func New(deps Deps) (*Server, error) {
 	logger := deps.Logger
 	if logger == nil {
 		return nil, fmt.Errorf("mcpserver: Deps.Logger is required")
+	}
+	// TierEnabled registers login under exactly this combination, and
+	// handleLogin dereferences Identity on every successful call. Refusing
+	// here turns a nil into a startup error rather than a panic mid-chat.
+	if deps.Config.AllowInteractiveLogin && !deps.IsServiceAccountIdentity && deps.Identity == nil {
+		return nil, fmt.Errorf(
+			"mcpserver: Deps.Identity is required when allow_interactive_login is enabled under a session identity")
 	}
 	version := deps.Version
 	if version == "" {
@@ -127,7 +136,7 @@ func (s *Server) BaseURL() string { return s.baseURL }
 // EnabledTiers names the capability tiers this configuration enables.
 func (s *Server) EnabledTiers() []string {
 	tiers := []string{TierRead.String()}
-	for _, tier := range []Tier{TierWrite, TierDestructive, TierCrypto} {
+	for _, tier := range []Tier{TierWrite, TierDestructive, TierCrypto, TierLogin} {
 		if s.TierEnabled(tier) {
 			tiers = append(tiers, tier.String())
 		}
