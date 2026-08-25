@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/config"
+	"rocketvault/internal/vaultapi"
 )
 
 // The four tiers, written out in full rather than computed. A computed
@@ -238,3 +239,47 @@ func contains(values []string, target string) bool {
 }
 
 var _ = context.Background
+
+func TestGatingTable_LoginPresentOnlyWithFlagAndSessionIdentity(t *testing.T) {
+	cases := []struct {
+		name                  string
+		allowInteractiveLogin bool
+		serviceAccount        bool
+		wantPresent           bool
+	}{
+		{"default", false, false, false},
+		{"flag on, session identity", true, false, true},
+		{"flag on, service account", true, true, false},
+		{"flag off, service account", false, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.AllowInteractiveLogin = tc.allowInteractiveLogin
+
+			f := newFakeVault(t, map[string]string{})
+			client, err := vaultapi.New(vaultapi.Config{
+				BaseURL: f.srv.URL, HTTPClient: f.srv.Client(),
+				Tokens: staticTestToken("test-token"), DisableRetry: true,
+			})
+			require.NoError(t, err)
+
+			s, err := New(Deps{
+				Client: client, Config: cfg, Logger: discardLogger(), Version: "test",
+				IsServiceAccountIdentity: tc.serviceAccount,
+			})
+			require.NoError(t, err)
+			RegisterAllTools(s)
+
+			require.Equal(t, tc.wantPresent, contains(s.RegisteredTools(), "login"))
+		})
+	}
+}
+
+func TestGatingTable_LoginAbsentFromDefaultConfiguration(t *testing.T) {
+	f := newFakeVault(t, map[string]string{})
+	s := f.server(t, testConfig())
+	RegisterAllTools(s)
+	require.False(t, contains(s.RegisteredTools(), "login"),
+		"a config with no mcp section must not expose login")
+}
