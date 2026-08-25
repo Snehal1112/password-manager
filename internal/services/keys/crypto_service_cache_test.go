@@ -2,6 +2,7 @@ package keys_test
 
 import (
 	"context"
+	gocrypto "crypto"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -87,6 +88,10 @@ func (m *mockKeyProvider) Decrypt(_ context.Context, handle string, _ []byte, _ 
 }
 
 func (m *mockKeyProvider) Close() error { return nil }
+
+func (m *mockKeyProvider) ImportKey(_ context.Context, _ string, _ gocrypto.PrivateKey) (string, error) {
+	return "", errors.New("not implemented")
+}
 
 // mockKeyCache is a testify-based mock of keycache.Cache.
 type mockKeyCache struct{ mock.Mock }

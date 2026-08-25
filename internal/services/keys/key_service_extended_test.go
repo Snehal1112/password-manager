@@ -8,11 +8,17 @@ package keys
 
 import (
 	"context"
+	gocrypto "crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
 
+	jose "github.com/go-jose/go-jose/v4"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -24,6 +30,7 @@ import (
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -79,6 +86,11 @@ func (m *mockKeyProviderForService) Decrypt(_ context.Context, handle string, _ 
 }
 
 func (m *mockKeyProviderForService) Close() error { return nil }
+
+func (m *mockKeyProviderForService) ImportKey(_ context.Context, keyType string, privateKey gocrypto.PrivateKey) (string, error) {
+	args := m.Called(keyType, privateKey)
+	return args.String(0), args.Error(1)
+}
 
 func accessibleKey(userID, keyID uuid.UUID) *model.Key {
 	return &model.Key{ID: keyID, UserID: userID, Name: "key", Type: model.KeyTypeRSA, Enabled: true}
@@ -994,4 +1006,140 @@ func (m *mockKeyRepoForExtendedCrypto) Update(ctx context.Context, key *model.Ke
 }
 func (m *mockKeyRepoForExtendedCrypto) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
 	return nil, nil
+}
+
+// ─── ImportKey ────────────────────────────────────────────────────────────────
+
+func TestImportKey_SuccessWithSoftwareKey_RSA(t *testing.T) {
+	setupKeyTestMasterKey()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	repo := &mockKeyRepository{}
+	var createdKey *model.Key
+	repo.On("Create", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { createdKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	userID := uuid.New()
+	result, err := svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "imported-rsa",
+		JWK:    jwkJSON,
+		UserID: userID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "imported-rsa", result.Name)
+	assert.Equal(t, model.KeyTypeRSA, result.Type)
+
+	require.NotNil(t, createdKey)
+	assert.Equal(t, model.KeyTypeRSA, createdKey.Type)
+	assert.NotEmpty(t, createdKey.Value)
+	// Value is common.EncryptSecret-encrypted PEM, not the raw handle.
+	assert.NotContains(t, createdKey.Value, "PRIVATE KEY")
+	repo.AssertExpectations(t)
+}
+
+func TestImportKey_SuccessWithSoftwareKey_ECDSA(t *testing.T) {
+	setupKeyTestMasterKey()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	repo := &mockKeyRepository{}
+	repo.On("Create", mock.Anything, mock.Anything).Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	result, err := svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "imported-ecdsa",
+		JWK:    jwkJSON,
+		UserID: uuid.New(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.KeyTypeECDSA, result.Type)
+	repo.AssertExpectations(t)
+}
+
+func TestImportKey_MalformedJWK_Rejected(t *testing.T) {
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: &mockKeyRepository{},
+		KeyProvider:   &mockKeyProviderForService{},
+		Logger:        newKeyLogger(),
+	})
+
+	_, err := svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "bad",
+		JWK:    []byte("not json"),
+		UserID: uuid.New(),
+	})
+	require.Error(t, err)
+}
+
+func TestImportKey_PublicOnlyJWK_Rejected(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: &priv.PublicKey}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: &mockKeyRepository{},
+		KeyProvider:   &mockKeyProviderForService{},
+		Logger:        newKeyLogger(),
+	})
+
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "public-only",
+		JWK:    jwkJSON,
+		UserID: uuid.New(),
+	})
+	require.ErrorIs(t, err, signing.ErrJWKNoPrivateKey)
+}
+
+func TestImportKey_ProviderStoresPKCS11Handle_NotEncrypted(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	provider := &mockKeyProviderForService{}
+	// A PKCS#11 handle is a 36-char UUID label, per isPKCS11Handle.
+	provider.On("ImportKey", "RSA", mock.Anything).Return("11111111-2222-3333-4444-555555555555", nil)
+
+	repo := &mockKeyRepository{}
+	var createdKey *model.Key
+	repo.On("Create", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { createdKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        newKeyLogger(),
+	})
+
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "hsm-imported",
+		JWK:    jwkJSON,
+		UserID: uuid.New(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createdKey)
+	assert.Equal(t, "pkcs11:11111111-2222-3333-4444-555555555555", createdKey.Value)
 }

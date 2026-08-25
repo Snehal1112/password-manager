@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	gocrypto "crypto"
 	"testing"
 	"time"
 
@@ -237,3 +238,7 @@ func (m *mockKeyProviderForRotate) Decrypt(_ context.Context, _ string, _ []byte
 }
 
 func (m *mockKeyProviderForRotate) Close() error { return nil }
+
+func (m *mockKeyProviderForRotate) ImportKey(_ context.Context, _ string, _ gocrypto.PrivateKey) (string, error) {
+	return m.handle, nil
+}

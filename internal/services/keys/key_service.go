@@ -19,6 +19,7 @@ import (
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/signing"
 	"rocketvault/model"
 )
 
@@ -54,6 +55,20 @@ type CreateKeyRequest struct {
 	NotBefore *time.Time
 	// PurgeProtection is optional: nil leaves the stored default alone, true
 	// enables purge protection on the freshly created key.
+	PurgeProtection *bool
+}
+
+// ImportKeyRequest represents a request to import externally-generated key
+// material supplied as a JWK.
+type ImportKeyRequest struct {
+	Name            string
+	JWK             []byte // raw JWK JSON, parsed via signing.ParseJWK
+	Tags            []string
+	UserID          uuid.UUID
+	VaultID         uuid.UUID // Target vault; defaults to the default vault when nil.
+	Enabled         *bool     // Defaults to true if nil.
+	ExpiresAt       *time.Time
+	NotBefore       *time.Time
 	PurgeProtection *bool
 }
 
@@ -98,6 +113,11 @@ type KeyService interface {
 	// CreateOctKey creates a symmetric AES key. HSM-only — see
 	// crypto.ErrOctKeysRequireHSM.
 	CreateOctKey(ctx context.Context, req CreateKeyRequest) (*CreateKeyResult, error)
+	// ImportKey stores externally-generated key material supplied as a JWK.
+	// The imported key is subject to the same non-extractability guarantee as
+	// a generated key of the same backend -- see
+	// docs/superpowers/specs/2026-08-25-key-export-decision-record.md.
+	ImportKey(ctx context.Context, req ImportKeyRequest) (*CreateKeyResult, error)
 	// GetKey retrieves a key authorized by scope and enforces its lifecycle.
 	GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error)
 	// ListKeys lists keys authorized by scope and narrowed by filter.
@@ -206,12 +226,12 @@ func NewKeyService(config KeyServiceConfig) KeyService {
 // key when the caller asked for it. A nil request field leaves the stored
 // default alone, so the three create paths share one implementation and only
 // differ in the audit action they report.
-func (s *keyService) applyCreatePurgeProtection(ctx context.Context, req CreateKeyRequest, keyID uuid.UUID, action string) error {
-	if req.PurgeProtection == nil || !*req.PurgeProtection {
+func (s *keyService) applyCreatePurgeProtection(ctx context.Context, purgeProtection *bool, keyID uuid.UUID, action string, userID uuid.UUID) error {
+	if purgeProtection == nil || !*purgeProtection {
 		return nil
 	}
 	if err := s.keyRepo.SetPurgeProtection(ctx, keyID, true); err != nil {
-		s.logger.LogAuditError(req.UserID.String(), action, "failed", "failed to set purge protection", err)
+		s.logger.LogAuditError(userID.String(), action, "failed", "failed to set purge protection", err)
 		return fmt.Errorf("failed to set purge protection: %w", err)
 	}
 	return nil
@@ -291,7 +311,7 @@ func (s *keyService) CreateRSAKey(ctx context.Context, req CreateKeyRequest) (*C
 		return nil, fmt.Errorf("failed to store RSA key: %w", err)
 	}
 
-	if err := s.applyCreatePurgeProtection(ctx, req, key.ID, "create_rsa_key"); err != nil {
+	if err := s.applyCreatePurgeProtection(ctx, req.PurgeProtection, key.ID, "create_rsa_key", req.UserID); err != nil {
 		return nil, err
 	}
 
@@ -389,7 +409,7 @@ func (s *keyService) CreateECDSAKey(ctx context.Context, req CreateKeyRequest) (
 		return nil, fmt.Errorf("failed to store ECDSA key: %w", err)
 	}
 
-	if err := s.applyCreatePurgeProtection(ctx, req, key.ID, "create_ecdsa_key"); err != nil {
+	if err := s.applyCreatePurgeProtection(ctx, req.PurgeProtection, key.ID, "create_ecdsa_key", req.UserID); err != nil {
 		return nil, err
 	}
 
@@ -460,11 +480,88 @@ func (s *keyService) CreateOctKey(ctx context.Context, req CreateKeyRequest) (*C
 		return nil, fmt.Errorf("failed to store AES key: %w", err)
 	}
 
-	if err := s.applyCreatePurgeProtection(ctx, req, key.ID, "create_oct_key"); err != nil {
+	if err := s.applyCreatePurgeProtection(ctx, req.PurgeProtection, key.ID, "create_oct_key", req.UserID); err != nil {
 		return nil, err
 	}
 
 	s.logger.LogAuditInfo(req.UserID.String(), "create_oct_key", "success", fmt.Sprintf("AES key created: %s, ID: %s", req.Name, key.ID))
+
+	return &CreateKeyResult{
+		KeyID:     key.ID,
+		Name:      key.Name,
+		Type:      key.Type,
+		Tags:      key.Tags,
+		CreatedAt: key.CreatedAt,
+	}, nil
+}
+
+// ImportKey stores externally-generated key material supplied as a JWK. It
+// follows the same generate-then-store shape as CreateRSAKey/CreateECDSAKey,
+// substituting JWK parsing + provider import for provider generation.
+func (s *keyService) ImportKey(ctx context.Context, req ImportKeyRequest) (*CreateKeyResult, error) {
+	logrus.WithFields(logrus.Fields{
+		"name":    req.Name,
+		"user_id": req.UserID.String(),
+	}).Info("Importing key")
+
+	privateKey, keyType, err := signing.ParseJWK(req.JWK)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "invalid JWK", err)
+		return nil, fmt.Errorf("invalid JWK: %w", err)
+	}
+
+	handle, err := s.keyProvider.ImportKey(ctx, keyType, privateKey)
+	if err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "failed to import key material", err)
+		return nil, fmt.Errorf("failed to import key: %w", err)
+	}
+
+	var storedValue string
+	if isPKCS11Handle(handle) {
+		storedValue = "pkcs11:" + handle
+	} else {
+		storedValue, err = common.EncryptSecret(handle)
+		if err != nil {
+			s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "failed to encrypt key", err)
+			return nil, fmt.Errorf("failed to encrypt key: %w", err)
+		}
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	modelType := model.KeyTypeRSA
+	if keyType == "ECDSA" {
+		modelType = model.KeyTypeECDSA
+	}
+
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    req.UserID,
+		VaultID:   resolveVaultID(req.VaultID),
+		Name:      req.Name,
+		Type:      modelType,
+		Value:     storedValue,
+		Revoked:   false,
+		CreatedAt: time.Now(),
+		Tags:      req.Tags,
+		Enabled:   enabled,
+		ExpiresAt: req.ExpiresAt,
+		NotBefore: req.NotBefore,
+	}
+
+	if err := s.keyRepo.Create(ctx, key); err != nil {
+		s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "failed to store key", err)
+		return nil, fmt.Errorf("failed to store imported key: %w", err)
+	}
+
+	if err := s.applyCreatePurgeProtection(ctx, req.PurgeProtection, key.ID, "import_key", req.UserID); err != nil {
+		return nil, err
+	}
+
+	s.logger.LogAuditInfo(req.UserID.String(), "import_key", "success", fmt.Sprintf("key imported: %s, ID: %s", req.Name, key.ID))
 
 	return &CreateKeyResult{
 		KeyID:     key.ID,
