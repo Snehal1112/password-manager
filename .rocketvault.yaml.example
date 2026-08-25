@@ -302,6 +302,7 @@ mcp:
   allow_destructive: false    # delete, purge, revoke
   allow_crypto: false         # sign, verify, encrypt, decrypt
   allow_secret_values: false  # let get_secret return plaintext
+  allow_interactive_login: false  # let a chat message log in as a different user
 
   # Refuse the cached CLI session and require a service account. Set this true
   # in production: under a session the agent acts as the logged-in human, and

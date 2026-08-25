@@ -222,6 +222,12 @@ type MCPConfig struct {
 	AllowDestructive  bool `mapstructure:"allow_destructive"`
 	AllowCrypto       bool `mapstructure:"allow_crypto"`
 	AllowSecretValues bool `mapstructure:"allow_secret_values"`
+	// AllowInteractiveLogin gates the login tool, which lets a chat message
+	// re-authenticate this server's identity at runtime. It is meaningless
+	// (and never registered, see mcpserver.TierLogin) under a service
+	// account -- a service account's whole point is that the agent cannot
+	// act as a human.
+	AllowInteractiveLogin bool `mapstructure:"allow_interactive_login"`
 
 	// RequireServiceAccount refuses the cached-session identity, so the agent
 	// cannot act as the logged-in human. Production should set it.
@@ -266,6 +272,9 @@ func LoadMCPConfig() (MCPConfig, error) {
 	}
 	if viper.IsSet("mcp.allow_secret_values") {
 		cfg.AllowSecretValues = viper.GetBool("mcp.allow_secret_values")
+	}
+	if viper.IsSet("mcp.allow_interactive_login") {
+		cfg.AllowInteractiveLogin = viper.GetBool("mcp.allow_interactive_login")
 	}
 	if viper.IsSet("mcp.require_service_account") {
 		cfg.RequireServiceAccount = viper.GetBool("mcp.require_service_account")

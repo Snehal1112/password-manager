@@ -253,3 +253,18 @@ func TestExampleConfig_ShipsNoClientSecret(t *testing.T) {
 	require.Empty(t, viper.GetString("mcp.client_secret"),
 		"a committed example file must never carry a real secret")
 }
+
+func TestLoadMCPConfig_AllowInteractiveLoginDefaultsFalse(t *testing.T) {
+	resetViper(t)
+	cfg, err := LoadMCPConfig()
+	require.NoError(t, err)
+	require.False(t, cfg.AllowInteractiveLogin, "interactive login must be off by default")
+}
+
+func TestLoadMCPConfig_ReadsAllowInteractiveLogin(t *testing.T) {
+	resetViper(t)
+	viper.Set("mcp.allow_interactive_login", true)
+	cfg, err := LoadMCPConfig()
+	require.NoError(t, err)
+	require.True(t, cfg.AllowInteractiveLogin)
+}
