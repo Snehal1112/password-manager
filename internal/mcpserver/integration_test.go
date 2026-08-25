@@ -353,3 +353,43 @@ func TestLive_UnknownSecretGivesAnActionableError(t *testing.T) {
 		"near-miss suggestions must work against real data, not just fixtures")
 	require.Contains(t, renderContent(result), "db-password")
 }
+
+func TestLive_LoginSwapsIdentityForSubsequentCalls(t *testing.T) {
+	live := startLiveVault(t)
+	cfg := liveConfig()
+	cfg.AllowInteractiveLogin = true
+	cs := connect(t, live.mcpServer(t, cfg))
+
+	var login loginResult
+	structured(t, callLive(t, cs, "login", map[string]any{
+		"username":  "itadmin",
+		"password":  "Integration-Test-Pass-1",
+		"totp_code": totpCode(t, live.TOTPSecret),
+	}), &login)
+
+	require.Equal(t, "itadmin", login.Username)
+	require.NotEmpty(t, login.ExpiresAt)
+
+	// A read tool called after login must still succeed -- it now runs
+	// under a freshly issued token rather than the harness's original one,
+	// but the same admin identity, so authorization still passes.
+	var vaults listVaultsResult
+	structured(t, callLive(t, cs, "list_vaults", map[string]any{}), &vaults)
+
+	var names []string
+	for _, vault := range vaults.Vaults {
+		names = append(names, vault.Name)
+	}
+	require.Contains(t, names, "default")
+}
+
+func TestLive_LoginIsAbsentWithoutTheFlag(t *testing.T) {
+	live := startLiveVault(t)
+	cs := connect(t, live.mcpServer(t, liveConfig())) // AllowInteractiveLogin left false
+
+	_, err := cs.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "login",
+		Arguments: map[string]any{"username": "itadmin", "password": "x", "totp_code": "000000"},
+	})
+	require.Error(t, err, "an unregistered tool must be rejected by the protocol, not reachable at all")
+}

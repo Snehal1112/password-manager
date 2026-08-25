@@ -43,6 +43,9 @@ type liveVault struct {
 	BaseURL string
 	// Token is an admin session token, for provisioning fixtures.
 	Token string
+	// TOTPSecret is the provisioned admin's base32 TOTP secret, so a test
+	// can generate a fresh code and call the login tool as this same user.
+	TOTPSecret string
 }
 
 // freePort asks the OS for an unused port.
@@ -144,7 +147,11 @@ func startLiveVault(t *testing.T) *liveVault {
 	require.NoError(t, err, "create admin: %s", output)
 
 	totpSecret := parseTOTPSecret(t, string(output))
-	live := &liveVault{BaseURL: baseURL, Token: loginToken(t, baseURL, totpSecret)}
+	live := &liveVault{
+		BaseURL:    baseURL,
+		Token:      loginToken(t, baseURL, totpSecret),
+		TOTPSecret: totpSecret,
+	}
 
 	// Vault data-plane routes are deny-by-default (CLAUDE.md), with no
 	// bypass for the global admin role -- the same way vault purge has none.
@@ -313,14 +320,18 @@ func (s staticLiveToken) Token(context.Context) (string, error) { return string(
 func (l *liveVault) mcpServer(t *testing.T, cfg config.MCPConfig) *Server {
 	t.Helper()
 
+	swappable := vaultapi.NewSwappableSource(staticLiveToken(l.Token))
 	client, err := vaultapi.New(vaultapi.Config{
 		BaseURL:    l.BaseURL,
 		HTTPClient: &http.Client{Timeout: 15 * time.Second},
-		Tokens:     staticLiveToken(l.Token),
+		Tokens:     swappable,
 	})
 	require.NoError(t, err)
 
-	s, err := New(Deps{Client: client, Config: cfg, Logger: discardLogger(), Version: "integration"})
+	s, err := New(Deps{
+		Client: client, Config: cfg, Logger: discardLogger(), Version: "integration",
+		Identity: swappable,
+	})
 	require.NoError(t, err)
 	RegisterAllTools(s)
 	return s
