@@ -255,8 +255,14 @@ func (p *PKCS11KeyProvider) ImportKey(_ context.Context, keyType string, private
 
 	switch key := privateKey.(type) {
 	case *rsa.PrivateKey:
+		if keyType != "RSA" {
+			return "", fmt.Errorf("pkcs11 import: keyType=%q but privateKey is *rsa.PrivateKey", keyType)
+		}
 		if len(key.Primes) != 2 {
 			return "", fmt.Errorf("pkcs11 import: only two-prime RSA keys are supported")
+		}
+		if err := key.Validate(); err != nil {
+			return "", fmt.Errorf("pkcs11 import: invalid RSA key: %w", err)
 		}
 		key.Precompute()
 		pubAttrs := []*p11.Attribute{
@@ -297,6 +303,9 @@ func (p *PKCS11KeyProvider) ImportKey(_ context.Context, keyType string, private
 		return label, nil
 
 	case *ecdsa.PrivateKey:
+		if keyType != "ECDSA" {
+			return "", fmt.Errorf("pkcs11 import: keyType=%q but privateKey is *ecdsa.PrivateKey", keyType)
+		}
 		curveName, ok := curveNameFor(key.Curve)
 		if !ok {
 			return "", fmt.Errorf("%w: unsupported EC curve for import", ErrUnsupportedCurve)

@@ -6,6 +6,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"math/big"
 	"os"
 	"os/exec"
 	"testing"
@@ -66,7 +67,14 @@ func TestPKCS11Provider_GenerateRSAKey(t *testing.T) {
 
 // --- Import ---
 
-func TestPKCS11Provider_ImportKey_RSA_IsNonExtractable(t *testing.T) {
+// TestPKCS11Provider_ImportKey_RSA_SignVerifyRoundTrip covers functional
+// usability of an imported RSA key (Sign/Verify round trip). It does NOT
+// assert CKA_EXTRACTABLE -- that requires reaching the unexported token
+// session/object handle, which this external (crypto_test) package cannot
+// do; see TestPKCS11Provider_ImportKey_RSA_PrivateKeyIsNonExtractable in the
+// in-package pkcs11_import_extractability_test.go for the real
+// non-extractability assertion.
+func TestPKCS11Provider_ImportKey_RSA_SignVerifyRoundTrip(t *testing.T) {
 	p := newTestPKCS11Provider(t)
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -75,8 +83,6 @@ func TestPKCS11Provider_ImportKey_RSA_IsNonExtractable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, handle, 36, "handle must be a UUID label, matching GenerateRSAKey's contract")
 
-	// The imported key must be usable for the same operations a generated
-	// key supports, and must carry the same non-extractability guarantee.
 	sig, err := p.Sign(context.Background(), handle, "RSA", []byte("test data"), crypto.AlgorithmRS256)
 	require.NoError(t, err)
 	ok, err := p.Verify(context.Background(), handle, "RSA", []byte("test data"), sig, crypto.AlgorithmRS256)
@@ -97,6 +103,49 @@ func TestPKCS11Provider_ImportKey_ECDSA(t *testing.T) {
 	ok, err := p.Verify(context.Background(), handle, "ECDSA", []byte("test data"), sig, crypto.AlgorithmES256)
 	require.NoError(t, err)
 	assert.True(t, ok)
+}
+
+// TestPKCS11Provider_ImportKey_MismatchedKeyType_ReturnsError pins the
+// keyType-vs-privateKey-concrete-type validation: previously ImportKey
+// dispatched purely on privateKey's Go type via the type switch and never
+// checked keyType, so ImportKey(ctx, "ECDSA", rsaKey) would silently succeed
+// and persist an RSA token object mislabeled as ECDSA, only surfacing an
+// opaque CKR_KEY_TYPE_INCONSISTENT later at Sign time.
+func TestPKCS11Provider_ImportKey_MismatchedKeyType_ReturnsError(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	_, err = p.ImportKey(context.Background(), "ECDSA", priv)
+	assert.Error(t, err)
+
+	privEC, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	_, err = p.ImportKey(context.Background(), "RSA", privEC)
+	assert.Error(t, err)
+}
+
+// TestPKCS11Provider_ImportKey_InvalidRSAKey_ReturnsError pins a nil-pointer
+// panic regression: a key where len(Primes) == 2 but p*q != N (i.e. not
+// actually a valid RSA key) previously passed the prime-count guard, then
+// key.Precompute() silently left Precomputed.Dp/Dq/Qinv nil (it has no error
+// return), and CKA_EXPONENT_1's key.Precomputed.Dp.Bytes() call nil-dereffed.
+// N=35, D=5, Primes=[5,7] is the minimal reproduction: 5*7=35 satisfies
+// p*q==N by coincidence of small numbers chosen for the test, but D=5 does
+// not satisfy the RSA key equation, so key.Validate() must reject it.
+func TestPKCS11Provider_ImportKey_InvalidRSAKey_ReturnsError(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+
+	invalid := &rsa.PrivateKey{
+		PublicKey: rsa.PublicKey{N: big.NewInt(35), E: 65537},
+		D:         big.NewInt(5),
+		Primes:    []*big.Int{big.NewInt(5), big.NewInt(7)},
+	}
+
+	_, err := p.ImportKey(context.Background(), "RSA", invalid)
+	require.Error(t, err, "an invalid RSA key must be rejected, not nil-deref inside PKCS#11 attribute construction")
+	assert.Contains(t, err.Error(), "invalid RSA key")
 }
 
 func TestPKCS11Provider_GenerateECDSAKey_P256(t *testing.T) {
