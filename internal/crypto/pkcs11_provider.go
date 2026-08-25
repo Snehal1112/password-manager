@@ -2,11 +2,16 @@ package crypto
 
 import (
 	"context"
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/asn1"
 	"errors"
 	"fmt"
 	"hash"
+	"math/big"
 
 	"github.com/google/uuid"
 	p11 "github.com/miekg/pkcs11"
@@ -233,6 +238,128 @@ func (p *PKCS11KeyProvider) GenerateECDSAKey(_ context.Context, curveName string
 	}
 
 	return label, nil
+}
+
+// ImportKey imports externally-supplied key material onto the token via
+// C_CreateObject, using the same CKA_EXTRACTABLE: false / CKA_SENSITIVE: true
+// attribute template GenerateRSAKey/GenerateECDSAKey apply to generated keys
+// -- an imported key ends up exactly as non-extractable as a generated one.
+func (p *PKCS11KeyProvider) ImportKey(_ context.Context, keyType string, privateKey crypto.PrivateKey) (string, error) {
+	session, err := p.openRWSession()
+	if err != nil {
+		return "", err
+	}
+	defer p.closeSession(session)
+
+	label := uuid.New().String()
+
+	switch key := privateKey.(type) {
+	case *rsa.PrivateKey:
+		if len(key.Primes) != 2 {
+			return "", fmt.Errorf("pkcs11 import: only two-prime RSA keys are supported")
+		}
+		key.Precompute()
+		pubAttrs := []*p11.Attribute{
+			p11.NewAttribute(p11.CKA_CLASS, p11.CKO_PUBLIC_KEY),
+			p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_RSA),
+			p11.NewAttribute(p11.CKA_LABEL, label),
+			p11.NewAttribute(p11.CKA_TOKEN, true),
+			p11.NewAttribute(p11.CKA_ENCRYPT, true),
+			p11.NewAttribute(p11.CKA_VERIFY, true),
+			p11.NewAttribute(p11.CKA_MODULUS, key.N.Bytes()),
+			p11.NewAttribute(p11.CKA_PUBLIC_EXPONENT, big.NewInt(int64(key.E)).Bytes()),
+		}
+		privAttrs := []*p11.Attribute{
+			p11.NewAttribute(p11.CKA_CLASS, p11.CKO_PRIVATE_KEY),
+			p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_RSA),
+			p11.NewAttribute(p11.CKA_LABEL, label),
+			p11.NewAttribute(p11.CKA_TOKEN, true),
+			p11.NewAttribute(p11.CKA_PRIVATE, true),
+			p11.NewAttribute(p11.CKA_SENSITIVE, true),
+			p11.NewAttribute(p11.CKA_EXTRACTABLE, false),
+			p11.NewAttribute(p11.CKA_DECRYPT, true),
+			p11.NewAttribute(p11.CKA_SIGN, true),
+			p11.NewAttribute(p11.CKA_MODULUS, key.N.Bytes()),
+			p11.NewAttribute(p11.CKA_PUBLIC_EXPONENT, big.NewInt(int64(key.E)).Bytes()),
+			p11.NewAttribute(p11.CKA_PRIVATE_EXPONENT, key.D.Bytes()),
+			p11.NewAttribute(p11.CKA_PRIME_1, key.Primes[0].Bytes()),
+			p11.NewAttribute(p11.CKA_PRIME_2, key.Primes[1].Bytes()),
+			p11.NewAttribute(p11.CKA_EXPONENT_1, key.Precomputed.Dp.Bytes()),
+			p11.NewAttribute(p11.CKA_EXPONENT_2, key.Precomputed.Dq.Bytes()),
+			p11.NewAttribute(p11.CKA_COEFFICIENT, key.Precomputed.Qinv.Bytes()),
+		}
+		if _, err := p.ctx.CreateObject(session, pubAttrs); err != nil {
+			return "", fmt.Errorf("pkcs11 rsa import (public): %w", err)
+		}
+		if _, err := p.ctx.CreateObject(session, privAttrs); err != nil {
+			return "", fmt.Errorf("pkcs11 rsa import (private): %w", err)
+		}
+		return label, nil
+
+	case *ecdsa.PrivateKey:
+		curveName, ok := curveNameFor(key.Curve)
+		if !ok {
+			return "", fmt.Errorf("%w: unsupported EC curve for import", ErrUnsupportedCurve)
+		}
+		oid := ecOID[curveName]
+		ecParams, err := asn1.Marshal(oid)
+		if err != nil {
+			return "", fmt.Errorf("marshal ec params: %w", err)
+		}
+		ecPoint, err := asn1.Marshal(elliptic.Marshal(key.Curve, key.X, key.Y))
+		if err != nil {
+			return "", fmt.Errorf("marshal ec point: %w", err)
+		}
+		pubAttrs := []*p11.Attribute{
+			p11.NewAttribute(p11.CKA_CLASS, p11.CKO_PUBLIC_KEY),
+			p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_EC),
+			p11.NewAttribute(p11.CKA_LABEL, label),
+			p11.NewAttribute(p11.CKA_TOKEN, true),
+			p11.NewAttribute(p11.CKA_VERIFY, true),
+			p11.NewAttribute(p11.CKA_EC_PARAMS, ecParams),
+			p11.NewAttribute(p11.CKA_EC_POINT, ecPoint),
+		}
+		privAttrs := []*p11.Attribute{
+			p11.NewAttribute(p11.CKA_CLASS, p11.CKO_PRIVATE_KEY),
+			p11.NewAttribute(p11.CKA_KEY_TYPE, p11.CKK_EC),
+			p11.NewAttribute(p11.CKA_LABEL, label),
+			p11.NewAttribute(p11.CKA_TOKEN, true),
+			p11.NewAttribute(p11.CKA_PRIVATE, true),
+			p11.NewAttribute(p11.CKA_SENSITIVE, true),
+			p11.NewAttribute(p11.CKA_EXTRACTABLE, false),
+			p11.NewAttribute(p11.CKA_SIGN, true),
+			p11.NewAttribute(p11.CKA_EC_PARAMS, ecParams),
+			p11.NewAttribute(p11.CKA_VALUE, key.D.Bytes()),
+		}
+		if _, err := p.ctx.CreateObject(session, pubAttrs); err != nil {
+			return "", fmt.Errorf("pkcs11 ecdsa import (public): %w", err)
+		}
+		if _, err := p.ctx.CreateObject(session, privAttrs); err != nil {
+			return "", fmt.Errorf("pkcs11 ecdsa import (private): %w", err)
+		}
+		return label, nil
+
+	default:
+		return "", fmt.Errorf("pkcs11 import: unsupported key type %T", privateKey)
+	}
+}
+
+// curveNameFor reverse-looks-up ecOID's key by elliptic.Curve, so ImportKey
+// can find the same OID GenerateECDSAKey used to create the curve name from.
+// Only NIST curves (P-256/P-384/P-521) are recognized -- importing a P-256K
+// (secp256k1) key is out of scope for this pass and can be added later by
+// extending this switch.
+func curveNameFor(curve elliptic.Curve) (string, bool) {
+	switch curve.Params().Name {
+	case "P-256":
+		return "P-256", true
+	case "P-384":
+		return "P-384", true
+	case "P-521":
+		return "P-521", true
+	default:
+		return "", false
+	}
 }
 
 // GenerateAESKey generates a non-extractable AES secret key on the token.

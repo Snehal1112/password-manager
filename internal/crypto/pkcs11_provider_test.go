@@ -2,6 +2,10 @@ package crypto_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
 	"os"
 	"os/exec"
 	"testing"
@@ -58,6 +62,41 @@ func TestPKCS11Provider_GenerateRSAKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, handle, "handle must be a non-empty UUID label")
 	assert.Len(t, handle, 36)
+}
+
+// --- Import ---
+
+func TestPKCS11Provider_ImportKey_RSA_IsNonExtractable(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	handle, err := p.ImportKey(context.Background(), "RSA", priv)
+	require.NoError(t, err)
+	assert.Len(t, handle, 36, "handle must be a UUID label, matching GenerateRSAKey's contract")
+
+	// The imported key must be usable for the same operations a generated
+	// key supports, and must carry the same non-extractability guarantee.
+	sig, err := p.Sign(context.Background(), handle, "RSA", []byte("test data"), crypto.AlgorithmRS256)
+	require.NoError(t, err)
+	ok, err := p.Verify(context.Background(), handle, "RSA", []byte("test data"), sig, crypto.AlgorithmRS256)
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+func TestPKCS11Provider_ImportKey_ECDSA(t *testing.T) {
+	p := newTestPKCS11Provider(t)
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	handle, err := p.ImportKey(context.Background(), "ECDSA", priv)
+	require.NoError(t, err)
+
+	sig, err := p.Sign(context.Background(), handle, "ECDSA", []byte("test data"), crypto.AlgorithmES256)
+	require.NoError(t, err)
+	ok, err := p.Verify(context.Background(), handle, "ECDSA", []byte("test data"), sig, crypto.AlgorithmES256)
+	require.NoError(t, err)
+	assert.True(t, ok)
 }
 
 func TestPKCS11Provider_GenerateECDSAKey_P256(t *testing.T) {
