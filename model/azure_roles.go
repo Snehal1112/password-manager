@@ -49,8 +49,8 @@ const (
 	// ActionKeysPurge permits permanently destroying a soft-deleted key.
 	ActionKeysPurge DataAction = "Microsoft.KeyVault/vaults/keys/purge"
 	// ActionKeysImport permits importing externally generated key material.
-	// No HTTP route maps to it yet; it exists so the Crypto Officer and
-	// Administrator bundles match Azure exactly.
+	// POST /keys/import routes to this action (api/keys.go's importKey
+	// handler).
 	ActionKeysImport DataAction = "Microsoft.KeyVault/vaults/keys/import/action"
 	// ActionKeysRotate permits rotating a key to a new version.
 	ActionKeysRotate DataAction = "Microsoft.KeyVault/vaults/keys/rotate/action"
