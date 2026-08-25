@@ -130,3 +130,18 @@ func TestRegister_KeepsRegisteredToolsSorted(t *testing.T) {
 	require.Equal(t, []string{"alpha", "middle", "zebra"}, s.RegisteredTools(),
 		"a stable order keeps the gating table test and --check output deterministic")
 }
+
+func TestNew_ExposesIsServiceAccountIdentity(t *testing.T) {
+	s, err := New(Deps{
+		Config: testConfig(), Logger: discardLogger(), Version: "test",
+		IsServiceAccountIdentity: true,
+	})
+	require.NoError(t, err)
+	require.True(t, s.IsServiceAccountIdentity())
+}
+
+func TestNew_DefaultsToNotServiceAccountIdentity(t *testing.T) {
+	s, err := New(Deps{Config: testConfig(), Logger: discardLogger(), Version: "test"})
+	require.NoError(t, err)
+	require.False(t, s.IsServiceAccountIdentity())
+}

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -33,6 +34,18 @@ type Deps struct {
 	// BaseURL is the RocketVault API server this instance talks to, reported
 	// by --check.
 	BaseURL string
+	// Identity is the swappable token source backing Client's
+	// authentication. Only cmd/mcp.go constructs one; a nil Identity means
+	// no tool can ever change this server's identity at runtime.
+	Identity *vaultapi.SwappableSource
+	// IsServiceAccountIdentity reports whether this server started under a
+	// service account rather than a cached session. TierLogin uses this to
+	// disable the login tool entirely when true, regardless of
+	// allow_interactive_login.
+	IsServiceAccountIdentity bool
+	// JWTExpiry is the access-token lifetime (jwt.expiry), used to compute
+	// a login-tool session's expiry the same way the CLI does.
+	JWTExpiry time.Duration
 }
 
 // Server is the RocketVault MCP server.
@@ -48,6 +61,10 @@ type Server struct {
 	registered []string
 	// limits bounds how fast tools may be called.
 	limits *limiter
+
+	identity                 *vaultapi.SwappableSource
+	isServiceAccountIdentity bool
+	jwtExpiry                time.Duration
 }
 
 // New builds a server with no tools registered. Later plans add tools
@@ -73,12 +90,15 @@ func New(deps Deps) (*Server, error) {
 	}, nil)
 
 	return &Server{
-		cfg:       deps.Config,
-		client:    deps.Client,
-		logger:    logger,
-		baseURL:   deps.BaseURL,
-		mcpServer: mcpServer,
-		limits:    newLimiter(deps.Config.RateLimit),
+		cfg:                      deps.Config,
+		client:                   deps.Client,
+		logger:                   logger,
+		baseURL:                  deps.BaseURL,
+		mcpServer:                mcpServer,
+		limits:                   newLimiter(deps.Config.RateLimit),
+		identity:                 deps.Identity,
+		isServiceAccountIdentity: deps.IsServiceAccountIdentity,
+		jwtExpiry:                deps.JWTExpiry,
 	}, nil
 }
 
@@ -114,6 +134,10 @@ func (s *Server) EnabledTiers() []string {
 	}
 	return tiers
 }
+
+// IsServiceAccountIdentity reports whether this server started under a
+// service account rather than a cached session.
+func (s *Server) IsServiceAccountIdentity() bool { return s.isServiceAccountIdentity }
 
 // ProbeVaults makes one live call, to verify connectivity and credentials.
 func (s *Server) ProbeVaults(ctx context.Context) ([]vaultapi.Vault, bool, error) {
