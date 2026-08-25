@@ -152,6 +152,11 @@ func mapKeyAction(method, rest string) (model.DataAction, RouteKind) {
 			return model.ActionKeysRestore, RouteVaultData
 		}
 		return "", RouteVaultData
+	case "import":
+		if method == http.MethodPost {
+			return model.ActionKeysImport, RouteVaultData
+		}
+		return "", RouteVaultData
 	}
 
 	seg := strings.Split(rest, "/")

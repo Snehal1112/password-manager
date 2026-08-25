@@ -56,6 +56,7 @@ func TestMapRouteToDataAction(t *testing.T) {
 		{"decrypt", http.MethodPost, "/api/v1/keys/abc/decrypt", model.ActionKeysDecrypt, RouteVaultData},
 		{"backup key", http.MethodPost, "/api/v1/keys/abc/backup", model.ActionKeysBackup, RouteVaultData},
 		{"restore key", http.MethodPost, "/api/v1/keys/restore", model.ActionKeysRestore, RouteVaultData},
+		{"import key", http.MethodPost, "/api/v1/keys/import", model.ActionKeysImport, RouteVaultData},
 		{"list deleted keys", http.MethodGet, "/api/v1/deleted/keys", model.ActionKeysRead, RouteVaultData},
 		{"get deleted key", http.MethodGet, "/api/v1/deleted/keys/abc", model.ActionKeysRead, RouteVaultData},
 		{"recover key", http.MethodPost, "/api/v1/deleted/keys/abc/restore", model.ActionKeysRecover, RouteVaultData},
@@ -137,6 +138,7 @@ func TestMapRouteToDataActionUnmappedMethodFailsClosed(t *testing.T) {
 		{http.MethodDelete, "/api/v1/certificates/abc/backup"},
 		{http.MethodPost, "/api/v1/deleted/secrets/abc/unknown"},
 		{http.MethodGet, "/api/v1/vaults/prod/secrets/abc/unknown"},
+		{http.MethodGet, "/api/v1/keys/import"},
 	}
 	for _, c := range cases {
 		action, kind := MapRouteToDataAction(c.method, c.path)
