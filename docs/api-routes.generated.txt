@@ -37,6 +37,7 @@ GET	/api/v1/health/ready
 POST	/api/v1/jwks/rotate
 GET	/api/v1/keys
 POST	/api/v1/keys
+POST	/api/v1/keys/import
 POST	/api/v1/keys/restore
 DELETE	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}
 GET	/api/v1/keys/{key_id:[A-Fa-f0-9-]+}
@@ -115,6 +116,7 @@ DELETE	/api/v1/vaults/{vault_name:[a-z0-9-]+}/deleted/secrets/{secret_id:[A-Fa-f
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/deleted/secrets/{secret_id:[A-Fa-f0-9-]+}/restore
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys
+POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/import
 POST	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/restore
 DELETE	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}
 GET	/api/v1/vaults/{vault_name:[a-z0-9-]+}/keys/{key_id:[A-Fa-f0-9-]+}

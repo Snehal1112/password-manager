@@ -2336,6 +2336,38 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /api/v1/keys/import:
+    post:
+      summary: Import a key
+      description: |
+        Imports externally-generated key material supplied as a JWK. The
+        imported key is subject to the same non-extractability guarantee as a
+        generated key of the same backend.
+      operationId: importKey
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportKeyRequest"
+      responses:
+        "201":
+          description: Key imported successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /api/v1/keys/{key_id}:
     parameters:
       - $ref: "#/components/parameters/KeyId"
@@ -2860,6 +2892,39 @@ paths:
       responses:
         "201":
           description: Key created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vaults/{vault_name}/keys/import:
+    parameters:
+      - $ref: "#/components/parameters/VaultName"
+    post:
+      summary: Import a key into a vault
+      description: |
+        Imports externally-generated key material supplied as a JWK into the
+        named vault.
+      operationId: importKeyInVault
+      tags:
+        - Keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportKeyRequest"
+      responses:
+        "201":
+          description: Key imported successfully
           content:
             application/json:
               schema:
@@ -5920,6 +5985,32 @@ components:
         not_before:
           type: string
           format: date-time
+
+    ImportKeyRequest:
+      type: object
+      required:
+        - name
+        - jwk
+      properties:
+        name:
+          type: string
+        jwk:
+          type: object
+          description: |
+            The externally-generated key material to import, as a JSON Web Key
+            (RFC 7517). RSA and EC private keys are supported; the imported
+            key is subject to the same non-extractability guarantee as a
+            generated key of the same backend.
+        tags:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+          default: true
+        purge_protection:
+          type: boolean
+          description: Optional; unset leaves the stored default unchanged.
 
     UpdateKeyRequest:
       type: object

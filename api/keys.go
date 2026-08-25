@@ -52,6 +52,17 @@ type CreateKeyRequest struct {
 	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
 
+// ImportKeyRequest represents the request structure for importing a
+// cryptographic key from a JWK.
+type ImportKeyRequest struct {
+	Name    string          `json:"name"`
+	JWK     json.RawMessage `json:"jwk"`
+	Tags    []string        `json:"tags"`
+	Enabled *bool           `json:"enabled,omitempty"`
+	// PurgeProtection is optional; nil leaves the stored default alone.
+	PurgeProtection *bool `json:"purge_protection,omitempty"`
+}
+
 // UpdateKeyRequest represents the request structure for updating a cryptographic key.
 type UpdateKeyRequest struct {
 	Name      *string    `json:"name,omitempty"`    // New name for the key.
@@ -288,6 +299,7 @@ func (api *API) InitKeys() {
 func (api *API) registerKeyRoutes(k *mux.Router, scope string) {
 	// Basic CRUD operations.
 	k.Handle("", ApiSessionRequired(api.App, createKey)).Methods("POST")
+	k.Handle("/import", ApiSessionRequired(api.App, importKey)).Methods("POST")
 	k.Handle("", ApiSessionRequired(api.App, listKeys)).Methods("GET")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, getKey)).Methods("GET")
 	k.Handle("/{key_id:[A-Fa-f0-9-]+}", ApiSessionRequired(api.App, updateKey)).Methods("PUT")
@@ -429,6 +441,71 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the full key record so buildKeyResponse can inspect the stored value.
+	createScope := model.NewVaultScope(vaultID, userID)
+	key, err := keyService.GetKey(r.Context(), result.KeyID, createScope)
+	if err != nil {
+		c.SetInternalError(err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0))) //nolint:errcheck,gosec
+}
+
+// importKey imports a cryptographic key from caller-supplied JWK material.
+func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
+	// Authorization happens in PolicyMiddleware: importing a key requires the
+	// Microsoft.KeyVault/vaults/keys/import/action data action, granted by
+	// Key Vault Crypto Officer or Key Vault Administrator in this vault.
+
+	var req ImportKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		c.SetInvalidParam("request body")
+		return
+	}
+	if req.Name == "" || len(req.JWK) == 0 {
+		c.SetInvalidParam("name and jwk are required")
+		return
+	}
+
+	userID, err := uuid.Parse(c.Claims.UserID)
+	if err != nil {
+		c.SetInvalidParam("user_id")
+		return
+	}
+
+	vaultID, err := vaultIDFromRequest(r)
+	if err != nil {
+		c.SetInvalidParam("vault")
+		return
+	}
+
+	keyService := c.keySvc()
+	if keyService == nil {
+		return
+	}
+
+	enabled := req.Enabled
+	if enabled == nil {
+		t := true
+		enabled = &t
+	}
+
+	result, err := keyService.ImportKey(r.Context(), keyservices.ImportKeyRequest{
+		Name:            req.Name,
+		JWK:             []byte(req.JWK),
+		Tags:            req.Tags,
+		UserID:          userID,
+		VaultID:         vaultID,
+		Enabled:         enabled,
+		PurgeProtection: req.PurgeProtection,
+	})
+	if err != nil {
+		writeKeyError(c, err)
+		return
+	}
+
 	createScope := model.NewVaultScope(vaultID, userID)
 	key, err := keyService.GetKey(r.Context(), result.KeyID, createScope)
 	if err != nil {

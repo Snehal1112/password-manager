@@ -73,6 +73,14 @@ func (m *mockKeyService) CreateOctKey(ctx context.Context, req keyServices.Creat
 	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
 }
 
+func (m *mockKeyService) ImportKey(ctx context.Context, req keyServices.ImportKeyRequest) (*keyServices.CreateKeyResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
+}
+
 func (m *mockKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {
@@ -414,6 +422,87 @@ func TestCreateKey_RSA_Success_Returns201(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// ============================================================
+// importKey
+// ============================================================
+
+func TestImportKey_Success_Returns201(t *testing.T) {
+	keyID := uuid.New()
+	svc := &mockKeyService{}
+	svc.On("ImportKey", mock.Anything, mock.MatchedBy(func(req keyServices.ImportKeyRequest) bool {
+		return req.Name == "imported-key" && len(req.JWK) > 0
+	})).Return(&keyServices.CreateKeyResult{KeyID: keyID, Name: "imported-key", Type: model.KeyTypeRSA}, nil)
+	svc.On("GetKey", mock.Anything, keyID, keyLegacyVaultScope()).Return(makeKeyModel(keyID), nil)
+
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name": "imported-key",
+		"jwk":  json.RawMessage(`{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`),
+	})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
+func TestImportKey_MissingName_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"jwk": json.RawMessage(`{"kty":"RSA"}`)})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertNotCalled(t, "ImportKey", mock.Anything, mock.Anything)
+}
+
+func TestImportKey_MissingJWK_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{"name": "imported-key"})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestImportKey_ServiceError_Returns500(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("ImportKey", mock.Anything, mock.Anything).Return(nil, errors.New("provider unavailable"))
+
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name": "imported-key",
+		"jwk":  json.RawMessage(`{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`),
+	})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.NotEqual(t, http.StatusCreated, w.Code)
 	svc.AssertExpectations(t)
 }
 

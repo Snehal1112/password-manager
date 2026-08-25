@@ -52,6 +52,9 @@ func (s *recordingKeyService) CreateECDSAKey(context.Context, keyServices.Create
 func (s *recordingKeyService) CreateOctKey(context.Context, keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	panic("unexpected")
 }
+func (s *recordingKeyService) ImportKey(context.Context, keyServices.ImportKeyRequest) (*keyServices.CreateKeyResult, error) {
+	panic("unexpected")
+}
 func (s *recordingKeyService) RotateKey(context.Context, uuid.UUID, model.Scope) (*keyServices.CreateKeyResult, error) {
 	panic("unexpected")
 }
