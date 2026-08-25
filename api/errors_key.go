@@ -38,6 +38,13 @@ func writeKeyError(c *Context, err error) {
 		// rejection can wrap raw PKCS#11 text (e.g. "rejected by HSM"), the
 		// same backend-detail leak fixed for the algorithm case below.
 		c.SetInvalidParam("curve")
+	case errors.Is(err, crypto.ErrKeyImportRejected):
+		// The message deliberately omits err.Error(): same backend-detail
+		// leak as the curve/algorithm cases above, this time for a token
+		// that refuses to import externally-supplied key material via
+		// C_CreateObject (e.g. a FIPS-mode HSM policy against plaintext
+		// private-key import) rather than a curve or mechanism rejection.
+		c.SetInvalidParam("jwk: key material rejected by HSM")
 	case errors.Is(err, keyservices.ErrUnsupportedAlgorithm) || errors.Is(err, crypto.ErrUnsupportedAlgorithm):
 		// crypto.ErrUnsupportedAlgorithm is the provider-side twin of
 		// keyservices.ErrUnsupportedAlgorithm: an HSM that rejects a mechanism

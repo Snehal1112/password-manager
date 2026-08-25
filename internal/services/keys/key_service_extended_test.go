@@ -1143,3 +1143,207 @@ func TestImportKey_ProviderStoresPKCS11Handle_NotEncrypted(t *testing.T) {
 	require.NotNil(t, createdKey)
 	assert.Equal(t, "pkcs11:11111111-2222-3333-4444-555555555555", createdKey.Value)
 }
+
+// TestImportKey_StoresBitsAndCurve pins the fix for the "silent key
+// downgrade on rotation" bug: ImportKey's model.Key literal previously
+// omitted Bits/Curve entirely, so RotateKey's zero-value fallback (2048 /
+// P-256) silently replaced a stronger imported key on its first rotation.
+func TestImportKey_StoresBitsAndCurve_RSA(t *testing.T) {
+	setupKeyTestMasterKey()
+	priv, err := rsa.GenerateKey(rand.Reader, 4096)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	repo := &mockKeyRepository{}
+	var createdKey *model.Key
+	repo.On("Create", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { createdKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "imported-rsa-4096",
+		JWK:    jwkJSON,
+		UserID: uuid.New(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createdKey)
+	assert.Equal(t, 4096, createdKey.Bits)
+	assert.Empty(t, createdKey.Curve)
+}
+
+func TestImportKey_StoresBitsAndCurve_ECDSA(t *testing.T) {
+	setupKeyTestMasterKey()
+	priv, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	repo := &mockKeyRepository{}
+	var createdKey *model.Key
+	repo.On("Create", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { createdKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   crypto.NewSoftwareKeyProvider(),
+		Logger:        newKeyLogger(),
+	})
+
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "imported-ecdsa-p521",
+		JWK:    jwkJSON,
+		UserID: uuid.New(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, createdKey)
+	assert.Equal(t, "P-521", createdKey.Curve)
+	assert.Zero(t, createdKey.Bits)
+}
+
+// TestImportKey_ThenRotate_PreservesOriginalStrength is the regression guard
+// for the exact downgrade bug: import a key stronger than RotateKey's
+// hardcoded fallback (4096-bit RSA vs. the 2048 fallback), then rotate it,
+// and assert the rotated key is generated at the ORIGINAL strength rather
+// than silently downgraded. Against the pre-fix code (Bits/Curve omitted
+// from ImportKey's model.Key literal) this test fails: RotateKey would read
+// back Bits == 0, fall back to 2048, and generate a 2048-bit replacement.
+func TestImportKey_ThenRotate_PreservesOriginalStrength_RSA(t *testing.T) {
+	setupKeyTestMasterKey()
+	priv, err := rsa.GenerateKey(rand.Reader, 4096)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	repo := &mockKeyRepository{}
+	var importedKey *model.Key
+	repo.On("Create", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { importedKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	provider := crypto.NewSoftwareKeyProvider()
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        newKeyLogger(),
+	})
+
+	ownerID := uuid.New()
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "imported-rsa-4096",
+		JWK:    jwkJSON,
+		UserID: ownerID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, importedKey)
+	require.Equal(t, 4096, importedKey.Bits)
+
+	// Now rotate the key that was just imported. Read returns exactly what
+	// ImportKey persisted (Bits included), matching how the real repository
+	// round-trips the row.
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+	repo.On("Read", mock.Anything, importedKey.ID, scope).Return(importedKey, nil)
+	repo.On("ListVersions", mock.Anything, importedKey.ID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, importedKey.ID, mock.AnythingOfType("int"), mock.AnythingOfType("string")).Return(nil)
+
+	var rotatedKey *model.Key
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), scope).
+		Run(func(args mock.Arguments) { rotatedKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	_, err = svc.RotateKey(context.Background(), importedKey.ID, scope)
+	require.NoError(t, err)
+	require.NotNil(t, rotatedKey)
+	assert.Equal(t, 4096, rotatedKey.Bits, "rotation must preserve the imported key's original strength, not fall back to the 2048 default")
+}
+
+func TestImportKey_ThenRotate_PreservesOriginalStrength_ECDSA(t *testing.T) {
+	setupKeyTestMasterKey()
+	priv, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	repo := &mockKeyRepository{}
+	var importedKey *model.Key
+	repo.On("Create", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { importedKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	provider := crypto.NewSoftwareKeyProvider()
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        newKeyLogger(),
+	})
+
+	ownerID := uuid.New()
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "imported-ecdsa-p521",
+		JWK:    jwkJSON,
+		UserID: ownerID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, importedKey)
+	require.Equal(t, "P-521", importedKey.Curve)
+
+	scope := model.NewOwnerScope(uuid.Nil, ownerID)
+	repo.On("Read", mock.Anything, importedKey.ID, scope).Return(importedKey, nil)
+	repo.On("ListVersions", mock.Anything, importedKey.ID).Return([]model.KeyVersion{}, nil)
+	repo.On("CreateVersion", mock.Anything, importedKey.ID, mock.AnythingOfType("int"), mock.AnythingOfType("string")).Return(nil)
+
+	var rotatedKey *model.Key
+	repo.On("Update", mock.Anything, mock.AnythingOfType("*model.Key"), scope).
+		Run(func(args mock.Arguments) { rotatedKey = args.Get(1).(*model.Key) }).
+		Return(nil)
+
+	_, err = svc.RotateKey(context.Background(), importedKey.ID, scope)
+	require.NoError(t, err)
+	require.NotNil(t, rotatedKey)
+	assert.Equal(t, "P-521", rotatedKey.Curve, "rotation must preserve the imported key's original curve, not fall back to the P-256 default")
+}
+
+// ─── ImportKey: minimum RSA key size ───────────────────────────────────────
+
+// TestImportKey_RSATooSmall_Rejected pins the minimum-RSA-size enforcement
+// added to ImportKey: go-jose validates mathematical correctness but not
+// size, so without this check a sub-2048-bit RSA JWK would be importable
+// even though CreateRSAKey rejects the same size at generation time.
+func TestImportKey_RSATooSmall_Rejected(t *testing.T) {
+	priv, err := rsa.GenerateKey(rand.Reader, 1024)
+	require.NoError(t, err)
+	jwk := jose.JSONWebKey{Key: priv}
+	jwkJSON, err := jwk.MarshalJSON()
+	require.NoError(t, err)
+
+	provider := &mockKeyProviderForService{}
+	repo := &mockKeyRepository{}
+
+	svc := NewKeyService(KeyServiceConfig{
+		KeyRepository: repo,
+		KeyProvider:   provider,
+		Logger:        newKeyLogger(),
+	})
+
+	_, err = svc.ImportKey(context.Background(), ImportKeyRequest{
+		Name:   "too-small",
+		JWK:    jwkJSON,
+		UserID: uuid.New(),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too small")
+
+	provider.AssertNotCalled(t, "ImportKey", mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Create", mock.Anything, mock.Anything)
+}

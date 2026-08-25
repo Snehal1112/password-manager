@@ -55,10 +55,12 @@ type CreateKeyRequest struct {
 // ImportKeyRequest represents the request structure for importing a
 // cryptographic key from a JWK.
 type ImportKeyRequest struct {
-	Name    string          `json:"name"`
-	JWK     json.RawMessage `json:"jwk"`
-	Tags    []string        `json:"tags"`
-	Enabled *bool           `json:"enabled,omitempty"`
+	Name      string          `json:"name"`
+	JWK       json.RawMessage `json:"jwk"`
+	Tags      []string        `json:"tags"`
+	Enabled   *bool           `json:"enabled,omitempty"`
+	ExpiresAt *time.Time      `json:"expires_at,omitempty"`
+	NotBefore *time.Time      `json:"not_before,omitempty"`
 	// PurgeProtection is optional; nil leaves the stored default alone.
 	PurgeProtection *bool `json:"purge_protection,omitempty"`
 }
@@ -512,6 +514,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		UserID:          userID,
 		VaultID:         vaultID,
 		Enabled:         enabled,
+		ExpiresAt:       req.ExpiresAt,
+		NotBefore:       req.NotBefore,
 		PurgeProtection: req.PurgeProtection,
 	})
 	if err != nil {

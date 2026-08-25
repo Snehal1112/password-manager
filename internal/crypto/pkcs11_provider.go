@@ -25,6 +25,14 @@ var ErrUnsupportedCurve = errors.New("curve not supported by PKCS#11 provider")
 // software provider but not routed through PKCS#11 (e.g., AES-GCM key ops).
 var ErrUnsupportedAlgorithm = errors.New("algorithm not supported by PKCS#11 provider")
 
+// ErrKeyImportRejected is returned when the PKCS#11 token refuses to import
+// externally-supplied key material via C_CreateObject -- e.g. a FIPS-mode
+// HSM's policy against accepting plaintext private-key material from the
+// caller, as opposed to generating it on-token. Distinct from
+// ErrUnsupportedCurve/ErrUnsupportedAlgorithm because the rejection isn't
+// about the curve or mechanism, it's about the import operation itself.
+var ErrKeyImportRejected = errors.New("key import rejected by HSM")
+
 // PKCS11Config holds the runtime configuration for PKCS11KeyProvider.
 type PKCS11Config struct {
 	// LibPath is the absolute path to the PKCS#11 shared library.
@@ -295,9 +303,15 @@ func (p *PKCS11KeyProvider) ImportKey(_ context.Context, keyType string, private
 			p11.NewAttribute(p11.CKA_COEFFICIENT, key.Precomputed.Qinv.Bytes()),
 		}
 		if _, err := p.ctx.CreateObject(session, pubAttrs); err != nil {
+			if isHSMImportRejectionError(err) {
+				return "", fmt.Errorf("%w: RSA public key material", ErrKeyImportRejected)
+			}
 			return "", fmt.Errorf("pkcs11 rsa import (public): %w", err)
 		}
 		if _, err := p.ctx.CreateObject(session, privAttrs); err != nil {
+			if isHSMImportRejectionError(err) {
+				return "", fmt.Errorf("%w: RSA private key material", ErrKeyImportRejected)
+			}
 			return "", fmt.Errorf("pkcs11 rsa import (private): %w", err)
 		}
 		return label, nil
@@ -341,9 +355,15 @@ func (p *PKCS11KeyProvider) ImportKey(_ context.Context, keyType string, private
 			p11.NewAttribute(p11.CKA_VALUE, key.D.Bytes()),
 		}
 		if _, err := p.ctx.CreateObject(session, pubAttrs); err != nil {
+			if isHSMImportRejectionError(err) {
+				return "", fmt.Errorf("%w: ECDSA public key material", ErrKeyImportRejected)
+			}
 			return "", fmt.Errorf("pkcs11 ecdsa import (public): %w", err)
 		}
 		if _, err := p.ctx.CreateObject(session, privAttrs); err != nil {
+			if isHSMImportRejectionError(err) {
+				return "", fmt.Errorf("%w: ECDSA private key material", ErrKeyImportRejected)
+			}
 			return "", fmt.Errorf("pkcs11 ecdsa import (private): %w", err)
 		}
 		return label, nil
@@ -833,6 +853,38 @@ func isHSMCapabilityError(err error) bool {
 	}
 	switch pErr {
 	case ckrCurveNotSupported, ckrDomainParamsInvalid, ckrMechanismInvalid, ckrMechanismParamInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
+// Known CKR_* result codes a PKCS#11 token returns when it refuses to import
+// externally-supplied key material via C_CreateObject specifically -- e.g. a
+// FIPS-mode HSM's policy against plaintext private-key import -- as opposed
+// to a transport/system failure. C_CreateObject rejects an import through
+// attribute/template result codes, not the curve/mechanism codes above
+// (those apply to C_GenerateKeyPair-style operations), so this is a
+// separate code set from isHSMCapabilityError's.
+const (
+	ckrAttributeValueInvalid = p11.Error(0x13) // CKR_ATTRIBUTE_VALUE_INVALID
+	ckrTemplateIncomplete    = p11.Error(0xD0) // CKR_TEMPLATE_INCOMPLETE
+	ckrTemplateInconsistent  = p11.Error(0xD1) // CKR_TEMPLATE_INCONSISTENT
+	ckrActionProhibited      = p11.Error(0x1B) // CKR_ACTION_PROHIBITED (PKCS#11 3.0 FIPS policy)
+	ckrFunctionNotSupported  = p11.Error(0x54) // CKR_FUNCTION_NOT_SUPPORTED
+)
+
+// isHSMImportRejectionError reports whether err indicates the token refused
+// to import externally-supplied key material via C_CreateObject, rather than
+// a transport/system failure. Mirrors isHSMCapabilityError's errors.As-based
+// typed comparison, against the separate code set above.
+func isHSMImportRejectionError(err error) bool {
+	var pErr p11.Error
+	if !errors.As(err, &pErr) {
+		return false
+	}
+	switch pErr {
+	case ckrAttributeValueInvalid, ckrTemplateIncomplete, ckrTemplateInconsistent, ckrActionProhibited, ckrFunctionNotSupported:
 		return true
 	default:
 		return false
