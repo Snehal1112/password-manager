@@ -37,7 +37,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
 | Create key | ✅ | ✅ `POST /keys` | ✅ |
-| Import key | ✅ (JWK) | ❌ no import route — `ActionKeysImport` is declared in `model/azure_roles.go` and granted to Crypto Officer/Administrator, but no path maps to it in `MapRouteToDataAction`. Design specified, not yet built: `docs/superpowers/specs/2026-08-25-key-import-jwk-design.md` | ❌ |
+| Import key | ✅ (JWK) | ✅ `POST /keys/import` — accepts an RSA or ECDSA private-key JWK (`internal/signing.ParseJWK`; a public-only JWK is rejected), stores it exactly as a generated key would (encrypted PEM, or a non-extractable PKCS#11 object on an HSM-backed vault), gated by `ActionKeysImport` via `mapKeyAction`'s `case "import"` in `internal/services/authorization/data_actions.go`, granted to Crypto Officer/Administrator. CLI: `rocketvault keys import --name <name> --jwk-file <path>` (or `--jwk` inline), which additionally requires the caller's account to hold the global `admin` or `crypto_manager` role on top of the per-vault data-action check. Shipped 2026-08-25, closing `docs/superpowers/specs/2026-08-25-key-import-jwk-design.md` | ✅ |
 | Get / List / List versions | ✅ (`GET /keys/{name}/{version}` returns the version's public JWK — `n`/`e` for RSA, `x`/`y`/`crv` for EC) | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and `/keys/{id}/versions/{version}`, which returns that version's public JWK components alongside its metadata (2026-08-20, § B34). Note the earlier claim here that the current-key `GET /keys/{id}` "does emit them via `buildKeyResponse`" was **false**: it advertised `n`/`e`/`x`/`y` and never populated them for any software key, because the handler parsed the master-key-encrypted stored value and discarded the resulting error. Both routes emit real components now. `GET /keys` stays JWK-free by design, as Azure's list response does | ✅ |
 | Update (attributes) | ✅ | ✅ `PUT /keys/{id}` | ✅ |
 | Delete (soft) | ✅ | ✅ `DELETE /keys/{id}` | ✅ |
@@ -483,7 +483,7 @@ they are capabilities Azure lacks, not parity gaps.
 | Section | ✅ | 🟡 | ❌ | ➕ |
 |---|---:|---:|---:|---:|
 | 1. Secrets management | 9 | 1 | 0 | 2 |
-| 2. Key management — operations | 8 | 3 | 2 | 0 |
+| 2. Key management — operations | 9 | 3 | 1 | 0 |
 | 3. Key management — types & algorithms | 3 | 4 | 1 | 0 |
 | 4. Certificate management | 5 | 0 | 4 | 0 |
 | 5. Multi-vault / namespacing | 5 | 0 | 0 | 1 |
@@ -492,23 +492,25 @@ they are capabilities Azure lacks, not parity gaps.
 | 8. HSM & cryptographic protection | 1 | 2 | 0 | 1 |
 | 9. Monitoring, audit & compliance | 1 | 1 | 1 | 3 |
 | 10. Platform & operations | 3 | 0 | 1 | 3 |
-| **Total** | **54** | **14** | **9** | **10** |
+| **Total** | **55** | **14** | **8** | **10** |
 
-**70% full parity** (54/77 parity-comparable rows), 18% partial, 12% not supported.
-Counting partial as usable-with-caveats, 88% of compared capabilities are present in
+**71% full parity** (55/77 parity-comparable rows), 18% partial, 10% not supported.
+Counting partial as usable-with-caveats, 90% of compared capabilities are present in
 some form. (Two rows added 2026-08-25 — certificate import and CSR merge, both
-❌, specified but not yet built — moved this from 72%/54/75 to 70%/54/77; see
-`docs/superpowers/specs/2026-08-25-certificate-import-merge-design.md`.)
+❌, specified but not yet built — moved this from 72%/54/75 to 70%/54/77. Key
+import closed the same day, moving it again to 71%/55/77; see
+`docs/superpowers/specs/2026-08-25-certificate-import-merge-design.md` and
+`docs/superpowers/specs/2026-08-25-key-import-jwk-design.md`.)
 
 Read that number with three caveats. **Rows are not equally weighted** — "geo-
 replication ❌" and "RSNULL 🟡" cost the same one row, though only one of them would
-stop a deployment. **Four of the seven ❌ rows are structural, not backlog**:
+stop a deployment. **Four of the eight ❌ rows are structural, not backlog**:
 geo-replication, cloud log sinks, public-CA/ACME enrollment and confidential-compute
 key release are cloud-platform or third-party-integration features a single
 self-hosted binary does not have an equivalent for by design. The genuinely closable
-❌ rows are key import, certificate import, CSR merge, HMAC-on-symmetric-keys, and
-ACME enrollment — the first three now have designs specified (see §2 and §4 above)
-but not yet built. And **the
+❌ rows are certificate import, CSR merge, HMAC-on-symmetric-keys, and ACME
+enrollment — the first two now have designs specified (see §4 above) but not yet
+built. And **the
 percentage measures breadth, not correctness** — the row that moved this number from
 71% to 72% (§ B30, fixed 2026-08-20) was a plaintext-disclosure defect, worth far more
 than the one point it scored.

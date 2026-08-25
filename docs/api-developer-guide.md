@@ -296,6 +296,78 @@ Authorization: Bearer <token>
 
 - `id`: Secret UUID
 
+### Key Endpoints
+
+All key endpoints require authentication, plus a per-vault role assignment
+granting the matching data action (see the [Administrator Manual](admin-manual.html)
+for the full RSA/ECDSA/OCT create, rotate, and crypto-operation reference).
+
+#### Import Key
+
+```http
+POST /api/v1/keys/import
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+Imports an externally-generated RSA or ECDSA private key supplied as a JWK,
+storing it exactly as a generated key would be (encrypted PEM, or a
+non-extractable PKCS#11 object on an HSM-backed vault). This is the REST
+equivalent of `rocketvault keys import` (see the [CLI Guide](cli-guide.md)).
+
+Requires the `Microsoft.KeyVault/vaults/keys/import/action` data action in the
+target vault, granted by the `Key Vault Crypto Officer` or
+`Key Vault Administrator` role.
+
+**Request Body:**
+
+```json
+{
+  "name": "imported-signing-key",
+  "jwk": {
+    "kty": "RSA",
+    "n": "...",
+    "e": "AQAB",
+    "d": "...",
+    "p": "...",
+    "q": "..."
+  },
+  "tags": ["production", "migrated"],
+  "enabled": true,
+  "purge_protection": false
+}
+```
+
+**Parameters:**
+
+- `name`: String, required. Key name.
+- `jwk`: Object, required. A JWK containing private key material (`kty`
+  `"RSA"` or `"EC"`). A public-only JWK (no private component) is rejected
+  with a 400.
+- `tags`: Array of tag strings, optional.
+- `enabled`: Boolean, optional. Defaults to `true`.
+- `purge_protection`: Boolean, optional. Leaves the stored default alone when
+  omitted.
+
+**Response:** `201 Created`
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "imported-signing-key",
+  "type": "RSA",
+  "bits": 2048,
+  "enabled": true,
+  "revoked": false,
+  "tags": ["production", "migrated"],
+  "user_id": "550e8400-e29b-41d4-a716-446655440001",
+  "created_at": "2026-08-25T10:30:00Z"
+}
+```
+
+Private key material is never returned; the response includes only public
+components (RSA `n`/`e`, EC `x`/`y`), same as `POST /api/v1/keys`.
+
 ## Error Handling
 
 ### HTTP Status Codes

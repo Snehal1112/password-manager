@@ -1387,6 +1387,10 @@ For questions or issues:
 - [x] Fixed the CLI to exit non-zero on command failure — every command now exits `1` on error and `0` on success, safe for `&&` chains and `set -e` scripts
 - [x] `Key Vault Crypto User` role: added missing `update`/`backup` data actions for exact Azure parity (2026-08-17)
 
+*(2026-08-25)*
+
+- [x] Key import (JWK) — `POST /keys/import` and `rocketvault keys import` accept an externally-generated RSA/ECDSA private-key JWK and store it exactly as a generated key would (encrypted PEM, or a non-extractable PKCS#11 object on an HSM-backed vault), gated by the new `ActionKeysImport` data action
+
 ### Planned
 
 Full rationale, non-goals, and sequencing: [Roadmap — Azure Parity & Beyond](.claude/roadmap-azure-parity-and-beyond.md).
@@ -1394,7 +1398,6 @@ Full rationale, non-goals, and sequencing: [Roadmap — Azure Parity & Beyond](.
 **Phase 1 — Close remaining Azure Key Vault gaps**
 
 - [ ] Rotation-policy scheduler — actually execute the rotation policies that already exist (CRUD-only today); currently a silent no-op that could give a false sense of security, so this is the highest-priority item in this phase
-- [ ] Key import (JWK)
 - [ ] Certificate import (PFX/PEM) / CSR merge
 - [ ] ACME / Let's Encrypt certificate enrollment — the open substitute for Azure's partner-CA-only integration (DigiCert/GlobalSign), which is not separately planned
 

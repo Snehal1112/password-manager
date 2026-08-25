@@ -749,7 +749,7 @@ go run main.go secrets rotation history \
 
 > This section is for technical users who need to manage RSA or ECDSA keys. If you are not sure what these are, you likely do not need this section.
 
-Every `keys` subcommand (`create`, `get`, `list`, `update`, `delete`, `rotate`, `wrap`, `unwrap`) checks your access against the target vault — you need a role assignment in that vault that grants the matching permission (for example, `Key Vault Crypto Officer` for create/update/delete/rotate, or `Key Vault Crypto User` for wrap/unwrap). **There is no admin bypass**: holding RocketVault's global admin role does not by itself grant access to keys in a vault — you still need an explicit per-vault role assignment. See "Vault Access & Roles" for how to grant these. `keys create` additionally requires your account to hold the global `admin` or `secrets_manager` role on top of the per-vault check.
+Every `keys` subcommand (`create`, `import`, `get`, `list`, `update`, `delete`, `rotate`, `wrap`, `unwrap`) checks your access against the target vault — you need a role assignment in that vault that grants the matching permission (for example, `Key Vault Crypto Officer` for create/import/update/delete/rotate, or `Key Vault Crypto User` for wrap/unwrap). **There is no admin bypass**: holding RocketVault's global admin role does not by itself grant access to keys in a vault — you still need an explicit per-vault role assignment. See "Vault Access & Roles" for how to grant these. `keys create` additionally requires your account to hold the global `admin` or `secrets_manager` role, and `keys import` the global `admin` or `crypto_manager` role, on top of the per-vault check.
 
 All `keys` subcommands accept an optional `--vault <name>` flag to target a specific vault; if omitted, RocketVault uses the `default` vault.
 
@@ -775,6 +775,29 @@ go run main.go keys create \
   --type ECDSA \
   --curve P-256
 ```
+
+### Import a key
+
+Bring in an RSA or ECDSA private key generated somewhere else — a JWK containing private key material, from a file or inline — instead of having RocketVault generate one. It's stored exactly as a generated key would be (encrypted PEM, or a non-extractable PKCS#11 object on an HSM-backed vault). A JWK with no private key material (public-only) is rejected.
+
+```
+go run main.go keys import \
+  --username admin --password admin123 --totp-code 123456 \
+  --name imported-signing-key \
+  --jwk-file ./key.jwk.json \
+  --vault my-team-vault
+```
+
+Or supply the JWK inline instead of a file:
+
+```
+go run main.go keys import \
+  --username admin --password admin123 --totp-code 123456 \
+  --name imported-signing-key \
+  --jwk '{"kty":"RSA","n":"...","e":"AQAB","d":"..."}'
+```
+
+`--name` and one of `--jwk-file`/`--jwk` (mutually exclusive) are required; `--tags` and `--purge-protection` are optional. `keys import` requires your account to hold the global `admin` or `crypto_manager` role, in addition to a per-vault role assignment granting the import permission (`Key Vault Crypto Officer` or `Key Vault Administrator`).
 
 ### See all keys
 
