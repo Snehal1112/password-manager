@@ -49,6 +49,13 @@ func (s *retryKeyService) CreateOctKey(ctx context.Context, req keys.CreateKeyRe
 	})
 }
 
+// ImportKey imports a key with retry logic for database operations.
+func (s *retryKeyService) ImportKey(ctx context.Context, req keys.ImportKeyRequest) (*keys.CreateKeyResult, error) {
+	return retried(ctx, s.retryService, func() (*keys.CreateKeyResult, error) {
+		return s.baseService.ImportKey(ctx, req)
+	})
+}
+
 // GetKey retrieves a key with retry logic for database operations.
 func (s *retryKeyService) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return retried(ctx, s.retryService, func() (*model.Key, error) {

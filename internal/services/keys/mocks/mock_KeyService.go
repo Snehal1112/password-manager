@@ -10,8 +10,6 @@ import (
 
 	model "rocketvault/model"
 
-	repositories "rocketvault/internal/repositories"
-
 	uuid "github.com/google/uuid"
 )
 
@@ -555,6 +553,65 @@ func (_c *MockKeyService_GetPublicJWK_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// ImportKey provides a mock function with given fields: ctx, req
+func (_m *MockKeyService) ImportKey(ctx context.Context, req keys.ImportKeyRequest) (*keys.CreateKeyResult, error) {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ImportKey")
+	}
+
+	var r0 *keys.CreateKeyResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, keys.ImportKeyRequest) (*keys.CreateKeyResult, error)); ok {
+		return rf(ctx, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, keys.ImportKeyRequest) *keys.CreateKeyResult); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*keys.CreateKeyResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, keys.ImportKeyRequest) error); ok {
+		r1 = rf(ctx, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockKeyService_ImportKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ImportKey'
+type MockKeyService_ImportKey_Call struct {
+	*mock.Call
+}
+
+// ImportKey is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req keys.ImportKeyRequest
+func (_e *MockKeyService_Expecter) ImportKey(ctx interface{}, req interface{}) *MockKeyService_ImportKey_Call {
+	return &MockKeyService_ImportKey_Call{Call: _e.mock.On("ImportKey", ctx, req)}
+}
+
+func (_c *MockKeyService_ImportKey_Call) Run(run func(ctx context.Context, req keys.ImportKeyRequest)) *MockKeyService_ImportKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(keys.ImportKeyRequest))
+	})
+	return _c
+}
+
+func (_c *MockKeyService_ImportKey_Call) Return(_a0 *keys.CreateKeyResult, _a1 error) *MockKeyService_ImportKey_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockKeyService_ImportKey_Call) RunAndReturn(run func(context.Context, keys.ImportKeyRequest) (*keys.CreateKeyResult, error)) *MockKeyService_ImportKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListDeletedKeys provides a mock function with given fields: ctx, scope
 func (_m *MockKeyService) ListDeletedKeys(ctx context.Context, scope model.Scope) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope)
@@ -675,7 +732,7 @@ func (_c *MockKeyService_ListKeyVersions_Call) RunAndReturn(run func(context.Con
 }
 
 // ListKeys provides a mock function with given fields: ctx, scope, filter
-func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filter model.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)
 
 	if len(ret) == 0 {
@@ -684,10 +741,10 @@ func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filte
 
 	var r0 []model.Key
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, model.KeyFilter) ([]model.Key, error)); ok {
 		return rf(ctx, scope, filter)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.KeyFilter) []model.Key); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, model.KeyFilter) []model.Key); ok {
 		r0 = rf(ctx, scope, filter)
 	} else {
 		if ret.Get(0) != nil {
@@ -695,7 +752,7 @@ func (_m *MockKeyService) ListKeys(ctx context.Context, scope model.Scope, filte
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, repositories.KeyFilter) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, model.KeyFilter) error); ok {
 		r1 = rf(ctx, scope, filter)
 	} else {
 		r1 = ret.Error(1)
@@ -712,14 +769,14 @@ type MockKeyService_ListKeys_Call struct {
 // ListKeys is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scope model.Scope
-//   - filter repositories.KeyFilter
+//   - filter model.KeyFilter
 func (_e *MockKeyService_Expecter) ListKeys(ctx interface{}, scope interface{}, filter interface{}) *MockKeyService_ListKeys_Call {
 	return &MockKeyService_ListKeys_Call{Call: _e.mock.On("ListKeys", ctx, scope, filter)}
 }
 
-func (_c *MockKeyService_ListKeys_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.KeyFilter)) *MockKeyService_ListKeys_Call {
+func (_c *MockKeyService_ListKeys_Call) Run(run func(ctx context.Context, scope model.Scope, filter model.KeyFilter)) *MockKeyService_ListKeys_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.KeyFilter))
+		run(args[0].(context.Context), args[1].(model.Scope), args[2].(model.KeyFilter))
 	})
 	return _c
 }
@@ -729,7 +786,7 @@ func (_c *MockKeyService_ListKeys_Call) Return(_a0 []model.Key, _a1 error) *Mock
 	return _c
 }
 
-func (_c *MockKeyService_ListKeys_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyService_ListKeys_Call {
+func (_c *MockKeyService_ListKeys_Call) RunAndReturn(run func(context.Context, model.Scope, model.KeyFilter) ([]model.Key, error)) *MockKeyService_ListKeys_Call {
 	_c.Call.Return(run)
 	return _c
 }
