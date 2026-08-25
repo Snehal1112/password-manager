@@ -161,4 +161,30 @@ func TestResolveVault_ErrorNamesThePermittedVaults(t *testing.T) {
 		"naming the permitted set lets the model correct itself instead of guessing")
 }
 
+func TestTierEnabled_LoginRequiresFlagAndSessionIdentity(t *testing.T) {
+	cases := []struct {
+		name           string
+		allow          bool
+		serviceAccount bool
+		want           bool
+	}{
+		{"flag off, session identity", false, false, false},
+		{"flag on, session identity", true, false, true},
+		{"flag on, service account", true, true, false},
+		{"flag off, service account", false, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.AllowInteractiveLogin = tc.allow
+			s, err := New(Deps{
+				Config: cfg, Logger: discardLogger(), Version: "test",
+				IsServiceAccountIdentity: tc.serviceAccount,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.want, s.TierEnabled(TierLogin))
+		})
+	}
+}
+
 var _ = config.MCPConfig{}

@@ -20,6 +20,7 @@ const (
 	TierWrite
 	TierDestructive
 	TierCrypto
+	TierLogin
 )
 
 // String names the tier, for diagnostics and --check output.
@@ -31,6 +32,8 @@ func (t Tier) String() string {
 		return "destructive"
 	case TierCrypto:
 		return "crypto"
+	case TierLogin:
+		return "login"
 	default:
 		return "read"
 	}
@@ -45,6 +48,11 @@ func (s *Server) TierEnabled(t Tier) bool {
 		return s.cfg.AllowDestructive
 	case TierCrypto:
 		return s.cfg.AllowCrypto
+	case TierLogin:
+		// Never enabled under a service account, regardless of config: a
+		// service account's whole point is that the agent cannot act as a
+		// human, and a login tool that could override that would defeat it.
+		return s.cfg.AllowInteractiveLogin && !s.isServiceAccountIdentity
 	default:
 		return true
 	}
