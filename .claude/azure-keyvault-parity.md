@@ -37,7 +37,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Capability | Azure Key Vault | RocketVault | Status |
 |---|---|---|---|
 | Create key | ✅ | ✅ `POST /keys` | ✅ |
-| Import key | ✅ (JWK) | ❌ no import route — `ActionKeysImport` is declared in `model/azure_roles.go` and granted to Crypto Officer/Administrator, but no path maps to it in `MapRouteToDataAction` | ❌ |
+| Import key | ✅ (JWK) | ❌ no import route — `ActionKeysImport` is declared in `model/azure_roles.go` and granted to Crypto Officer/Administrator, but no path maps to it in `MapRouteToDataAction`. Design specified, not yet built: `docs/superpowers/specs/2026-08-25-key-import-jwk-design.md` | ❌ |
 | Get / List / List versions | ✅ (`GET /keys/{name}/{version}` returns the version's public JWK — `n`/`e` for RSA, `x`/`y`/`crv` for EC) | ✅ `GET /keys`, `/keys/{id}`, `/keys/{id}/versions`, and `/keys/{id}/versions/{version}`, which returns that version's public JWK components alongside its metadata (2026-08-20, § B34). Note the earlier claim here that the current-key `GET /keys/{id}` "does emit them via `buildKeyResponse`" was **false**: it advertised `n`/`e`/`x`/`y` and never populated them for any software key, because the handler parsed the master-key-encrypted stored value and discarded the resulting error. Both routes emit real components now. `GET /keys` stays JWK-free by design, as Azure's list response does | ✅ |
 | Update (attributes) | ✅ | ✅ `PUT /keys/{id}` | ✅ |
 | Delete (soft) | ✅ | ✅ `DELETE /keys/{id}` | ✅ |
@@ -48,7 +48,7 @@ vaults). RocketVault columns are sourced from the codebase (`api/`, `internal/`,
 | Backup / Restore | ✅ | ✅ `POST /keys/{id}/backup`, `/keys/restore`, registered on both the flat and vault-scoped routers (`api/backup_item.go` `InitBackupItem`). Authorization is the RBAC data action in `PolicyMiddleware` plus a `model.NewVaultScope` read in `ItemBackupService` — a Crypto User with `ActionKeysBackup` can back up any key in a vault they are authorized for, and cannot name a key outside it. Key backups carry `key_versions` history, so a rotated key survives a backup/restore cycle with its archived versions intact | ✅ |
 | Get/Set rotation policy | ✅ | 🟡 `GET/PUT/DELETE /keys/{key_id}/rotationpolicy`, mapped to `ActionKeysRotationPolicyRead`/`Write` in `MapRouteToDataAction` (`mapKeyAction`) and granted only to Crypto Officer + Administrator, matching Azure's `keyrotationpolicies/*`. `RotationScheduler` → `RotationExecutor.Check` (`rotation.keys.*` config, started in `bootstrap.go`) sweeps `KeyRotationPolicyRepository.GetDuePolicies` — enabled, `rotate_after_days > 0`, `next_rotation_at` passed — and calls `RotateKey`, so the rotate action genuinely executes. `expiry_days` is now acted on too (fixed 2026-08-19, `.claude/known-bugs.md` § B27): `RotateKey` stamps `ExpiresAt` on every rotation when the policy is enabled and `expiry_days > 0`. `notify_before_expiry_days` is still only persisted and echoed back — verified 2026-08-20, `NotifyBeforeExpiryDays` is read nowhere outside its own model and CRUD. Azure's Notify lifetime action remains half-implemented: the expiry half executes, the notify half does not. What changed on 2026-08-20 is one layer below parity — per-vault webhook **configuration** now exists (`vault_webhook_configs`, `PUT/GET/DELETE /vaults/{name}/webhook`, `rocketvault vault-webhook`), so a notification now has somewhere to be addressed *to*. Nothing sends: there is no outbound HTTP anywhere in the vault/secret/key service packages, and delivery is specced but unbuilt (`docs/superpowers/specs/2026-08-20-webhook-delivery-primitive-design.md`) | 🟡 |
 | Release (confidential compute) | ✅ | ❌ no TEE attestation flow | ❌ |
-| EXPORT blocked (keys non-extractable) | ✅ | ✅ `buildKeyResponse` emits only JWK public components (`crypto.ExtractPublicComponents`) and `model.KeyVersion` omits `Value`; the one response carrying stored material is the backup blob, and that is the master-key AES-256-GCM ciphertext (`common.EncryptSecret`) or a bare `pkcs11:` handle — never plaintext PEM | ✅ |
+| EXPORT blocked (keys non-extractable) | ✅ | ✅ `buildKeyResponse` emits only JWK public components (`crypto.ExtractPublicComponents`) and `model.KeyVersion` omits `Value`; the one response carrying stored material is the backup blob, and that is the master-key AES-256-GCM ciphertext (`common.EncryptSecret`) or a bare `pkcs11:` handle — never plaintext PEM. This holds for HSM-backed keys as a hard technical constraint (`CKA_EXTRACTABLE: false`, `internal/crypto/pkcs11_provider.go:153,222,260`) and for software-backed keys as a deliberate product decision — `common.EncryptSecret` is reversible, so software-key export is technically possible but excluded to avoid a silent, deployment-dependent divergence in the "keys never leave the vault" trust model. Formal decision record: `docs/superpowers/specs/2026-08-25-key-export-decision-record.md` | ✅ |
 
 *Re-verified 2026-08-19 against `api/keys.go`, `api/key_rotation_policy.go`,
 `api/backup_item.go`, `internal/services/keys/{key_service,crypto_service,
@@ -220,9 +220,17 @@ is now wired, with a regression test.*
 | Get / List / Update / Delete | ✅ | ✅ full CRUD | ✅ |
 | Certificate policy (get/set/delete) | ✅ | ✅ `/certificates/{id}/policy` GET/PUT/DELETE | ✅ |
 | Auto-renewal | ✅ | ✅ `auto_renew`, `renewal_days`, renewal scheduler | ✅ |
-| Backup / Restore | ✅ | ✅ `/certificates/{id}/backup`, `/certificates/restore` | ✅ |
+| Backup / Restore | ✅ | ✅ `/certificates/{id}/backup`, `/certificates/restore` — note this is an unencrypted, same-instance base64url blob (`internal/backup/item_backup.go:360-366`), not a portable export; see the passphrase-sealed Export row's design doc below for the distinction | ✅ |
+| Import certificate (PFX/PEM) | ✅ | ❌ no import route at all — not previously tracked in this table. Design specified, not yet built: `docs/superpowers/specs/2026-08-25-certificate-import-merge-design.md` | ❌ |
+| Merge CSR (pending certificate) | ✅ (full pending-operation lifecycle: create CSR via the vault, get it signed externally, merge later with no resupplied state) | ❌ no merge route at all — not previously tracked in this table. Design specified, not yet built, and deliberately scoped to a single-call merge (caller resupplies the CSR + signed cert together; no persisted pending-operation state) rather than Azure's full lifecycle: `docs/superpowers/specs/2026-08-25-certificate-import-merge-design.md` § 2.1 | ❌ |
 | Public-CA integration (DigiCert/GlobalSign) | ✅ | ❌ self-signed / internal only | ❌ |
 | ACME / external CA enrollment | ✅ (partner CAs) | ❌ | ❌ |
+
+*Certificate export (passphrase-sealed, portable) has no Azure equivalent and so
+is not a row in this table — see `docs/superpowers/specs/
+2026-08-25-certificate-export-design.md` and
+`.claude/roadmap-azure-parity-and-beyond.md` Phase 3. Design specified, not yet
+built.*
 
 ## 5. Multi-vault / namespacing
 
@@ -477,18 +485,20 @@ they are capabilities Azure lacks, not parity gaps.
 | 1. Secrets management | 9 | 1 | 0 | 2 |
 | 2. Key management — operations | 8 | 3 | 2 | 0 |
 | 3. Key management — types & algorithms | 3 | 4 | 1 | 0 |
-| 4. Certificate management | 5 | 0 | 2 | 0 |
+| 4. Certificate management | 5 | 0 | 4 | 0 |
 | 5. Multi-vault / namespacing | 5 | 0 | 0 | 1 |
 | 6. Access control / authorization | 14 | 3 | 0 | 0 |
 | 7. Soft-delete, purge protection, recovery | 5 | 0 | 0 | 0 |
 | 8. HSM & cryptographic protection | 1 | 2 | 0 | 1 |
 | 9. Monitoring, audit & compliance | 1 | 1 | 1 | 3 |
 | 10. Platform & operations | 3 | 0 | 1 | 3 |
-| **Total** | **54** | **14** | **7** | **10** |
+| **Total** | **54** | **14** | **9** | **10** |
 
-**72% full parity** (54/75 parity-comparable rows), 19% partial, 9% not supported.
-Counting partial as usable-with-caveats, 89% of compared capabilities are present in
-some form.
+**70% full parity** (54/77 parity-comparable rows), 18% partial, 12% not supported.
+Counting partial as usable-with-caveats, 88% of compared capabilities are present in
+some form. (Two rows added 2026-08-25 — certificate import and CSR merge, both
+❌, specified but not yet built — moved this from 72%/54/75 to 70%/54/77; see
+`docs/superpowers/specs/2026-08-25-certificate-import-merge-design.md`.)
 
 Read that number with three caveats. **Rows are not equally weighted** — "geo-
 replication ❌" and "RSNULL 🟡" cost the same one row, though only one of them would
@@ -496,7 +506,9 @@ stop a deployment. **Four of the seven ❌ rows are structural, not backlog**:
 geo-replication, cloud log sinks, public-CA/ACME enrollment and confidential-compute
 key release are cloud-platform or third-party-integration features a single
 self-hosted binary does not have an equivalent for by design. The genuinely closable
-❌ rows are key import, HMAC-on-symmetric-keys, and ACME enrollment. And **the
+❌ rows are key import, certificate import, CSR merge, HMAC-on-symmetric-keys, and
+ACME enrollment — the first three now have designs specified (see §2 and §4 above)
+but not yet built. And **the
 percentage measures breadth, not correctness** — the row that moved this number from
 71% to 72% (§ B30, fixed 2026-08-20) was a plaintext-disclosure defect, worth far more
 than the one point it scored.

@@ -1395,6 +1395,7 @@ Full rationale, non-goals, and sequencing: [Roadmap — Azure Parity & Beyond](.
 
 - [ ] Rotation-policy scheduler — actually execute the rotation policies that already exist (CRUD-only today); currently a silent no-op that could give a false sense of security, so this is the highest-priority item in this phase
 - [ ] Key import (JWK)
+- [ ] Certificate import (PFX/PEM) / CSR merge
 - [ ] ACME / Let's Encrypt certificate enrollment — the open substitute for Azure's partner-CA-only integration (DigiCert/GlobalSign), which is not separately planned
 
 Not planned, or needs a feasibility check first: confidential-compute key release (TEE attestation — no realistic self-hosted equivalent), FIPS 140-3 L3 certification (a hardware certification process — RocketVault instead supports FIPS-validated HSMs via PKCS#11), geo-replication identical to Azure's managed failover (see Phase 3 for an open, multi-primary alternative instead), and HSM coverage for the P-256K curve and AES-CBC wrap (niche demand — P-256K is mainly a blockchain-signing curve and AES-CBC wrap is superseded by AES-KW as the modern standard — and depends on PKCS#11 library/hardware support that may not exist, not purely a coding gap; revisit only if real user demand shows up).
