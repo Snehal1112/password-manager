@@ -31,6 +31,9 @@ func (m *MockKeyServiceForUpdate) CreateECDSAKey(ctx context.Context, req keySer
 func (m *MockKeyServiceForUpdate) CreateOctKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
 	return nil, nil
 }
+func (m *MockKeyServiceForUpdate) ImportKey(ctx context.Context, req keyServices.ImportKeyRequest) (*keyServices.CreateKeyResult, error) {
+	return nil, nil
+}
 func (m *MockKeyServiceForUpdate) GetKey(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.Key, error) {
 	return nil, nil
 }

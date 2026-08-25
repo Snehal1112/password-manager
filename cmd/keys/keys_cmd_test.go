@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
@@ -33,6 +34,7 @@ import (
 func TestMain(m *testing.M) {
 	parent := &cobra.Command{Use: "keys"}
 	InitKeysCreate(parent)
+	InitKeysImport(parent)
 	InitKeysList(parent)
 	InitKeysGet(parent)
 	InitKeysDelete(parent)
@@ -69,6 +71,13 @@ func (m *keyCmdKeyService) CreateECDSAKey(ctx context.Context, req keyServices.C
 	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
 }
 func (m *keyCmdKeyService) CreateOctKey(ctx context.Context, req keyServices.CreateKeyRequest) (*keyServices.CreateKeyResult, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*keyServices.CreateKeyResult), args.Error(1)
+}
+func (m *keyCmdKeyService) ImportKey(ctx context.Context, req keyServices.ImportKeyRequest) (*keyServices.CreateKeyResult, error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -449,6 +458,109 @@ func TestCreateCmd_RSASuccess(t *testing.T) {
 	cmd, buf := newTestCmd(createCmd.RunE, nil)
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, buf.String())
+	keySvc.AssertExpectations(t)
+}
+
+// ========== importCmd tests ==========
+
+func TestImportCmd_MissingName(t *testing.T) {
+	sc := &keysTestContainer{
+		MockServiceContainer: &testutils.MockServiceContainer{},
+	}
+	ctx := buildAdminCtx(sc)
+	cleanup := viperSet(map[string]any{
+		"key-import-name": "", "key-import-jwk": `{"kty":"RSA"}`,
+	})
+	defer cleanup()
+	cmd, _ := newTestCmd(importCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "name is required")
+}
+
+func TestImportCmd_MissingJWK(t *testing.T) {
+	sc := &keysTestContainer{
+		MockServiceContainer: &testutils.MockServiceContainer{},
+	}
+	ctx := buildAdminCtx(sc)
+	cleanup := viperSet(map[string]any{
+		"key-import-name": "imported-key", "key-import-jwk": "", "key-import-jwk-file": "",
+	})
+	defer cleanup()
+	cmd, _ := newTestCmd(importCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "--jwk or --jwk-file is required")
+}
+
+func TestImportCmd_BothJWKFlags_MutuallyExclusive(t *testing.T) {
+	sc := &keysTestContainer{
+		MockServiceContainer: &testutils.MockServiceContainer{},
+	}
+	ctx := buildAdminCtx(sc)
+	cleanup := viperSet(map[string]any{
+		"key-import-name": "imported-key", "key-import-jwk": `{"kty":"RSA"}`, "key-import-jwk-file": "/tmp/x.json",
+	})
+	defer cleanup()
+	cmd, _ := newTestCmd(importCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "mutually exclusive")
+}
+
+func TestImportCmd_Success(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	result := &keyServices.CreateKeyResult{
+		KeyID: uuid.New(), Name: "imported-key", Type: "RSA", CreatedAt: time.Now(),
+	}
+	keySvc.On("ImportKey", mock.Anything, mock.MatchedBy(func(r keyServices.ImportKeyRequest) bool {
+		return r.Name == "imported-key" && r.VaultID == vaultID && len(r.JWK) > 0
+	})).Return(result, nil)
+
+	claims := &model.Claims{UserID: userID, Roles: []string{model.RoleAdmin}}
+	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
+	ctx = context.WithValue(ctx, common.LogKey, newLogger())
+	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
+	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
+
+	cleanup := viperSet(map[string]any{
+		"key-import-name": "imported-key", "key-import-jwk": `{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`, "key-import-tags": "",
+	})
+	defer cleanup()
+
+	cmd, buf := newTestCmd(importCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, buf.String())
+	keySvc.AssertExpectations(t)
+}
+
+func TestImportCmd_JWKFile(t *testing.T) {
+	tmpFile, err := os.CreateTemp(t.TempDir(), "test-*.jwk.json")
+	require.NoError(t, err)
+	_, err = tmpFile.WriteString(`{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`)
+	require.NoError(t, err)
+	require.NoError(t, tmpFile.Close())
+
+	keySvc := &keyCmdKeyService{}
+	sc, _ := newAllowedContainer(keySvc, nil)
+	result := &keyServices.CreateKeyResult{KeyID: uuid.New(), Name: "from-file", Type: "RSA", CreatedAt: time.Now()}
+	keySvc.On("ImportKey", mock.Anything, mock.Anything).Return(result, nil)
+
+	ctx := buildAdminCtx(sc)
+	cleanup := viperSet(map[string]any{
+		"key-import-name": "from-file", "key-import-jwk-file": tmpFile.Name(), "key-import-jwk": "",
+	})
+	defer cleanup()
+
+	cmd, buf := newTestCmd(importCmd.RunE, nil)
+	cmd.SetContext(ctx)
+	err = cmd.Execute()
 	assert.NoError(t, err)
 	assert.NotEmpty(t, buf.String())
 	keySvc.AssertExpectations(t)

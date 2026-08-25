@@ -68,6 +68,7 @@ func init() {
 	rootCmd.AddCommand(keysCmd)
 
 	keys.InitKeysCreate(keysCmd)
+	keys.InitKeysImport(keysCmd)
 	keys.InitKeysDelete(keysCmd)
 	keys.InitKeysGet(keysCmd)
 	keys.InitKeysList(keysCmd)
