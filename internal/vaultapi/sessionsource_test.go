@@ -312,3 +312,53 @@ func TestSessionSource_UnchangedDiskSessionDoesNotRetry(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 1, calls, "no newer session on disk means no retry, and no infinite loop")
 }
+
+func TestNewSessionSourceFromCache_SkipsDiskLoad(t *testing.T) {
+	session := sessionFixture(time.Hour)
+	src, err := NewSessionSourceFromCache(SessionConfig{
+		BaseURL:    "https://vault.example.com",
+		HTTPClient: http.DefaultClient,
+	}, session)
+	require.NoError(t, err)
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-original", tok)
+}
+
+func TestNewSessionSourceFromCache_RequiresSession(t *testing.T) {
+	_, err := NewSessionSourceFromCache(SessionConfig{
+		BaseURL:    "https://vault.example.com",
+		HTTPClient: http.DefaultClient,
+	}, nil)
+	require.ErrorContains(t, err, "requires a session")
+}
+
+func TestNewSessionSourceFromCache_SaveDefaultsToNoOp(t *testing.T) {
+	srv, _ := refreshServer(t, "access-new", "refresh-new", time.Hour)
+	defer srv.Close()
+
+	src, err := NewSessionSourceFromCache(SessionConfig{
+		BaseURL: srv.URL, HTTPClient: srv.Client(),
+	}, sessionFixture(-time.Minute))
+	require.NoError(t, err)
+
+	_, err = src.Token(context.Background())
+	require.NoError(t, err, "a refresh must not fail merely because no SaveSession was supplied")
+}
+
+func TestNewSessionSourceFromCache_HonorsExplicitSaveSession(t *testing.T) {
+	srv, _ := refreshServer(t, "access-new", "refresh-new", time.Hour)
+	defer srv.Close()
+
+	var saved *common.SessionCache
+	src, err := NewSessionSourceFromCache(SessionConfig{
+		BaseURL: srv.URL, HTTPClient: srv.Client(),
+		SaveSession: func(sc *common.SessionCache) error { saved = sc; return nil },
+	}, sessionFixture(-time.Minute))
+	require.NoError(t, err)
+
+	_, err = src.Token(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, saved, "an explicitly supplied SaveSession must still be honored")
+}

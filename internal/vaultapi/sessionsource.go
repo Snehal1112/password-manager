@@ -93,6 +93,43 @@ func NewSessionSource(cfg SessionConfig) (*SessionSource, error) {
 	return &SessionSource{cfg: cfg, skew: skew, save: save, load: load, session: session}, nil
 }
 
+// NewSessionSourceFromCache builds a SessionSource seeded with an
+// already-known session, skipping the on-disk load NewSessionSource
+// performs. SaveSession defaults to a no-op rather than common.SaveSession,
+// so a source built this way never writes to ~/.rocketvault/sessions/ --
+// used for an in-chat login, which is deliberately in-memory only. Callers
+// that do want persistence may still supply cfg.SaveSession explicitly.
+func NewSessionSourceFromCache(cfg SessionConfig, session *common.SessionCache) (*SessionSource, error) {
+	if cfg.BaseURL == "" {
+		return nil, fmt.Errorf("vaultapi: SessionConfig.BaseURL is required")
+	}
+	if cfg.HTTPClient == nil {
+		return nil, fmt.Errorf("vaultapi: SessionConfig.HTTPClient is required")
+	}
+	if session == nil {
+		return nil, fmt.Errorf("vaultapi: NewSessionSourceFromCache requires a session")
+	}
+
+	load := cfg.LoadSession
+	if load == nil {
+		// No disk backing: a stale-token retry (see Token) simply finds
+		// nothing newer and falls through to the existing error path.
+		load = func() (*common.SessionCache, error) { return nil, ErrNoSession }
+	}
+	save := cfg.SaveSession
+	if save == nil {
+		save = func(*common.SessionCache) error { return nil }
+	}
+
+	skew := cfg.Skew
+	if skew == 0 {
+		skew = defaultTokenSkew
+	}
+	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
+
+	return &SessionSource{cfg: cfg, skew: skew, save: save, load: load, session: session}, nil
+}
+
 // Username reports who this source acts as.
 func (s *SessionSource) Username() string {
 	s.mu.Lock()
