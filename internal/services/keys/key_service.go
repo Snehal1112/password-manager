@@ -910,10 +910,19 @@ func (s *keyService) DeleteKey(ctx context.Context, keyID uuid.UUID, scope model
 		return nil, fmt.Errorf("%w: %s", ErrKeyNotFound, err.Error())
 	}
 
-	// B6 conjunction, P1 only: an owner scope may carry an advisory vault id,
-	// and the pre-refactor two-argument delete (key ID plus vault ID) required
-	// BOTH predicates. A Scope cannot express AND, so the vault half stays in
-	// Go until P2 retires ScopeOwner from the data plane.
+	// B6 conjunction: an owner scope may carry an advisory vault id, and the
+	// pre-refactor two-argument delete (key ID plus vault ID) required BOTH
+	// predicates. A Scope cannot express AND, so the vault half stays in Go.
+	//
+	// Dead in production today, kept deliberately: the B11 flat-route fix
+	// (docs/superpowers/specs/2026-08-16-flat-route-vault-scope-fix-design.md)
+	// changed scopeFromRequest (api/context.go) to always return a vault
+	// scope, so no HTTP or CLI caller builds an owner scope for a key
+	// operation anymore -- see cmd/keys/delete.go, which passes
+	// model.NewVaultScope. This branch only still fires from tests that call
+	// DeleteKey directly with a hand-built model.NewOwnerScope carrying a
+	// non-nil vault id. It stays as defense-in-depth for any future direct
+	// caller of this exported method that reintroduces an owner scope.
 	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {
 		s.logger.LogAuditError(actor, "delete_key", "forbidden", "key does not belong to the requested vault", nil)
 		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyNotFound)
@@ -1054,11 +1063,8 @@ func (s *keyService) RotateKey(ctx context.Context, keyID uuid.UUID, scope model
 		return nil, fmt.Errorf("rotate key: %w", err)
 	}
 
-	// B6 conjunction, P1 only: identical to DeleteKey. An owner scope may
-	// carry an advisory vault id, and a Scope cannot express AND, so the vault
-	// half of "owner AND vault" stays in Go until P2 retires ScopeOwner from
-	// the data plane. Without it, rotate on a vault-scoped route would ignore
-	// the vault entirely.
+	// B6 conjunction: identical to DeleteKey, including why it's dead in
+	// production today and kept as defense-in-depth -- see the comment there.
 	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && existing.VaultID != scope.VaultID() {
 		s.logger.LogAuditError(userID.String(), "rotate_key", "forbidden", "key does not belong to the requested vault", nil)
 		return nil, fmt.Errorf("%w: key does not belong to the requested vault", ErrKeyNotFound)

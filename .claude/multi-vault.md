@@ -96,47 +96,53 @@ api/keys.go` first.
 These continue to work via the default vault; they were scoped out to keep
 each change reviewable:
 
-- **Secondary subsystems still user-scoped:** rotation and scheduler still
-  key off `user_id`, using the still-present `ReadByOwner`/`ListByUser`
-  repository methods (which is why those methods were NOT removed). Secrets
-  versioning, secrets/keys UPDATE, and secrets export/import were vault-scoped
-  by the 2026-07-26 fix above; item backup (`internal/backup/item_backup.go`)
-  was vault-scoped separately on 2026-08-19 (`model.NewVaultScope`) and is no
-  longer in this category either.
-- **Keys/certs CLI `--vault` wiring:** only the `secrets` CLI commands
-  (create/list/get/delete/update/export/import — all of them call
-  `resolveVaultID` via `cmd/secrets/vault.go`) are vault-scoped. Keys and
-  certificate CLI commands hardcode `model.NewOwnerScope`/`DefaultVaultID` and
-  have no `--vault` flag at all — this is a **CLI-only** gap for keys: every
-  keys operation the CLI exposes today (create/get/list/update/delete/rotate/
-  wrap/unwrap) already has a vault-scoped HTTP path and vault-aware service
-  method (see B6 resolution above), so wiring `--vault` into `cmd/keys` needs
-  zero new service/repository code. For certificates the gap is not purely
-  CLI-side: `list`/`get`/`delete` are the same story (backend already
-  vault-scoped, just needs a CLI flag), but certificate **UPDATE** is still
-  hardcoded owner-only at the HTTP handler itself (`api/certificates.go`,
-  P3 item below) and **renew** ignores scope entirely inside the service —
-  those two need backend work, not just a CLI flag, before `--vault` on them
-  would mean anything.
+- **Secondary subsystems still user-scoped:** rotation and scheduler still key
+  off `user_id`, constructing `model.NewOwnerScope(uuid.Nil, userID)` directly
+  (`internal/services/secrets/rotation_service.go`, `scheduler_service.go`,
+  `versioning_service.go`) rather than a vault scope. This is a choice of
+  which `model.Scope` they build, not a separate code path — the P1
+  `model.Scope` refactor (`docs/superpowers/plans/2026-07-26-p1-scope-value-object-refactor.md`)
+  collapsed every repository onto scope-aware `Read`/`Update`/`List`, so the
+  `ReadByOwner`/`ListByUser` method-level distinction this bullet used to cite
+  no longer exists. Secrets versioning, secrets/keys UPDATE, and secrets
+  export/import were vault-scoped by the 2026-07-26 fix above; item backup
+  (`internal/backup/item_backup.go`) was vault-scoped separately on
+  2026-08-19 (`model.NewVaultScope`) and is no longer in this category either.
+- ~~**Keys/certs CLI `--vault` wiring**~~ — RESOLVED (shipped 2026-08-11–13).
+  `rootCmd` registers a global `--vault` persistent flag (`cmd/root.go`,
+  bound to `ROCKETVAULT_VAULT`/`vault:` config), inherited by every
+  subcommand. `cmd/keys/*.go` and `cmd/certificates/*.go` resolve it via
+  `vaultcli.ResolveVaultID`/`RequireDataAction` and build
+  `model.NewVaultScope(vaultID, claims.UserID)`, not `NewOwnerScope`. On the
+  backend, certificate **UPDATE** (`api/certificates.go`'s `updateCertificate`)
+  and **renew** (`CertificateService.RenewCertificate`) both take a real
+  `scope model.Scope` now — neither is owner-only or scope-blind anymore.
 - **Subdomain vault addressing:** designed but not implemented; path-based only.
-- **Keys/certs deleted flow not vault-scoped:** only the *secrets* deleted flow
-  (`/vaults/{name}/deleted/secrets`) is vault-aware — its LIST honours the
-  resolved vault via `ListInVaultIncludeDeleted`. The key and certificate
-  deleted-flow handlers (list/get/restore/purge) remain user-scoped because
-  their `ListSoftDeleted` repository methods do not select/scope by `vault_id`.
-  They are therefore registered ONLY on the legacy flat `/deleted/...` routes,
-  not as vault-scoped routes.
+- ~~**Keys/certs deleted flow not vault-scoped**~~ — RESOLVED (shipped
+  2026-08-11–13). `api/soft_delete.go`'s `registerVaultScopedDeletedRoutes`
+  registers vault-scoped list/restore/purge for secrets, keys, *and*
+  certificates under `/vaults/{name}/deleted/...`, alongside the legacy flat
+  `/deleted/...` routes for the default vault. All three resources' service
+  methods (`ListDeletedKeys`/`RecoverKey`/`PurgeKey`,
+  `ListDeletedCertificates`/`RecoverCertificate`/`PurgeCertificate`,
+  `ListDeletedSecrets`/`RecoverSecret`/`PurgeSecret`) take a `model.Scope`.
 
-Two vault-scoped routes still ignore their vault and are fixed in P3:
-`PUT /vaults/{n}/certificates/{id}` and `GET /vaults/{n}/keys/{id}/versions`.
-`POST /vaults/{n}/keys/{id}/rotate` was fixed in P2 (2026-07-26): it now builds
-a genuine vault scope via `scopeFromRequest` and is gated by `Key Vault Crypto
+All three routes this section used to track as scope-blind are now fixed.
+`POST /vaults/{n}/keys/{id}/rotate` was fixed in P2 (2026-07-26): it builds a
+genuine vault scope via `scopeFromRequest` and is gated by `Key Vault Crypto
 Officer` at vault scope, verified end-to-end with real-repository tests.
+`PUT /vaults/{n}/certificates/{id}` (`updateCertificate`, `api/certificates.go`)
+and `GET /vaults/{n}/keys/{id}/versions` (`listKeyVersions`, `api/keys.go`)
+both now call `scopeFromRequest` and pass the resulting scope through to their
+service methods (`CertificateService.UpdateCertificate`,
+`KeyService.ListKeyVersions`) instead of ignoring it.
 
-## Pre-existing latent issue (predates multi-vault)
+## Pre-existing latent issue (predates multi-vault) — RESOLVED
 
-`certificate_repository.go` `ListByUser`/`ListInVault` filter by a `type` column
-that does not exist in the certificates schema. Only triggered when a non-empty
-`certType` is passed (default path is unaffected). Faithfully mirrored from the
-existing `ListByUser`; not introduced by the multi-vault work. Fix: add the column
-or drop the filter.
+`certificate_repository.go` used to filter `ListByUser`/`ListInVault` by a
+`type` column that did not exist in the certificates schema, only triggered
+when a non-empty `certType` was passed. Fixed as part of the P1
+`model.Scope` refactor (`docs/superpowers/plans/2026-07-26-p1-scope-value-object-refactor.md`,
+Task 3): no `type = ?` filter remains anywhere in `certificate_repository.go`,
+and `certificateColumns` now includes `vault_id`, populated on every scanned
+row. Regression coverage: `internal/repositories/certificate_vault_id_test.go`.

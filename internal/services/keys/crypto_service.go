@@ -314,11 +314,15 @@ func (s *cryptoService) loadAndAuthorize(ctx context.Context, keyID uuid.UUID, s
 	// enforces vault membership, so this branch's ownerScoped condition is
 	// false for them and it never runs.
 	//
-	// It is NOT dead code: legacy flat routes (no vault_name segment) still
-	// resolve through scopeFromRequest to an owner scope carrying an advisory,
-	// non-nil vault id (api/context.go, ultimately vaultIDFromRequest's
-	// DefaultVaultID fallback), exactly as they did pre-P2. This branch keeps
-	// enforcing "key belongs to the resolved vault" for that path.
+	// Dead in production today, kept deliberately: the B11 flat-route fix
+	// (docs/superpowers/specs/2026-08-16-flat-route-vault-scope-fix-design.md)
+	// changed scopeFromRequest (api/context.go) to always return a vault scope,
+	// even for legacy flat routes, so no HTTP or CLI caller constructs an owner
+	// scope for a key/crypto operation anymore. This branch only still fires
+	// from tests that call the service directly with a hand-built
+	// model.NewOwnerScope carrying a non-nil vault id (e.g.
+	// crypto_scope_test.go). It stays as defense-in-depth for any future
+	// direct caller of this exported method that reintroduces an owner scope.
 	// DeleteKey/RotateKey (internal/services/keys/key_service.go) carry the
 	// identical conjunction for the identical reason.
 	if _, ownerScoped := scope.OwnerID(); ownerScoped && scope.VaultID() != uuid.Nil && key.VaultID != scope.VaultID() {

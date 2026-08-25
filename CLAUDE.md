@@ -126,7 +126,7 @@ rocketvault/
 ### 🏛️ [Multi-Vault Architecture](.claude/multi-vault.md)
 - Vault as a routing + context-scoping layer (Azure Key Vault parity)
 - Vault-scoped resources, per-vault access policies, default-vault migration
-- Keys/certs CLI `--vault` wiring and vault-scoped soft-delete (list/restore/purge) shipped 2026-08-11–13 — `.claude/multi-vault.md`'s own "Known deferrals" section still lists both as deferred and needs a refresh
+- Keys/certs CLI `--vault` wiring and vault-scoped soft-delete (list/restore/purge) shipped 2026-08-11–13; `.claude/multi-vault.md`'s "Known deferrals" section was refreshed to match on 2026-08-26
 
 ### 🔵 [Azure Key Vault Feature Parity](.claude/azure-keyvault-parity.md)
 - Feature-by-feature comparison (secrets, keys, certs, RBAC, soft-delete, HSM, audit)
