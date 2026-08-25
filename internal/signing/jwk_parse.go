@@ -22,7 +22,12 @@ var ErrJWKNoPrivateKey = errors.New("jwk contains no private key material")
 func ParseJWK(jwkJSON []byte) (privateKey crypto.PrivateKey, keyType string, err error) {
 	var jwk jose.JSONWebKey
 	if err := json.Unmarshal(jwkJSON, &jwk); err != nil {
-		return nil, "", fmt.Errorf("invalid JWK: %w", err)
+		// No "invalid JWK: " prefix here: the sole caller (KeyService.ImportKey)
+		// already wraps this in keyservices.ErrInvalidJWK ("invalid jwk: %w"),
+		// so prefixing here doubled the message (e.g. "invalid jwk: invalid
+		// JWK: unexpected end of JSON input") once that caller-side error
+		// started reaching API clients verbatim via c.SetInvalidParam(err.Error()).
+		return nil, "", err
 	}
 	if jwk.IsPublic() {
 		return nil, "", ErrJWKNoPrivateKey
