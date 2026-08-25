@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -260,4 +261,46 @@ func TestMCPStartup_InvalidConfigFailsBeforeAnyNetworkWork(t *testing.T) {
 func TestMCPCommand_HasACheckFlag(t *testing.T) {
 	require.NotNil(t, mcpCmd.Flags().Lookup("check"),
 		"a misconfiguration otherwise surfaces as an opaque handshake failure in the host")
+}
+
+func TestBuildMCPServer_WiresServiceAccountIdentity(t *testing.T) {
+	resetMCPViper(t)
+	viper.Set("mcp.client_id", "mcp-agent")
+	viper.Set("mcp.client_secret", "s3cr3t")
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("server", "https://vault.example.com", "")
+	cmd.Flags().String("ca-cert", "", "")
+	cmd.Flags().Bool("insecure-skip-verify", false, "")
+
+	logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+	server, _, err := buildMCPServer(cmd, logger)
+	require.NoError(t, err)
+	require.True(t, server.IsServiceAccountIdentity(),
+		"a client_id/client_secret configuration must be reported as a service account")
+}
+
+func TestBuildMCPServer_SessionIdentityIsNotAServiceAccount(t *testing.T) {
+	resetMCPViper(t)
+	// A cached session, so buildMCPServer succeeds via the session branch
+	// instead of failing before it reaches the assertion below.
+	dir := t.TempDir()
+	original := common.SessionBaseDir
+	common.SessionBaseDir = dir
+	t.Cleanup(func() { common.SessionBaseDir = original })
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "t", RefreshToken: "r", Username: "admin",
+		ExpiresAt: time.Now().Add(time.Hour), ServerKey: common.LocalServerKey,
+	}))
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("server", "https://vault.example.com", "")
+	cmd.Flags().String("ca-cert", "", "")
+	cmd.Flags().Bool("insecure-skip-verify", false, "")
+
+	logger := mcpserver.NewStderrLogger(slog.LevelInfo)
+	server, _, err := buildMCPServer(cmd, logger)
+	require.NoError(t, err)
+	require.False(t, server.IsServiceAccountIdentity(),
+		"a cached-session configuration must not be reported as a service account")
 }

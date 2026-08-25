@@ -204,10 +204,14 @@ func buildMCPServer(cmd *cobra.Command, logger *slog.Logger) (*mcpserver.Server,
 		return nil, "", err
 	}
 
+	// Wrapped so the login tool (see internal/mcpserver/tools_login.go) can
+	// replace this server's identity at runtime without touching Client.
+	swappable := vaultapi.NewSwappableSource(tokens)
+
 	client, err := vaultapi.New(vaultapi.Config{
 		BaseURL:    baseURL,
 		HTTPClient: httpClient,
-		Tokens:     tokens,
+		Tokens:     swappable,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to build the vault client: %w", err)
@@ -219,6 +223,15 @@ func buildMCPServer(cmd *cobra.Command, logger *slog.Logger) (*mcpserver.Server,
 		Logger:  logger,
 		Version: rootCmd.Version,
 		BaseURL: baseURL,
+
+		Identity: swappable,
+		// The same condition resolveMCPTokenSource already used to choose
+		// the service-account branch, restated here rather than threaded
+		// back through its return values -- it has no other caller that
+		// would need the extra value, and every existing test of that
+		// function stays unchanged.
+		IsServiceAccountIdentity: cfg.ClientID != "" && cfg.ClientSecret != "",
+		JWTExpiry:                viper.GetDuration("jwt.expiry"),
 	})
 	if err != nil {
 		return nil, "", err
