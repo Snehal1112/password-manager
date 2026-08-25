@@ -219,6 +219,50 @@ func insertSoftDeletedKey(t *testing.T, sqlDB *sql.DB, id uuid.UUID, keyType str
 	require.NoError(t, err)
 }
 
+func TestKeyRotationPolicy_ListByVault_ScopedAndJoinsKeyName(t *testing.T) {
+	sqlDB := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	keyA, keyB := uuid.New(), uuid.New()
+	now := time.Now()
+
+	_, err := sqlDB.Exec(`INSERT INTO keys (id, user_id, vault_id, name, value, type) VALUES (?, ?, ?, 'key-a', 'v', 'RSA')`,
+		keyA.String(), uuid.New().String(), vaultA.String())
+	require.NoError(t, err)
+	_, err = sqlDB.Exec(`INSERT INTO keys (id, user_id, vault_id, name, value, type) VALUES (?, ?, ?, 'key-b', 'v', 'RSA')`,
+		keyB.String(), uuid.New().String(), vaultB.String())
+	require.NoError(t, err)
+
+	require.NoError(t, repo.Upsert(ctx, &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: keyA, UserID: uuid.New(), VaultID: vaultA,
+		RotateAfterDays: 90, Enabled: true, NextRotationAt: now.Add(24 * time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}))
+	require.NoError(t, repo.Upsert(ctx, &model.KeyRotationPolicy{
+		ID: uuid.New(), KeyID: keyB, UserID: uuid.New(), VaultID: vaultB,
+		RotateAfterDays: 30, Enabled: false, NextRotationAt: now.Add(24 * time.Hour),
+		CreatedAt: now, UpdatedAt: now,
+	}))
+
+	got, err := repo.ListByVault(ctx, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	require.Len(t, got, 1, "must only see vault A's policy, not vault B's")
+	require.Equal(t, keyA, got[0].KeyID)
+	require.Equal(t, "key-a", got[0].KeyName)
+	require.Equal(t, 90, got[0].RotateAfterDays)
+}
+
+func TestKeyRotationPolicy_ListByVault_EmptyWhenNoPolicies(t *testing.T) {
+	sqlDB := setupKeyRotationPolicyTestDB(t)
+	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))
+
+	got, err := repo.ListByVault(context.Background(), model.NewVaultScope(uuid.New(), uuid.New()))
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
 func TestKeyRotationPolicy_GetDuePolicies_ReturnsOnlyEnabledDueRows(t *testing.T) {
 	sqlDB := setupKeyRotationPolicyTestDB(t)
 	repo := repositories.NewKeyRotationPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newKeyRotationPolicyTestLogger(t))

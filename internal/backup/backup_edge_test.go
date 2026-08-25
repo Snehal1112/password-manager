@@ -65,6 +65,10 @@ func (r *stubCertRepo) List(_ context.Context, _ model.Scope, _ repositories.Cer
 	return nil, r.err
 }
 
+func (r *stubCertRepo) ListDueForRenewal(_ context.Context, _ model.Scope) ([]model.Certificate, error) {
+	return nil, r.err
+}
+
 func (r *stubCertRepo) Delete(_ context.Context, _ uuid.UUID) error              { return r.err }
 func (r *stubCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error { return r.err }
 func (r *stubCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error          { return r.err }

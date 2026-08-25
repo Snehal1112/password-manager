@@ -35,6 +35,7 @@ func TestMain(m *testing.M) {
 	InitCertificatesList(parent)
 	InitCertificatesRenew(parent)
 	InitCertificatesUpdate(parent)
+	InitCertificatesRotationPolicy(parent)
 	os.Exit(m.Run())
 }
 
@@ -134,6 +135,22 @@ func (m *certCmdCertService) UpsertCertificatePolicy(ctx context.Context, certID
 
 func (m *certCmdCertService) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	return m.Called(ctx, certID, scope).Error(0)
+}
+
+func (m *certCmdCertService) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.CertificatePolicyWithCertName), args.Error(1)
+}
+
+func (m *certCmdCertService) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
 // ---- container wrapper ----

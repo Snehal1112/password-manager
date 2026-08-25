@@ -360,6 +360,65 @@ func (_c *MockCertificateService_GetCertificatePolicy_Call) RunAndReturn(run fun
 	return _c
 }
 
+// ListCertificatePolicies provides a mock function with given fields: ctx, scope
+func (_m *MockCertificateService) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	ret := _m.Called(ctx, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListCertificatePolicies")
+	}
+
+	var r0 []model.CertificatePolicyWithCertName
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) ([]model.CertificatePolicyWithCertName, error)); ok {
+		return rf(ctx, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) []model.CertificatePolicyWithCertName); ok {
+		r0 = rf(ctx, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.CertificatePolicyWithCertName)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope) error); ok {
+		r1 = rf(ctx, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateService_ListCertificatePolicies_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCertificatePolicies'
+type MockCertificateService_ListCertificatePolicies_Call struct {
+	*mock.Call
+}
+
+// ListCertificatePolicies is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) ListCertificatePolicies(ctx interface{}, scope interface{}) *MockCertificateService_ListCertificatePolicies_Call {
+	return &MockCertificateService_ListCertificatePolicies_Call{Call: _e.mock.On("ListCertificatePolicies", ctx, scope)}
+}
+
+func (_c *MockCertificateService_ListCertificatePolicies_Call) Run(run func(ctx context.Context, scope model.Scope)) *MockCertificateService_ListCertificatePolicies_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateService_ListCertificatePolicies_Call) Return(_a0 []model.CertificatePolicyWithCertName, _a1 error) *MockCertificateService_ListCertificatePolicies_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateService_ListCertificatePolicies_Call) RunAndReturn(run func(context.Context, model.Scope) ([]model.CertificatePolicyWithCertName, error)) *MockCertificateService_ListCertificatePolicies_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListCertificates provides a mock function with given fields: ctx, scope, filter
 func (_m *MockCertificateService) ListCertificates(ctx context.Context, scope model.Scope, filter model.CertificateFilter) ([]model.Certificate, error) {
 	ret := _m.Called(ctx, scope, filter)
@@ -416,6 +475,65 @@ func (_c *MockCertificateService_ListCertificates_Call) Return(_a0 []model.Certi
 }
 
 func (_c *MockCertificateService_ListCertificates_Call) RunAndReturn(run func(context.Context, model.Scope, model.CertificateFilter) ([]model.Certificate, error)) *MockCertificateService_ListCertificates_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListCertificatesDueForRenewal provides a mock function with given fields: ctx, scope
+func (_m *MockCertificateService) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	ret := _m.Called(ctx, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListCertificatesDueForRenewal")
+	}
+
+	var r0 []model.Certificate
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) ([]model.Certificate, error)); ok {
+		return rf(ctx, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) []model.Certificate); ok {
+		r0 = rf(ctx, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.Certificate)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope) error); ok {
+		r1 = rf(ctx, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateService_ListCertificatesDueForRenewal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListCertificatesDueForRenewal'
+type MockCertificateService_ListCertificatesDueForRenewal_Call struct {
+	*mock.Call
+}
+
+// ListCertificatesDueForRenewal is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scope model.Scope
+func (_e *MockCertificateService_Expecter) ListCertificatesDueForRenewal(ctx interface{}, scope interface{}) *MockCertificateService_ListCertificatesDueForRenewal_Call {
+	return &MockCertificateService_ListCertificatesDueForRenewal_Call{Call: _e.mock.On("ListCertificatesDueForRenewal", ctx, scope)}
+}
+
+func (_c *MockCertificateService_ListCertificatesDueForRenewal_Call) Run(run func(ctx context.Context, scope model.Scope)) *MockCertificateService_ListCertificatesDueForRenewal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateService_ListCertificatesDueForRenewal_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateService_ListCertificatesDueForRenewal_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateService_ListCertificatesDueForRenewal_Call) RunAndReturn(run func(context.Context, model.Scope) ([]model.Certificate, error)) *MockCertificateService_ListCertificatesDueForRenewal_Call {
 	_c.Call.Return(run)
 	return _c
 }

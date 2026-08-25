@@ -23,6 +23,7 @@ THE SOFTWARE.
 package keys
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"testing"
@@ -236,6 +237,149 @@ func TestRotationPolicyDeleteCmd_Denied(t *testing.T) {
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "vault authorization failed")
 	keySvc.AssertNotCalled(t, "DeleteKeyRotationPolicy", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// ========== rotation-policy list ==========
+
+// newRotationPolicyNoArgTestCmd builds a no-arg cobra command for the list
+// and status subcommands, mirroring newRotationPolicyTestCmd but without the
+// single-argument requirement get/set/delete need.
+func newRotationPolicyNoArgTestCmd(runE func(*cobra.Command, []string) error) *cobra.Command {
+	cmd := &cobra.Command{Use: "test", Args: cobra.NoArgs, RunE: runE}
+	cmd.SetArgs([]string{})
+	return cmd
+}
+
+func TestRotationPolicyListCmd_Success(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	policies := []model.KeyRotationPolicyWithKeyName{
+		{
+			KeyRotationPolicy: model.KeyRotationPolicy{
+				KeyID:           keyID,
+				RotateAfterDays: 90,
+				Enabled:         true,
+				NextRotationAt:  time.Now().Add(90 * 24 * time.Hour),
+			},
+			KeyName: "my-key",
+		},
+	}
+	keySvc.On("ListKeyRotationPolicies", mock.Anything, model.NewVaultScope(vaultID, userID)).Return(policies, nil)
+
+	ctx := buildAdminClaimsCtx(userID, sc)
+	cmd := newRotationPolicyNoArgTestCmd(rotationPolicyListCmd.RunE)
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+}
+
+func TestRotationPolicyListCmd_Empty(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	keySvc.On("ListKeyRotationPolicies", mock.Anything, model.NewVaultScope(vaultID, userID)).Return([]model.KeyRotationPolicyWithKeyName{}, nil)
+
+	ctx := buildAdminClaimsCtx(userID, sc)
+	cmd := newRotationPolicyNoArgTestCmd(rotationPolicyListCmd.RunE)
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+}
+
+func TestRotationPolicyListCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	ctx := buildAdminClaimsCtx(userID, sc)
+	cmd := newRotationPolicyNoArgTestCmd(rotationPolicyListCmd.RunE)
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "vault authorization failed")
+	keySvc.AssertNotCalled(t, "ListKeyRotationPolicies", mock.Anything, mock.Anything)
+}
+
+// ========== rotation-policy status ==========
+
+func TestRotationPolicyStatusCmd_DueAndActive(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	keyID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	scope := model.NewVaultScope(vaultID, userID)
+
+	due := []model.KeyRotationPolicy{
+		{KeyID: keyID, RotateAfterDays: 90, Enabled: true, NextRotationAt: time.Now().Add(-time.Hour)},
+	}
+	active := []model.KeyRotationPolicyWithKeyName{
+		{
+			KeyRotationPolicy: model.KeyRotationPolicy{KeyID: keyID, RotateAfterDays: 90, Enabled: true},
+			KeyName:           "my-key",
+		},
+	}
+	keySvc.On("ListDueKeyRotationPolicies", mock.Anything, scope).Return(due, nil)
+	keySvc.On("ListKeyRotationPolicies", mock.Anything, scope).Return(active, nil)
+
+	ctx := buildAdminClaimsCtx(userID, sc)
+	cmd := newRotationPolicyNoArgTestCmd(rotationPolicyStatusCmd.RunE)
+	cmd.SetContext(ctx)
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	keySvc.AssertExpectations(t)
+
+	output := out.String()
+	assert.Contains(t, output, "Keys due for rotation:")
+	assert.Contains(t, output, "Key "+keyID.String()[:8]+"...")
+	assert.Contains(t, output, "Active rotation policies:")
+	assert.Contains(t, output, "my-key: every 90 days")
+}
+
+func TestRotationPolicyStatusCmd_NoneDue(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc, vaultID := newAllowedContainer(keySvc, nil)
+	scope := model.NewVaultScope(vaultID, userID)
+
+	keySvc.On("ListDueKeyRotationPolicies", mock.Anything, scope).Return([]model.KeyRotationPolicy{}, nil)
+	keySvc.On("ListKeyRotationPolicies", mock.Anything, scope).Return([]model.KeyRotationPolicyWithKeyName{}, nil)
+
+	ctx := buildAdminClaimsCtx(userID, sc)
+	cmd := newRotationPolicyNoArgTestCmd(rotationPolicyStatusCmd.RunE)
+	cmd.SetContext(ctx)
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+
+	err := cmd.Execute()
+	assert.NoError(t, err)
+
+	output := out.String()
+	assert.Contains(t, output, "No keys are currently due for rotation.")
+}
+
+func TestRotationPolicyStatusCmd_Denied(t *testing.T) {
+	keySvc := &keyCmdKeyService{}
+	userID := uuid.New()
+	sc := newDeniedContainer(keySvc, nil)
+
+	ctx := buildAdminClaimsCtx(userID, sc)
+	cmd := newRotationPolicyNoArgTestCmd(rotationPolicyStatusCmd.RunE)
+	cmd.SetContext(ctx)
+
+	err := cmd.Execute()
+	assert.ErrorContains(t, err, "vault authorization failed")
+	keySvc.AssertNotCalled(t, "ListDueKeyRotationPolicies", mock.Anything, mock.Anything)
+	keySvc.AssertNotCalled(t, "ListKeyRotationPolicies", mock.Anything, mock.Anything)
 }
 
 // buildAdminClaimsCtx builds a context with admin claims, a logger, the

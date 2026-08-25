@@ -105,6 +105,12 @@ func (s *recordingKeyService) UpsertKeyRotationPolicy(context.Context, uuid.UUID
 func (s *recordingKeyService) DeleteKeyRotationPolicy(context.Context, uuid.UUID, model.Scope) error {
 	panic("unexpected")
 }
+func (s *recordingKeyService) ListKeyRotationPolicies(context.Context, model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	panic("unexpected")
+}
+func (s *recordingKeyService) ListDueKeyRotationPolicies(context.Context, model.Scope) ([]model.KeyRotationPolicy, error) {
+	panic("unexpected")
+}
 func (s *recordingKeyService) ListKeyVersions(context.Context, uuid.UUID, model.Scope) ([]model.KeyVersion, error) {
 	panic("unexpected")
 }
@@ -231,6 +237,12 @@ func (s *recordingCertService) DeleteCertificatePolicy(ctx context.Context, cert
 		return err
 	}
 	return s.policyRepo.DeleteByCertificateIDAny(ctx, certID)
+}
+func (s *recordingCertService) ListCertificatePolicies(context.Context, model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	panic("unexpected")
+}
+func (s *recordingCertService) ListCertificatesDueForRenewal(context.Context, model.Scope) ([]model.Certificate, error) {
+	panic("unexpected")
 }
 
 // recordingCryptoService records the scope used for each of the six crypto

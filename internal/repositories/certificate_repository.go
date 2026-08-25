@@ -32,6 +32,16 @@ type CertificateRepositoryInterface interface {
 	Update(ctx context.Context, cert *model.Certificate, scope model.Scope) error
 	// List lists certificates authorized by scope and narrowed by filter.
 	List(ctx context.Context, scope model.Scope, filter CertificateFilter) ([]model.Certificate, error)
+	// ListDueForRenewal returns certificates in scope's vault whose
+	// auto-renewal window has been entered: AutoRenew is set, ExpiresAt is
+	// set and still in the future, and days-until-expiry is at or below
+	// RenewalDays (defaulting to 30 when RenewalDays is unset or
+	// non-positive). This mirrors exactly the condition
+	// CertificateRenewalService.CheckAndRenewCertificates itself acts on,
+	// reading straight off this table's own columns -- not
+	// model.CertificatePolicy's separate, disconnected AutoRenew and
+	// DaysBeforeExpiry fields.
+	ListDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	Revoke(ctx context.Context, id uuid.UUID, serialNumber, name string) error
 	ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error)
@@ -258,6 +268,39 @@ func (r *CertificateRepository) List(ctx context.Context, scope model.Scope, fil
 
 	logrus.WithField("count", len(certList)).Debug("Certificates listed successfully")
 	return certList, nil
+}
+
+// ListDueForRenewal returns certificates in scope's vault whose auto-renewal
+// window has been entered. Filtering happens in Go over List's own scoped,
+// non-deleted results rather than in SQL, applying the identical condition
+// CheckAndRenewCertificates applies over ListAll's results, so this can never
+// drift from what the scheduler itself actually acts on.
+func (r *CertificateRepository) ListDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	certs, err := r.List(ctx, scope, CertificateFilter{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list certificates for renewal check: %w", err)
+	}
+
+	now := time.Now()
+	due := make([]model.Certificate, 0, len(certs))
+	for _, cert := range certs {
+		if !cert.AutoRenew || cert.ExpiresAt == nil {
+			continue
+		}
+		if cert.ExpiresAt.Before(now) {
+			continue // Already expired; the scheduler skips these too.
+		}
+		renewalDays := cert.RenewalDays
+		if renewalDays <= 0 {
+			renewalDays = 30
+		}
+		daysUntilExpiry := int(cert.ExpiresAt.Sub(now).Hours() / 24)
+		if daysUntilExpiry > renewalDays {
+			continue
+		}
+		due = append(due, cert)
+	}
+	return due, nil
 }
 
 // CertificateRepository implements CertificateRepositoryInterface with pure CRUD operations.

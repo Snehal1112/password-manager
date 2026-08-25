@@ -10,6 +10,7 @@ package certificates
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -51,6 +52,14 @@ func (m *mockPolicyRepo) GetByCertificateIDAny(ctx context.Context, certID uuid.
 
 func (m *mockPolicyRepo) DeleteByCertificateIDAny(ctx context.Context, certID uuid.UUID) error {
 	return m.Called(ctx, certID).Error(0)
+}
+
+func (m *mockPolicyRepo) ListByVault(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	args := m.Called(ctx, scope)
+	if v := args.Get(0); v != nil {
+		return v.([]model.CertificatePolicyWithCertName), args.Error(1)
+	}
+	return nil, args.Error(1)
 }
 
 func TestGetCertificatePolicy_VerifiesCertAccessFirst(t *testing.T) {
@@ -204,4 +213,84 @@ func TestDeleteCertificatePolicy_DeniesWhenCertAccessDenied(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrCertNotFound)
 	policyRepo.AssertNotCalled(t, "DeleteByCertificateIDAny", mock.Anything, mock.Anything)
+}
+
+func TestListCertificatePolicies_DelegatesToPolicyRepo(t *testing.T) {
+	certRepo := new(mockCertRepository)
+	policyRepo := new(mockPolicyRepo)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	want := []model.CertificatePolicyWithCertName{
+		{CertificatePolicy: model.CertificatePolicy{CertificateID: uuid.New()}, CertificateName: "cert-a"},
+	}
+	policyRepo.On("ListByVault", mock.Anything, scope).Return(want, nil)
+
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		PolicyRepository:      policyRepo,
+		Logger:                newTestCertLogger(),
+	})
+
+	got, err := svc.ListCertificatePolicies(context.Background(), scope)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	policyRepo.AssertExpectations(t)
+}
+
+func TestListCertificatePolicies_PropagatesRepoError(t *testing.T) {
+	certRepo := new(mockCertRepository)
+	policyRepo := new(mockPolicyRepo)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	policyRepo.On("ListByVault", mock.Anything, scope).Return(nil, errors.New("db error"))
+
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		PolicyRepository:      policyRepo,
+		Logger:                newTestCertLogger(),
+	})
+
+	_, err := svc.ListCertificatePolicies(context.Background(), scope)
+
+	require.Error(t, err)
+}
+
+func TestListCertificatesDueForRenewal_DelegatesToCertRepo(t *testing.T) {
+	certRepo := new(mockCertRepository)
+	policyRepo := new(mockPolicyRepo)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	want := []model.Certificate{{ID: uuid.New(), Name: "due-cert", AutoRenew: true}}
+	certRepo.On("ListDueForRenewal", mock.Anything, scope).Return(want, nil)
+
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		PolicyRepository:      policyRepo,
+		Logger:                newTestCertLogger(),
+	})
+
+	got, err := svc.ListCertificatesDueForRenewal(context.Background(), scope)
+
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	certRepo.AssertExpectations(t)
+}
+
+func TestListCertificatesDueForRenewal_PropagatesRepoError(t *testing.T) {
+	certRepo := new(mockCertRepository)
+	policyRepo := new(mockPolicyRepo)
+	scope := model.NewVaultScope(uuid.New(), uuid.New())
+
+	certRepo.On("ListDueForRenewal", mock.Anything, scope).Return(nil, errors.New("db error"))
+
+	svc := NewCertificateService(CertificateServiceConfig{
+		CertificateRepository: certRepo,
+		PolicyRepository:      policyRepo,
+		Logger:                newTestCertLogger(),
+	})
+
+	_, err := svc.ListCertificatesDueForRenewal(context.Background(), scope)
+
+	require.Error(t, err)
 }

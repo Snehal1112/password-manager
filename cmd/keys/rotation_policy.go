@@ -63,8 +63,8 @@ it is enabled, the rotation interval, the pre-expiry notification window, the
 per-version expiry, and when it last rotated and will next rotate.
 
 Requires the Microsoft.KeyVault/vaults/keys/rotationpolicy/read data action
-in the target vault, which defaults to "default". A key with no policy set
-is reported, not treated as an error.`,
+in the target vault, which defaults to "default". No global role is checked
+here. A key with no policy set is reported, not treated as an error.`,
 	Example: `  # Show a key's rotation policy in the default vault
   rocketvault keys rotation-policy get <key-id>
 
@@ -294,13 +294,168 @@ target vault, which defaults to "default".`,
 	},
 }
 
+// rotationPolicyListCmd represents the "rotation-policy list" command.
+var rotationPolicyListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List every key with a rotation policy set in a vault",
+	Long: `List every cryptographic key in the target vault that currently has a
+rotation policy set: key ID, key name, whether the policy is enabled, the
+rotation interval, and the next scheduled rotation. Keys with no policy set
+are simply absent from the list -- this lists policies, not all keys.
+
+Requires the Microsoft.KeyVault/vaults/keys/rotationpolicy/read data action
+in the target vault, which defaults to "default". No global role is checked
+here.`,
+	Example: `  # List rotation policies in the default vault
+  rocketvault keys rotation-policy list
+
+  # List rotation policies in a named vault
+  rocketvault keys rotation-policy list --vault payments`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			log.LogAuditError(claims.UserID.String(), "list_key_rotation_policies", "failed", "service container not available", nil)
+			return fmt.Errorf("service container not available in context")
+		}
+		keyService := serviceContainer.GetKeyService()
+
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyRead, model.OpGet)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "list_key_rotation_policies", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+
+		policies, err := keyService.ListKeyRotationPolicies(ctx, model.NewVaultScope(vaultID, claims.UserID))
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "list_key_rotation_policies", "failed", fmt.Sprintf("failed to list rotation policies: %s", err), err)
+			return fmt.Errorf("failed to list rotation policies: %w", err)
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "list_key_rotation_policies", "success", fmt.Sprintf("listed %d key rotation policies", len(policies)))
+
+		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
+		if !ok {
+			return fmt.Errorf("output formatter not available in context")
+		}
+
+		headers := []string{"Key-ID", "Key-Name", "Enabled", "Rotate-After-Days", "Next-Rotation"}
+		rows := make([][]string, len(policies))
+		for i, p := range policies {
+			rows[i] = []string{
+				p.KeyID.String(),
+				p.KeyName,
+				strconv.FormatBool(p.Enabled),
+				strconv.Itoa(p.RotateAfterDays),
+				p.NextRotationAt.Format(time.RFC3339),
+			}
+		}
+		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+	},
+}
+
+// rotationPolicyStatusCmd represents the "rotation-policy status" command.
+var rotationPolicyStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "View key rotation status and due rotations",
+	Long: `Summarise key rotation for the target vault in two parts: keys whose next
+rotation date has passed under an enabled policy, and every enabled policy
+with its interval.
+
+Requires the Microsoft.KeyVault/vaults/keys/rotationpolicy/read data action
+in the target vault, which defaults to "default". No global role is checked
+here.
+
+This is a read-only report: nothing is rotated by running it. Automatic
+rotation is carried out by the scheduler inside a running "rocketvault serve"
+process; "keys rotate" is the only way to rotate from the CLI.`,
+	Example: `  # Show key rotation status for the default vault
+  rocketvault keys rotation-policy status
+
+  # Show key rotation status for a named vault
+  rocketvault keys rotation-policy status --vault payments`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
+		if !ok {
+			return fmt.Errorf("unauthorized: missing authentication claims")
+		}
+
+		log := ctx.Value(common.LogKey).(*logging.Logger)
+
+		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
+		if !ok || serviceContainer == nil {
+			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", "service container not available", nil)
+			return fmt.Errorf("service container not available in context")
+		}
+		keyService := serviceContainer.GetKeyService()
+
+		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyRead, model.OpGet)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
+			return fmt.Errorf("vault authorization failed: %w", err)
+		}
+		scope := model.NewVaultScope(vaultID, claims.UserID)
+
+		due, err := keyService.ListDueKeyRotationPolicies(ctx, scope)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", fmt.Sprintf("failed to get due rotations: %s", err), err)
+			return fmt.Errorf("failed to get due key rotations: %w", err)
+		}
+		policies, err := keyService.ListKeyRotationPolicies(ctx, scope)
+		if err != nil {
+			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", fmt.Sprintf("failed to list policies: %s", err), err)
+			return fmt.Errorf("failed to list key rotation policies: %w", err)
+		}
+
+		log.LogAuditInfo(claims.UserID.String(), "key_rotation_policy_status", "success", fmt.Sprintf("%d due, %d policies", len(due), len(policies)))
+
+		fmt.Fprintln(cmd.OutOrStdout(), "Key Rotation Status")                      //nolint:errcheck
+		fmt.Fprintln(cmd.OutOrStdout(), "────────────────────────────────────────") //nolint:errcheck
+		if len(due) > 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "Keys due for rotation:") //nolint:errcheck
+			for _, d := range due {
+				fmt.Fprintf(cmd.OutOrStdout(), "  - Key %s (next: %s)\n", //nolint:errcheck
+					d.KeyID.String()[:8]+"...", d.NextRotationAt.Format("2006-01-02"))
+			}
+		} else {
+			fmt.Fprintln(cmd.OutOrStdout(), "No keys are currently due for rotation.") //nolint:errcheck
+		}
+		if len(policies) > 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "\nActive rotation policies:") //nolint:errcheck
+			foundEnabled := false
+			for _, p := range policies {
+				if p.Enabled {
+					foundEnabled = true
+					fmt.Fprintf(cmd.OutOrStdout(), "  - %s: every %d days\n", p.KeyName, p.RotateAfterDays) //nolint:errcheck
+				}
+			}
+			if !foundEnabled {
+				fmt.Fprintln(cmd.OutOrStdout(), "  (none with rotation enabled)") //nolint:errcheck
+			}
+		}
+		return nil
+	},
+}
+
 // InitKeysRotationPolicy adds the "rotation-policy" command, and its get,
-// set and delete subcommands, to the keys command.
+// set, delete, list and status subcommands, to the keys command.
 func InitKeysRotationPolicy(keysCmd *cobra.Command) *cobra.Command {
 	keysCmd.AddCommand(rotationPolicyCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicyGetCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicySetCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicyDeleteCmd)
+	rotationPolicyCmd.AddCommand(rotationPolicyListCmd)
+	rotationPolicyCmd.AddCommand(rotationPolicyStatusCmd)
 
 	rotationPolicySetCmd.Flags().Int("rotate-after-days", 0, "Days after creation or last rotation before auto-rotating (required, min 7 when --enabled)")
 	rotationPolicySetCmd.Flags().Int("notify-before-expiry-days", 0, "Days before a version's expiry to fire a notification")

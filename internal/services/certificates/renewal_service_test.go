@@ -45,6 +45,14 @@ func (m *mockCertRepoForRenewal) List(ctx context.Context, scope model.Scope, fi
 	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
+func (m *mockCertRepoForRenewal) ListDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
 func (m *mockCertRepoForRenewal) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }
@@ -160,6 +168,14 @@ func (m *mockCertSvcForRenewal) UpsertCertificatePolicy(ctx context.Context, cer
 }
 
 func (m *mockCertSvcForRenewal) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	panic("not called")
+}
+
+func (m *mockCertSvcForRenewal) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
 	panic("not called")
 }
 

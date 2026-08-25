@@ -144,6 +144,22 @@ func (m *mockCertService) DeleteCertificatePolicy(ctx context.Context, certID uu
 	return m.Called(ctx, certID, scope).Error(0)
 }
 
+func (m *mockCertService) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.CertificatePolicyWithCertName), args.Error(1)
+}
+
+func (m *mockCertService) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
 // --- certSvcContainer: container that provides CertificateService ---
 
 type certSvcContainer struct {

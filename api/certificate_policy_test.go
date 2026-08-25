@@ -77,6 +77,14 @@ func (m *mockCertPolicyRepo) DeleteByCertificateIDAny(ctx context.Context, certI
 	return args.Error(0)
 }
 
+func (m *mockCertPolicyRepo) ListByVault(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.CertificatePolicyWithCertName), args.Error(1)
+}
+
 // --- certPolicyRepoContainer ---
 
 type certPolicyRepoContainer struct {

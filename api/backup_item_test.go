@@ -732,6 +732,9 @@ func (m *mockCertRepo) Update(_ context.Context, _ *model.Certificate, _ model.S
 func (m *mockCertRepo) List(_ context.Context, _ model.Scope, _ repositories.CertificateFilter) ([]model.Certificate, error) {
 	return nil, nil
 }
+func (m *mockCertRepo) ListDueForRenewal(_ context.Context, _ model.Scope) ([]model.Certificate, error) {
+	return nil, nil
+}
 func (m *mockCertRepo) Delete(_ context.Context, _ uuid.UUID) error              { return nil }
 func (m *mockCertRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
 func (m *mockCertRepo) SoftDelete(_ context.Context, _ uuid.UUID) error          { return nil }

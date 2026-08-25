@@ -150,6 +150,16 @@ type KeyService interface {
 	// DeleteKeyRotationPolicy removes the rotation policy for keyID,
 	// authorized by scope against the parent key.
 	DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
+	// ListKeyRotationPolicies lists every rotation policy set in scope's
+	// vault, each paired with its parent key's name, for the "keys
+	// rotation-policy list" report. Keys with no policy set are absent.
+	ListKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error)
+	// ListDueKeyRotationPolicies lists enabled rotation policies in scope's
+	// vault whose next rotation has already passed, for the "keys
+	// rotation-policy status" due section. This is the same query the
+	// background scheduler sweeps (see rotation_executor.go), exposed here
+	// read-only for CLI reporting.
+	ListDueKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error)
 	// ListKeyVersions returns keyID's version history, authorized by scope
 	// against the parent key. Resolving the owner from the authorized key
 	// (not the caller's own id) keeps vault-member access consistent with
@@ -823,6 +833,18 @@ func (s *keyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUI
 		return err
 	}
 	return s.policyRepo.DeleteByKeyID(ctx, keyID, scope)
+}
+
+// ListKeyRotationPolicies lists every rotation policy set in scope's vault,
+// each paired with its parent key's name.
+func (s *keyService) ListKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	return s.policyRepo.ListByVault(ctx, scope)
+}
+
+// ListDueKeyRotationPolicies lists enabled rotation policies in scope's
+// vault whose next rotation has already passed.
+func (s *keyService) ListDueKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
+	return s.policyRepo.GetDuePolicies(ctx, scope)
 }
 
 // ListKeys lists keys authorized by scope and narrowed by filter.

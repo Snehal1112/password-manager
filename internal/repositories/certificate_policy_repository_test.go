@@ -41,7 +41,8 @@ func setupCertPolicyTestDB(t *testing.T) *sql.DB {
 		name TEXT NOT NULL,
 		certificate TEXT NOT NULL,
 		private_key TEXT NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP DEFAULT NULL
 	)`)
 	require.NoError(t, err)
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS certificate_policies (
@@ -220,4 +221,86 @@ func TestCertificatePolicyRepository_DeleteByCertificateIDAny_IgnoresOwner(t *te
 
 	_, err = repo.GetByCertificateIDAny(ctx, certID)
 	require.Error(t, err)
+}
+
+// insertCertPolicyTestCert inserts a minimal certificates row so ListByVault
+// (and its certificates JOIN) has a name and vault_id to read.
+func insertCertPolicyTestCert(t *testing.T, db *sql.DB, id, userID, vaultID uuid.UUID, name string) {
+	t.Helper()
+	_, err := db.Exec(
+		`INSERT INTO certificates (id, user_id, vault_id, name, certificate, private_key) VALUES (?, ?, ?, ?, 'cert', 'key')`,
+		id.String(), userID.String(), vaultID.String(), name,
+	)
+	require.NoError(t, err)
+}
+
+// TestCertificatePolicy_ListByVault_ScopedAndJoinsCertName verifies that
+// ListByVault only returns policies for certificates in the requested vault,
+// and that each result carries its parent certificate's name.
+func TestCertificatePolicy_ListByVault_ScopedAndJoinsCertName(t *testing.T) {
+	sqlDB := setupCertPolicyTestDB(t)
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newCertPolicyTestLogger(t))
+	ctx := context.Background()
+
+	vaultA, vaultB := uuid.New(), uuid.New()
+	userA, userB := uuid.New(), uuid.New()
+	certA, certB := uuid.New(), uuid.New()
+	now := time.Now()
+
+	insertCertPolicyTestCert(t, sqlDB, certA, userA, vaultA, "cert-a")
+	insertCertPolicyTestCert(t, sqlDB, certB, userB, vaultB, "cert-b")
+
+	require.NoError(t, repo.Upsert(ctx, &model.CertificatePolicy{
+		ID: uuid.New(), CertificateID: certA, UserID: userA,
+		ValidityMonths: 12, AutoRenew: true, DaysBeforeExpiry: 30,
+		CreatedAt: now, UpdatedAt: now,
+	}))
+	require.NoError(t, repo.Upsert(ctx, &model.CertificatePolicy{
+		ID: uuid.New(), CertificateID: certB, UserID: userB,
+		ValidityMonths: 24, AutoRenew: false, DaysBeforeExpiry: 60,
+		CreatedAt: now, UpdatedAt: now,
+	}))
+
+	got, err := repo.ListByVault(ctx, model.NewVaultScope(vaultA, uuid.New()))
+	require.NoError(t, err)
+	require.Len(t, got, 1, "must only see vault A's policy, not vault B's")
+	require.Equal(t, certA, got[0].CertificateID)
+	require.Equal(t, "cert-a", got[0].CertificateName)
+	require.Equal(t, 12, got[0].ValidityMonths)
+	require.True(t, got[0].AutoRenew)
+}
+
+// TestCertificatePolicy_ListByVault_EmptyWhenNoPolicies verifies ListByVault
+// returns an empty slice, not an error, for a vault with no policies set.
+func TestCertificatePolicy_ListByVault_EmptyWhenNoPolicies(t *testing.T) {
+	sqlDB := setupCertPolicyTestDB(t)
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newCertPolicyTestLogger(t))
+
+	got, err := repo.ListByVault(context.Background(), model.NewVaultScope(uuid.New(), uuid.New()))
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+// TestCertificatePolicy_ListByVault_ExcludesDeletedCertificate verifies that
+// a policy whose parent certificate is soft-deleted is excluded from the
+// report -- it lists policies for live certificates, not orphaned rows.
+func TestCertificatePolicy_ListByVault_ExcludesDeletedCertificate(t *testing.T) {
+	sqlDB := setupCertPolicyTestDB(t)
+	repo := repositories.NewCertificatePolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite), newCertPolicyTestLogger(t))
+	ctx := context.Background()
+
+	vaultID, userID, certID := uuid.New(), uuid.New(), uuid.New()
+	now := time.Now()
+	insertCertPolicyTestCert(t, sqlDB, certID, userID, vaultID, "deleted-cert")
+	_, err := sqlDB.Exec(`UPDATE certificates SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?`, certID.String())
+	require.NoError(t, err)
+
+	require.NoError(t, repo.Upsert(ctx, &model.CertificatePolicy{
+		ID: uuid.New(), CertificateID: certID, UserID: userID,
+		ValidityMonths: 12, CreatedAt: now, UpdatedAt: now,
+	}))
+
+	got, err := repo.ListByVault(ctx, model.NewVaultScope(vaultID, uuid.New()))
+	require.NoError(t, err)
+	require.Empty(t, got)
 }

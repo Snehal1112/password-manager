@@ -27,6 +27,14 @@ type KeyRotationPolicy struct {
 	UpdatedAt              time.Time  `json:"updated_at" db:"updated_at"`
 }
 
+// KeyRotationPolicyWithKeyName pairs a KeyRotationPolicy with its parent
+// key's name, for report output (e.g. "keys rotation-policy list") where
+// the raw key ID alone is not informative enough on its own.
+type KeyRotationPolicyWithKeyName struct {
+	KeyRotationPolicy
+	KeyName string `json:"key_name"`
+}
+
 // UpsertKeyRotationPolicyRequest is the request body for creating or updating
 // a key's rotation policy.
 type UpsertKeyRotationPolicyRequest struct {

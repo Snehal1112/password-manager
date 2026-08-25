@@ -67,6 +67,12 @@ func (m *MockKeyServiceForUpdate) UpsertKeyRotationPolicy(ctx context.Context, k
 func (m *MockKeyServiceForUpdate) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return nil
 }
+func (m *MockKeyServiceForUpdate) ListKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	return nil, nil
+}
+func (m *MockKeyServiceForUpdate) ListDueKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
+	return nil, nil
+}
 func (m *MockKeyServiceForUpdate) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
 	return nil, nil
 }

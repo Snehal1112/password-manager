@@ -150,6 +150,20 @@ func (m *keyCmdKeyService) UpsertKeyRotationPolicy(ctx context.Context, keyID uu
 func (m *keyCmdKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uuid.UUID, scope model.Scope) error {
 	return m.Called(ctx, keyID, scope).Error(0)
 }
+func (m *keyCmdKeyService) ListKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KeyRotationPolicyWithKeyName), args.Error(1)
+}
+func (m *keyCmdKeyService) ListDueKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KeyRotationPolicy), args.Error(1)
+}
 func (m *keyCmdKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
 	args := m.Called(ctx, keyID, scope)
 	if args.Get(0) == nil {

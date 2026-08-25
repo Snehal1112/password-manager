@@ -42,6 +42,14 @@ func (m *mockKeyPolicyRepo) DeleteByKeyID(ctx context.Context, keyID uuid.UUID, 
 	return m.Called(ctx, keyID, scope).Error(0)
 }
 
+func (m *mockKeyPolicyRepo) ListByVault(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	args := m.Called(ctx, scope)
+	if v := args.Get(0); v != nil {
+		return v.([]model.KeyRotationPolicyWithKeyName), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *mockKeyPolicyRepo) GetDuePolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
 	args := m.Called(ctx, scope)
 	if v := args.Get(0); v != nil {

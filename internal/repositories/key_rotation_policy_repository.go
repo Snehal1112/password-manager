@@ -22,6 +22,11 @@ type KeyRotationPolicyRepositoryInterface interface {
 	Upsert(ctx context.Context, policy *model.KeyRotationPolicy) error
 	// GetByKeyID retrieves the policy for a key, scoped to a vault.
 	GetByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) (*model.KeyRotationPolicy, error)
+	// ListByVault returns every rotation policy in scope's vault, each paired
+	// with its parent key's name, for the "keys rotation-policy list" report.
+	// Keys with no policy set are simply absent -- this lists policies, not
+	// all keys.
+	ListByVault(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error)
 	// DeleteByKeyID removes the policy for a key, scoped to a vault.
 	DeleteByKeyID(ctx context.Context, keyID uuid.UUID, scope model.Scope) error
 	// GetDuePolicies returns enabled policies (with a configured rotation
@@ -77,6 +82,27 @@ func (r *KeyRotationPolicyRepository) GetByKeyID(ctx context.Context, keyID uuid
 		FROM key_rotation_policies WHERE key_id = ?
 	`
 	return ScopedGet(ctx, r.db, query, []any{keyID.String()}, scope, scanKeyRotationPolicyRow)
+}
+
+// ListByVault returns every rotation policy in scope's vault, each paired
+// with its parent key's name via a scalar subquery against keys, not a JOIN
+// -- a JOIN against keys, which also has vault_id and user_id columns, would
+// make the scope predicate ScopedList appends ("vault_id = ?" / "user_id =
+// ?") ambiguous, exactly as GetDuePolicies' own comment below explains for
+// its subquery.
+func (r *KeyRotationPolicyRepository) ListByVault(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	query := `
+		SELECT id, key_id, user_id, vault_id, rotate_after_days, notify_before_expiry_days,
+		       expiry_days, enabled, last_rotated_at, next_rotation_at, created_at, updated_at,
+		       (SELECT name FROM keys WHERE keys.id = key_rotation_policies.key_id) AS key_name
+		FROM key_rotation_policies WHERE 1=1
+	`
+	list, err := ScopedList(ctx, r.db, query, nil, scope, "", nil, scanKeyRotationPolicyWithKeyNameRow)
+	if err != nil {
+		r.log.WithError(err).Error("Failed to list key rotation policies")
+		return nil, fmt.Errorf("failed to list key rotation policies: %w", err)
+	}
+	return list, nil
 }
 
 // GetDuePolicies returns enabled policies with a configured rotation action
@@ -182,6 +208,48 @@ func scanKeyRotationPolicyRow(row *sql.Row) (*model.KeyRotationPolicy, error) {
 		p.NextRotationAt = nextRotationAt.Time
 	}
 	return &p, nil
+}
+
+// scanKeyRotationPolicyWithKeyNameRow scans one key_rotation_policies row
+// plus its trailing key_name column, mirroring scanKeyRotationPolicyRows.
+// key_name comes back NULL when the parent key row is gone (e.g. purged
+// after the policy was written), in which case KeyName is left empty rather
+// than erroring the scan.
+func scanKeyRotationPolicyWithKeyNameRow(rows *sql.Rows) (model.KeyRotationPolicyWithKeyName, error) {
+	var out model.KeyRotationPolicyWithKeyName
+	var idStr, keyIDStr, userIDStr, vaultIDStr string
+	var lastRotatedAt, nextRotationAt sql.NullTime
+	var keyName sql.NullString
+	if err := rows.Scan(&idStr, &keyIDStr, &userIDStr, &vaultIDStr,
+		&out.RotateAfterDays, &out.NotifyBeforeExpiryDays, &out.ExpiryDays, &out.Enabled,
+		&lastRotatedAt, &nextRotationAt, &out.CreatedAt, &out.UpdatedAt, &keyName); err != nil {
+		return out, err
+	}
+	var err error
+	if out.ID, err = uuid.Parse(idStr); err != nil {
+		return out, err
+	}
+	if out.KeyID, err = uuid.Parse(keyIDStr); err != nil {
+		return out, err
+	}
+	if out.UserID, err = uuid.Parse(userIDStr); err != nil {
+		return out, err
+	}
+	if out.VaultID, err = uuid.Parse(vaultIDStr); err != nil {
+		return out, err
+	}
+	if lastRotatedAt.Valid {
+		out.LastRotatedAt = &lastRotatedAt.Time
+	}
+	// See scanKeyRotationPolicyRow's identical comment: a NULL
+	// next_rotation_at is left at its Go zero value (M3).
+	if nextRotationAt.Valid {
+		out.NextRotationAt = nextRotationAt.Time
+	}
+	if keyName.Valid {
+		out.KeyName = keyName.String
+	}
+	return out, nil
 }
 
 // scanKeyRotationPolicyRows scans one key_rotation_policies row from a

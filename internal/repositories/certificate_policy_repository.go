@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -27,6 +28,13 @@ type CertificatePolicyRepositoryInterface interface {
 	// of owner. Callers must independently verify the caller's access to the
 	// certificate before calling this.
 	DeleteByCertificateIDAny(ctx context.Context, certID uuid.UUID) error
+	// ListByVault returns every certificate policy for certificates in
+	// scope's vault, each paired with its parent certificate's name, for the
+	// "certificates rotation-policy list" report. Certificates with no
+	// policy set are simply absent -- this lists policies, not all
+	// certificates. Must only be called with a vault scope -- see the
+	// implementation's own comment for why.
+	ListByVault(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error)
 }
 
 // CertificatePolicyRepository is the default database-backed implementation.
@@ -106,6 +114,59 @@ func (r *CertificatePolicyRepository) DeleteByCertificateID(ctx context.Context,
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// ListByVault returns every certificate policy for certificates in scope's
+// vault, each paired with its parent certificate's name, for the
+// "certificates rotation-policy list" report. Certificates with no policy
+// set are simply absent -- this lists policies, not all certificates.
+//
+// certificate_policies itself carries no vault_id column (unlike
+// key_rotation_policies, which denormalizes one onto every row), so this
+// method JOINs certificates -- the only table in this query with a vault_id
+// column -- to keep the unqualified "vault_id = ?" predicate ScopedList
+// appends unambiguous. Both sides of the join do carry a user_id column,
+// though, so this method must only ever be called with a vault scope: an
+// owner-scoped call would append an ambiguous "user_id = ?" predicate.
+func (r *CertificatePolicyRepository) ListByVault(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	query := `
+		SELECT cp.id, cp.certificate_id, cp.user_id, cp.validity_months, cp.key_type, cp.key_size, cp.curve,
+		       cp.subject, cp.sans, cp.auto_renew, cp.days_before_expiry, cp.issuer_name, cp.created_at, cp.updated_at,
+		       c.name AS cert_name
+		FROM certificate_policies cp
+		JOIN certificates c ON c.id = cp.certificate_id
+		WHERE c.deleted_at IS NULL
+	`
+	list, err := ScopedList(ctx, r.db, query, nil, scope, "", nil, scanCertificatePolicyWithCertNameRow)
+	if err != nil {
+		r.log.WithError(err).Error("Failed to list certificate policies")
+		return nil, fmt.Errorf("failed to list certificate policies: %w", err)
+	}
+	return list, nil
+}
+
+// scanCertificatePolicyWithCertNameRow scans one certificate_policies row
+// plus its trailing cert_name column from ListByVault's JOIN.
+func scanCertificatePolicyWithCertNameRow(rows *sql.Rows) (model.CertificatePolicyWithCertName, error) {
+	var out model.CertificatePolicyWithCertName
+	var idStr, cidStr, uidStr string
+	if err := rows.Scan(&idStr, &cidStr, &uidStr,
+		&out.ValidityMonths, &out.KeyType, &out.KeySize, &out.Curve,
+		&out.Subject, &out.SANs, &out.AutoRenew, &out.DaysBeforeExpiry,
+		&out.IssuerName, &out.CreatedAt, &out.UpdatedAt, &out.CertificateName); err != nil {
+		return out, err
+	}
+	var err error
+	if out.ID, err = uuid.Parse(idStr); err != nil {
+		return out, err
+	}
+	if out.CertificateID, err = uuid.Parse(cidStr); err != nil {
+		return out, err
+	}
+	if out.UserID, err = uuid.Parse(uidStr); err != nil {
+		return out, err
+	}
+	return out, nil
 }
 
 // GetByCertificateIDAny retrieves the policy for a certificate, ignoring

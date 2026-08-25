@@ -120,6 +120,18 @@ type CertificateService interface {
 	// DeleteCertificatePolicy removes the policy for certID, authorized by
 	// scope against the parent certificate.
 	DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error
+	// ListCertificatePolicies lists every certificate policy in scope's
+	// vault, each paired with its parent certificate's name. Certificates
+	// with no policy set are simply absent -- this lists policies, not all
+	// certificates.
+	ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error)
+	// ListCertificatesDueForRenewal lists certificates in scope's vault whose
+	// auto-renewal window has been entered, evaluated the same way the real
+	// auto-renewal scheduler (CertificateRenewalService.CheckAndRenewCertificates)
+	// does: directly off each certificate's own AutoRenew/RenewalDays/ExpiresAt
+	// columns, not CertificatePolicy's separate AutoRenew/DaysBeforeExpiry
+	// fields, which the scheduler does not consult.
+	ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error)
 }
 
 // certificateService implements CertificateService by coordinating certificate operations
@@ -577,6 +589,27 @@ func (s *certificateService) DeleteCertificatePolicy(ctx context.Context, certID
 		return err
 	}
 	return s.policyRepo.DeleteByCertificateIDAny(ctx, certID)
+}
+
+// ListCertificatePolicies lists every certificate policy in scope's vault,
+// each paired with its parent certificate's name.
+func (s *certificateService) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	policies, err := s.policyRepo.ListByVault(ctx, scope)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list certificate policies: %w", err)
+	}
+	return policies, nil
+}
+
+// ListCertificatesDueForRenewal lists certificates in scope's vault whose
+// auto-renewal window has been entered. See the interface doc for why this
+// reads the certificates table directly rather than CertificatePolicy.
+func (s *certificateService) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	due, err := s.certRepo.ListDueForRenewal(ctx, scope)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list certificates due for renewal: %w", err)
+	}
+	return due, nil
 }
 
 // ListCertificates lists certificates authorized by scope.

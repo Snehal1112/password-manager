@@ -238,6 +238,65 @@ func (_c *MockCertificateRepositoryInterface_ListAll_Call) RunAndReturn(run func
 	return _c
 }
 
+// ListDueForRenewal provides a mock function with given fields: ctx, scope
+func (_m *MockCertificateRepositoryInterface) ListDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	ret := _m.Called(ctx, scope)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDueForRenewal")
+	}
+
+	var r0 []model.Certificate
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) ([]model.Certificate, error)); ok {
+		return rf(ctx, scope)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope) []model.Certificate); ok {
+		r0 = rf(ctx, scope)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]model.Certificate)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope) error); ok {
+		r1 = rf(ctx, scope)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockCertificateRepositoryInterface_ListDueForRenewal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDueForRenewal'
+type MockCertificateRepositoryInterface_ListDueForRenewal_Call struct {
+	*mock.Call
+}
+
+// ListDueForRenewal is a helper method to define mock.On call
+//   - ctx context.Context
+//   - scope model.Scope
+func (_e *MockCertificateRepositoryInterface_Expecter) ListDueForRenewal(ctx interface{}, scope interface{}) *MockCertificateRepositoryInterface_ListDueForRenewal_Call {
+	return &MockCertificateRepositoryInterface_ListDueForRenewal_Call{Call: _e.mock.On("ListDueForRenewal", ctx, scope)}
+}
+
+func (_c *MockCertificateRepositoryInterface_ListDueForRenewal_Call) Run(run func(ctx context.Context, scope model.Scope)) *MockCertificateRepositoryInterface_ListDueForRenewal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(model.Scope))
+	})
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_ListDueForRenewal_Call) Return(_a0 []model.Certificate, _a1 error) *MockCertificateRepositoryInterface_ListDueForRenewal_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockCertificateRepositoryInterface_ListDueForRenewal_Call) RunAndReturn(run func(context.Context, model.Scope) ([]model.Certificate, error)) *MockCertificateRepositoryInterface_ListDueForRenewal_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListRevoked provides a mock function with given fields: ctx, userID
 func (_m *MockCertificateRepositoryInterface) ListRevoked(ctx context.Context, userID uuid.UUID) ([]model.RevokedCertificate, error) {
 	ret := _m.Called(ctx, userID)

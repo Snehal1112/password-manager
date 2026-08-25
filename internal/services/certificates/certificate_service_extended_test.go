@@ -940,6 +940,12 @@ func (m *mockRenewalCertSvc) UpsertCertificatePolicy(ctx context.Context, certID
 func (m *mockRenewalCertSvc) DeleteCertificatePolicy(ctx context.Context, certID uuid.UUID, scope model.Scope) error {
 	panic("not called")
 }
+func (m *mockRenewalCertSvc) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	panic("not called")
+}
+func (m *mockRenewalCertSvc) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	panic("not called")
+}
 
 func TestCheckAndRenewCertificates_ListAllFails(t *testing.T) {
 	repo := &mockCertRepository{}

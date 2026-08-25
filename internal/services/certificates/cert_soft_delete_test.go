@@ -53,6 +53,14 @@ func (m *mockCertRepository) List(ctx context.Context, scope model.Scope, filter
 	return args.Get(0).([]model.Certificate), args.Error(1)
 }
 
+func (m *mockCertRepository) ListDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	args := m.Called(ctx, scope)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Certificate), args.Error(1)
+}
+
 func (m *mockCertRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.Called(ctx, id).Error(0)
 }

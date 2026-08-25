@@ -132,3 +132,17 @@ func (s *retryCertificateService) DeleteCertificatePolicy(ctx context.Context, c
 		return s.baseService.DeleteCertificatePolicy(ctx, certID, scope)
 	})
 }
+
+// ListCertificatePolicies lists a vault's certificate policies with retry logic for database operations.
+func (s *retryCertificateService) ListCertificatePolicies(ctx context.Context, scope model.Scope) ([]model.CertificatePolicyWithCertName, error) {
+	return retried(ctx, s.retryService, func() ([]model.CertificatePolicyWithCertName, error) {
+		return s.baseService.ListCertificatePolicies(ctx, scope)
+	})
+}
+
+// ListCertificatesDueForRenewal lists certificates due for renewal with retry logic for database operations.
+func (s *retryCertificateService) ListCertificatesDueForRenewal(ctx context.Context, scope model.Scope) ([]model.Certificate, error) {
+	return retried(ctx, s.retryService, func() ([]model.Certificate, error) {
+		return s.baseService.ListCertificatesDueForRenewal(ctx, scope)
+	})
+}

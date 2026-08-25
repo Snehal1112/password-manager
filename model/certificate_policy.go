@@ -26,6 +26,15 @@ type CertificatePolicy struct {
 	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }
 
+// CertificatePolicyWithCertName pairs a CertificatePolicy with its parent
+// certificate's name, for report output (e.g. "certificates rotation-policy
+// list") where the raw certificate ID alone is not informative enough on its
+// own.
+type CertificatePolicyWithCertName struct {
+	CertificatePolicy
+	CertificateName string `json:"certificate_name"`
+}
+
 // UpsertCertificatePolicyRequest is the request body for creating or updating a policy.
 type UpsertCertificatePolicyRequest struct {
 	ValidityMonths   int    `json:"validity_months"`

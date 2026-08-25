@@ -140,6 +140,20 @@ func (s *retryKeyService) DeleteKeyRotationPolicy(ctx context.Context, keyID uui
 	})
 }
 
+// ListKeyRotationPolicies lists a vault's key rotation policies with retry logic for database operations.
+func (s *retryKeyService) ListKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicyWithKeyName, error) {
+	return retried(ctx, s.retryService, func() ([]model.KeyRotationPolicyWithKeyName, error) {
+		return s.baseService.ListKeyRotationPolicies(ctx, scope)
+	})
+}
+
+// ListDueKeyRotationPolicies lists due key rotation policies with retry logic for database operations.
+func (s *retryKeyService) ListDueKeyRotationPolicies(ctx context.Context, scope model.Scope) ([]model.KeyRotationPolicy, error) {
+	return retried(ctx, s.retryService, func() ([]model.KeyRotationPolicy, error) {
+		return s.baseService.ListDueKeyRotationPolicies(ctx, scope)
+	})
+}
+
 // ListKeyVersions lists a key's version history with retry logic for database operations.
 func (s *retryKeyService) ListKeyVersions(ctx context.Context, keyID uuid.UUID, scope model.Scope) ([]model.KeyVersion, error) {
 	return retried(ctx, s.retryService, func() ([]model.KeyVersion, error) {
