@@ -45,6 +45,7 @@ type SessionSource struct {
 	cfg  SessionConfig
 	skew time.Duration
 	save func(*common.SessionCache) error
+	load func() (*common.SessionCache, error)
 
 	mu      sync.Mutex
 	session *common.SessionCache
@@ -89,7 +90,7 @@ func NewSessionSource(cfg SessionConfig) (*SessionSource, error) {
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 
-	return &SessionSource{cfg: cfg, skew: skew, save: save, session: session}, nil
+	return &SessionSource{cfg: cfg, skew: skew, save: save, load: load, session: session}, nil
 }
 
 // Username reports who this source acts as.
@@ -127,6 +128,20 @@ func (s *SessionSource) Token(ctx context.Context) (string, error) {
 	s.mu.Unlock()
 
 	refreshed, err := s.refresh(ctx, refreshToken)
+	if err != nil {
+		// The cached refresh token can be stale if a newer CLI login
+		// happened, in a different process, after this source was
+		// constructed. Reload once and retry with whatever is actually on
+		// disk before giving up -- this is what lets a running MCP
+		// subprocess pick up a fresh `rocketvault users login` without a
+		// restart.
+		if reloaded, loadErr := s.load(); loadErr == nil && reloaded != nil && reloaded.RefreshToken != refreshToken {
+			s.mu.Lock()
+			s.session = reloaded
+			s.mu.Unlock()
+			refreshed, err = s.refresh(ctx, reloaded.RefreshToken)
+		}
+	}
 
 	s.mu.Lock()
 	if err == nil {

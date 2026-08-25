@@ -259,3 +259,56 @@ func TestSessionSource_ConcurrentCallersShareOneRefresh(t *testing.T) {
 	require.EqualValues(t, 1, atomic.LoadInt32(&calls),
 		"concurrent callers must share one refresh, not stampede the endpoint")
 }
+
+func TestSessionSource_StaleRefreshTokenRecoversFromDisk(t *testing.T) {
+	var seenTokens []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		seenTokens = append(seenTokens, body.RefreshToken)
+
+		if body.RefreshToken == "refresh-stale" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"token":"access-fresh","refresh_token":"refresh-fresh-2","user_id":"11111111-1111-1111-1111-111111111111","username":"admin","roles":["admin"],"expires_at":%q}`,
+			time.Now().Add(time.Hour).Format(time.RFC3339Nano))
+	}))
+	defer srv.Close()
+
+	stale := sessionFixture(-time.Minute)
+	stale.RefreshToken = "refresh-stale"
+	store := &stubStore{session: stale}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	// Simulate a newer `rocketvault users login` landing on disk, in a
+	// different process, after src was constructed.
+	fresh := sessionFixture(-time.Minute)
+	fresh.RefreshToken = "refresh-fresh"
+	store.session = fresh
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "access-fresh", tok)
+	require.Equal(t, []string{"refresh-stale", "refresh-fresh"}, seenTokens,
+		"the stale in-memory token is tried first, then the freshly loaded one")
+}
+
+func TestSessionSource_UnchangedDiskSessionDoesNotRetry(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	store := &stubStore{session: sessionFixture(-time.Minute)}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	require.Equal(t, 1, calls, "no newer session on disk means no retry, and no infinite loop")
+}
