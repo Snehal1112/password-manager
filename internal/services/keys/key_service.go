@@ -41,6 +41,10 @@ var ErrKeyRevoked = errors.New("key is revoked")
 // ErrUnsupportedAlgorithm is returned when an unsupported algorithm is requested.
 var ErrUnsupportedAlgorithm = errors.New("unsupported algorithm")
 
+// ErrInvalidJWK is returned when ImportKey's JWK input is malformed, has no
+// private key material, or is an unsupported key type.
+var ErrInvalidJWK = errors.New("invalid jwk")
+
 // CreateKeyRequest represents a request to create a new cryptographic key.
 type CreateKeyRequest struct {
 	Name      string
@@ -507,7 +511,12 @@ func (s *keyService) ImportKey(ctx context.Context, req ImportKeyRequest) (*Crea
 	privateKey, keyType, err := signing.ParseJWK(req.JWK)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "invalid JWK", err)
-		return nil, fmt.Errorf("invalid JWK: %w", err)
+		// Both %w: this must satisfy errors.Is against ErrInvalidJWK (api's
+		// writeKeyError) AND against the underlying signing sentinels (e.g.
+		// signing.ErrJWKNoPrivateKey, asserted by
+		// TestImportKey_PublicOnlyJWK_Rejected) -- a single %w with the rest
+		// as %s would drop the original error from the chain.
+		return nil, fmt.Errorf("%w: %w", ErrInvalidJWK, err)
 	}
 
 	handle, err := s.keyProvider.ImportKey(ctx, keyType, privateKey)

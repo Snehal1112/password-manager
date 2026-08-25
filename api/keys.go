@@ -469,6 +469,19 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate name format/length and tag limits, same as every other
+	// key-creation path. ValidateKeyCreate can't be reused here: it requires
+	// a Type field (RSA/ECDSA/OCT), and import's type comes from the parsed
+	// JWK, not the caller. ValidateKeyUpdate validates exactly Name+Tags with
+	// no Type dependency.
+	if err := vvalidation.ValidateKeyUpdate(vvalidation.KeyUpdateRequest{
+		Name: &req.Name,
+		Tags: req.Tags,
+	}); err != nil {
+		c.SetInvalidParam(err.Error())
+		return
+	}
+
 	userID, err := uuid.Parse(c.Claims.UserID)
 	if err != nil {
 		c.SetInvalidParam("user_id")

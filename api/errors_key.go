@@ -19,6 +19,8 @@ import (
 // (writeSecretError, getKey, and the crypto handlers).
 func writeKeyError(c *Context, err error) {
 	switch {
+	case errors.Is(err, keyservices.ErrInvalidJWK):
+		c.SetInvalidParam(err.Error())
 	case errors.Is(err, keyservices.ErrKeyLifecycleDenied):
 		c.SetPermissionError("key is disabled or outside its valid time window")
 	case errors.Is(err, keyservices.ErrKeyForbidden) || errors.Is(err, keyservices.ErrKeyRevoked):

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -470,6 +471,31 @@ func TestImportKey_MissingName_Returns400(t *testing.T) {
 	svc.AssertNotCalled(t, "ImportKey", mock.Anything, mock.Anything)
 }
 
+// TestImportKey_InvalidName_Returns400 pins that importKey enforces the same
+// name-format/length validation every other key-creation path enforces
+// (vvalidation.ValidateKeyUpdate, since ValidateKeyCreate requires a Type
+// field import doesn't have at validation time). Without this check an
+// imported key could carry an arbitrary-length/format name, unlike keys
+// created via POST /keys.
+func TestImportKey_InvalidName_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name": strings.Repeat("a", 128), // exceeds the 127-char limit.
+		"jwk":  json.RawMessage(`{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`),
+	})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	svc.AssertNotCalled(t, "ImportKey", mock.Anything, mock.Anything)
+}
+
 func TestImportKey_MissingJWK_Returns400(t *testing.T) {
 	svc := &mockKeyService{}
 	c := newKeyCtx(svc)
@@ -503,6 +529,32 @@ func TestImportKey_ServiceError_Returns500(t *testing.T) {
 	}
 
 	assert.NotEqual(t, http.StatusCreated, w.Code)
+	svc.AssertExpectations(t)
+}
+
+// TestImportKey_InvalidJWK_Returns400 pins that a malformed/unsupported JWK
+// -- KeyService.ImportKey wraps keyServices.ErrInvalidJWK for exactly this --
+// maps to a 400 client error via writeKeyError, not the 500 a plain
+// unmatched error falls through to.
+func TestImportKey_InvalidJWK_Returns400(t *testing.T) {
+	svc := &mockKeyService{}
+	svc.On("ImportKey", mock.Anything, mock.Anything).
+		Return(nil, fmt.Errorf("%w: unsupported kty", keyServices.ErrInvalidJWK))
+
+	c := newKeyCtx(svc)
+	w := httptest.NewRecorder()
+	body, _ := json.Marshal(map[string]any{
+		"name": "imported-key",
+		"jwk":  json.RawMessage(`{"kty":"bogus"}`),
+	})
+	r := httptest.NewRequest(http.MethodPost, "/keys/import", bytes.NewReader(body))
+
+	importKey(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 	svc.AssertExpectations(t)
 }
 
