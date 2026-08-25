@@ -162,6 +162,7 @@ func (s *SessionSource) Token(ctx context.Context) (string, error) {
 	fetch := &tokenFetch{done: make(chan struct{})}
 	s.inflight = fetch
 	refreshToken := s.session.RefreshToken
+	username := s.session.Username
 	s.mu.Unlock()
 
 	refreshed, err := s.refresh(ctx, refreshToken)
@@ -172,7 +173,14 @@ func (s *SessionSource) Token(ctx context.Context) (string, error) {
 		// disk before giving up -- this is what lets a running MCP
 		// subprocess pick up a fresh `rocketvault users login` without a
 		// restart.
-		if reloaded, loadErr := s.load(); loadErr == nil && reloaded != nil && reloaded.RefreshToken != refreshToken {
+		//
+		// The username must match. load() follows the `current` pointer,
+		// which names whoever logged in most recently on this machine, so
+		// without this check a `rocketvault users login --username bob`
+		// would silently turn this source into bob. A mismatch falls
+		// through to the ordinary failure path.
+		if reloaded, loadErr := s.load(); loadErr == nil && reloaded != nil &&
+			reloaded.RefreshToken != refreshToken && reloaded.Username == username {
 			s.mu.Lock()
 			s.session = reloaded
 			s.mu.Unlock()

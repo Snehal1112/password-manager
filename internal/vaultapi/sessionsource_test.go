@@ -297,6 +297,44 @@ func TestSessionSource_StaleRefreshTokenRecoversFromDisk(t *testing.T) {
 		"the stale in-memory token is tried first, then the freshly loaded one")
 }
 
+func TestSessionSource_DiskSessionForAnotherUserIsNotAdopted(t *testing.T) {
+	// The `current` pointer names whoever logged in most recently on this
+	// machine, which need not be the user this source acts as. Adopting it
+	// would silently change identity mid-process.
+	var seenTokens []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		seenTokens = append(seenTokens, body.RefreshToken)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	stale := sessionFixture(-time.Minute)
+	stale.RefreshToken = "refresh-stale"
+	store := &stubStore{session: stale}
+	src := newSessionSourceForTest(t, store, srv.URL, srv.Client())
+
+	// Someone ran `rocketvault users login --username bob` on this machine
+	// after src was constructed as admin. The refresh token differs, so only
+	// the username guard stands between here and acting as bob.
+	other := sessionFixture(-time.Minute)
+	other.Username = "bob"
+	other.RefreshToken = "refresh-bob"
+	store.session = other
+
+	_, err := src.Token(context.Background())
+	require.Error(t, err)
+	require.ErrorContains(t, err, "rocketvault users login",
+		"the caller must still get the actionable re-login instruction")
+	require.Equal(t, []string{"refresh-stale"}, seenTokens,
+		"another user's refresh token must never be sent")
+	require.Equal(t, "admin", src.Username(),
+		"a failed recovery must leave this source's identity unchanged")
+}
+
 func TestSessionSource_UnchangedDiskSessionDoesNotRetry(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

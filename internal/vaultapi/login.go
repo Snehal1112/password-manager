@@ -13,6 +13,11 @@ import (
 	"rocketvault/common"
 )
 
+// defaultLoginExpiry is the access-token lifetime assumed when the caller
+// supplies none. It matches the jwt.expiry the shipped .rocketvault.yaml.example
+// configures.
+const defaultLoginExpiry = 15 * time.Minute
+
 // LoginIdentity describes who Login authenticated as. It never carries the
 // token itself -- a caller that needs to act as this identity uses the
 // TokenSource Login also returns.
@@ -32,6 +37,12 @@ type LoginIdentity struct {
 // command does in cmd/root.go -- the login response itself carries no
 // expiry.
 func (c *Client) Login(ctx context.Context, username, password, totpCode string, expiry time.Duration) (TokenSource, LoginIdentity, error) {
+	// A caller with no config file loaded passes viper's zero duration, which
+	// would make the session born already expired.
+	if expiry <= 0 {
+		expiry = defaultLoginExpiry
+	}
+
 	payload, err := json.Marshal(map[string]string{
 		"username": username, "password": password, "totp_code": totpCode,
 	})
@@ -46,6 +57,11 @@ func (c *Client) Login(ctx context.Context, username, password, totpCode string,
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	// Login builds its own request rather than going through newRequest, so
+	// the correlation header has to be set here to match every other call.
+	if id := CorrelationIDFrom(ctx); id != "" {
+		req.Header.Set(CorrelationHeader, id)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -83,6 +99,10 @@ func (c *Client) Login(ctx context.Context, username, password, totpCode string,
 		Username:     decoded.Username,
 		Roles:        decoded.Roles,
 		ExpiresAt:    time.Now().Add(expiry),
+		// Set even though this session is in-memory only: if a caller ever
+		// opts into persistence, a blank key would write a malformed
+		// "|<username>" current-session pointer over the operator's real one.
+		ServerKey: common.SanitizeServerKey(c.baseURL),
 	}
 
 	source, err := NewSessionSourceFromCache(SessionConfig{
