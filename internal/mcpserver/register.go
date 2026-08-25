@@ -24,4 +24,5 @@ func RegisterAllTools(s *Server) {
 	registerRecoverTools(s)
 	registerDestructiveTools(s)
 	registerCryptoTools(s)
+	registerLoginTools(s)
 }
