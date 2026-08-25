@@ -176,6 +176,13 @@ actions are indistinguishable from yours in the audit log.
 its own role grants, so agent activity is attributable and its permissions are
 exactly what you chose.
 
+Under a cached session, a running server also recovers on its own if its
+refresh token goes stale — when a refresh is rejected it re-reads the session
+file once and retries with whatever is there, provided it still belongs to the
+same user, so a fresh `rocketvault users login` in a terminal is picked up
+without restarting the MCP server. That applies to every MCP server on a
+session identity, whether or not `allow_interactive_login` is enabled.
+
 ### Interactive login
 
 With `mcp.allow_interactive_login: true`, a `login` tool is registered:
@@ -196,11 +203,18 @@ confirms who you're now acting as (`username`, `roles`, `expires_at`) — it
 never includes the token itself.
 
 **Only available under a cached-session identity.** `login` is not
-registered at all when `mcp.require_service_account: true`, regardless of
-`allow_interactive_login` — a service account's whole point is that the
+registered at all when this server started under a service-account identity —
+that is, when `mcp.client_id` and a client secret are configured — regardless
+of `allow_interactive_login`. A service account's whole point is that the
 agent cannot act as a human, and a login tool able to override that would
-defeat it. Run `rocketvault mcp --check` to confirm which identity mode a
-given server is running under.
+defeat it. The gate is the identity the server actually resolved, not the
+`require_service_account` flag. Run `rocketvault mcp --check` to confirm which
+identity mode a given server is running under.
+
+**Nothing is written to disk.** A login performed this way lives only in the
+running process's memory — it is never saved to `~/.rocketvault/sessions/`, so
+your CLI session file and its `current` pointer are untouched, and the identity
+is gone when the process exits.
 
 **Credentials are chat text.** Typing a password and TOTP code into a
 message puts them in the model's context and in this conversation's
