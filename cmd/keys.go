@@ -74,6 +74,7 @@ func init() {
 	keys.InitKeysList(keysCmd)
 	keys.InitKeysUpdate(keysCmd)
 	keys.InitKeysRotate(keysCmd)
+	keys.InitKeysRotationPolicy(keysCmd)
 	keys.InitKeysWrap(keysCmd)
 	keys.InitKeysUnwrap(keysCmd)
 	keys.InitKeysSign(keysCmd)

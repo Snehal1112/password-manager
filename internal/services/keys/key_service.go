@@ -5,6 +5,8 @@ package keys
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -519,6 +521,30 @@ func (s *keyService) ImportKey(ctx context.Context, req ImportKeyRequest) (*Crea
 		return nil, fmt.Errorf("%w: %w", ErrInvalidJWK, err)
 	}
 
+	// Derive the key's strength up front: RSA bit length / EC curve name.
+	// These feed both the minimum-size check below and the model.Key record
+	// itself, so RotateKey later regenerates at the imported key's true
+	// strength instead of falling back to hardcoded defaults (2048/P-256).
+	var bits int
+	var curve string
+	switch k := privateKey.(type) {
+	case *rsa.PrivateKey:
+		bits = k.N.BitLen()
+	case *ecdsa.PrivateKey:
+		curve = k.Curve.Params().Name
+	}
+
+	// Enforce the same minimum RSA key size CreateRSAKey enforces at
+	// generation time. go-jose validates mathematical correctness but not
+	// size, so without this an under-strength RSA JWK (e.g. 512 or 1024
+	// bits) would otherwise be importable. EC keys are already bounded by
+	// go-jose's own curve allow-list (P-256/P-384/P-521 only), so this check
+	// is RSA-only.
+	if keyType == "RSA" && bits < 2048 {
+		s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "imported RSA key is too small", nil)
+		return nil, fmt.Errorf("imported RSA key is too small: %d bits (minimum 2048)", bits)
+	}
+
 	handle, err := s.keyProvider.ImportKey(ctx, keyType, privateKey)
 	if err != nil {
 		s.logger.LogAuditError(req.UserID.String(), "import_key", "failed", "failed to import key material", err)
@@ -557,6 +583,8 @@ func (s *keyService) ImportKey(ctx context.Context, req ImportKeyRequest) (*Crea
 		CreatedAt: time.Now(),
 		Tags:      req.Tags,
 		Enabled:   enabled,
+		Bits:      bits,
+		Curve:     curve,
 		ExpiresAt: req.ExpiresAt,
 		NotBefore: req.NotBefore,
 	}

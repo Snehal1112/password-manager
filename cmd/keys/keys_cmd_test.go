@@ -42,6 +42,7 @@ func TestMain(m *testing.M) {
 	InitKeysWrap(parent)
 	InitKeysUnwrap(parent)
 	InitKeysUpdate(parent)
+	InitKeysRotationPolicy(parent)
 	InitKeysSign(parent)
 	InitKeysVerify(parent)
 	_ = NewWrapCmd()

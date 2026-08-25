@@ -10,8 +10,6 @@ import (
 
 	model "rocketvault/model"
 
-	repositories "rocketvault/internal/repositories"
-
 	uuid "github.com/google/uuid"
 )
 
@@ -363,7 +361,7 @@ func (_c *MockCertificateService_GetCertificatePolicy_Call) RunAndReturn(run fun
 }
 
 // ListCertificates provides a mock function with given fields: ctx, scope, filter
-func (_m *MockCertificateService) ListCertificates(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter) ([]model.Certificate, error) {
+func (_m *MockCertificateService) ListCertificates(ctx context.Context, scope model.Scope, filter model.CertificateFilter) ([]model.Certificate, error) {
 	ret := _m.Called(ctx, scope, filter)
 
 	if len(ret) == 0 {
@@ -372,10 +370,10 @@ func (_m *MockCertificateService) ListCertificates(ctx context.Context, scope mo
 
 	var r0 []model.Certificate
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, model.CertificateFilter) ([]model.Certificate, error)); ok {
 		return rf(ctx, scope, filter)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.CertificateFilter) []model.Certificate); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, model.CertificateFilter) []model.Certificate); ok {
 		r0 = rf(ctx, scope, filter)
 	} else {
 		if ret.Get(0) != nil {
@@ -383,7 +381,7 @@ func (_m *MockCertificateService) ListCertificates(ctx context.Context, scope mo
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, repositories.CertificateFilter) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, model.CertificateFilter) error); ok {
 		r1 = rf(ctx, scope, filter)
 	} else {
 		r1 = ret.Error(1)
@@ -400,14 +398,14 @@ type MockCertificateService_ListCertificates_Call struct {
 // ListCertificates is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scope model.Scope
-//   - filter repositories.CertificateFilter
+//   - filter model.CertificateFilter
 func (_e *MockCertificateService_Expecter) ListCertificates(ctx interface{}, scope interface{}, filter interface{}) *MockCertificateService_ListCertificates_Call {
 	return &MockCertificateService_ListCertificates_Call{Call: _e.mock.On("ListCertificates", ctx, scope, filter)}
 }
 
-func (_c *MockCertificateService_ListCertificates_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.CertificateFilter)) *MockCertificateService_ListCertificates_Call {
+func (_c *MockCertificateService_ListCertificates_Call) Run(run func(ctx context.Context, scope model.Scope, filter model.CertificateFilter)) *MockCertificateService_ListCertificates_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.CertificateFilter))
+		run(args[0].(context.Context), args[1].(model.Scope), args[2].(model.CertificateFilter))
 	})
 	return _c
 }
@@ -417,7 +415,7 @@ func (_c *MockCertificateService_ListCertificates_Call) Return(_a0 []model.Certi
 	return _c
 }
 
-func (_c *MockCertificateService_ListCertificates_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.CertificateFilter) ([]model.Certificate, error)) *MockCertificateService_ListCertificates_Call {
+func (_c *MockCertificateService_ListCertificates_Call) RunAndReturn(run func(context.Context, model.Scope, model.CertificateFilter) ([]model.Certificate, error)) *MockCertificateService_ListCertificates_Call {
 	_c.Call.Return(run)
 	return _c
 }

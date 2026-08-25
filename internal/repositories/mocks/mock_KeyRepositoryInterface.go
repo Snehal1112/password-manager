@@ -8,8 +8,6 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
-	repositories "rocketvault/internal/repositories"
-
 	time "time"
 
 	uuid "github.com/google/uuid"
@@ -289,7 +287,7 @@ func (_c *MockKeyRepositoryInterface_GetVersion_Call) RunAndReturn(run func(cont
 }
 
 // List provides a mock function with given fields: ctx, scope, filter
-func (_m *MockKeyRepositoryInterface) List(ctx context.Context, scope model.Scope, filter repositories.KeyFilter) ([]model.Key, error) {
+func (_m *MockKeyRepositoryInterface) List(ctx context.Context, scope model.Scope, filter model.KeyFilter) ([]model.Key, error) {
 	ret := _m.Called(ctx, scope, filter)
 
 	if len(ret) == 0 {
@@ -298,10 +296,10 @@ func (_m *MockKeyRepositoryInterface) List(ctx context.Context, scope model.Scop
 
 	var r0 []model.Key
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, model.KeyFilter) ([]model.Key, error)); ok {
 		return rf(ctx, scope, filter)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, repositories.KeyFilter) []model.Key); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, model.Scope, model.KeyFilter) []model.Key); ok {
 		r0 = rf(ctx, scope, filter)
 	} else {
 		if ret.Get(0) != nil {
@@ -309,7 +307,7 @@ func (_m *MockKeyRepositoryInterface) List(ctx context.Context, scope model.Scop
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, repositories.KeyFilter) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, model.Scope, model.KeyFilter) error); ok {
 		r1 = rf(ctx, scope, filter)
 	} else {
 		r1 = ret.Error(1)
@@ -326,14 +324,14 @@ type MockKeyRepositoryInterface_List_Call struct {
 // List is a helper method to define mock.On call
 //   - ctx context.Context
 //   - scope model.Scope
-//   - filter repositories.KeyFilter
+//   - filter model.KeyFilter
 func (_e *MockKeyRepositoryInterface_Expecter) List(ctx interface{}, scope interface{}, filter interface{}) *MockKeyRepositoryInterface_List_Call {
 	return &MockKeyRepositoryInterface_List_Call{Call: _e.mock.On("List", ctx, scope, filter)}
 }
 
-func (_c *MockKeyRepositoryInterface_List_Call) Run(run func(ctx context.Context, scope model.Scope, filter repositories.KeyFilter)) *MockKeyRepositoryInterface_List_Call {
+func (_c *MockKeyRepositoryInterface_List_Call) Run(run func(ctx context.Context, scope model.Scope, filter model.KeyFilter)) *MockKeyRepositoryInterface_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(model.Scope), args[2].(repositories.KeyFilter))
+		run(args[0].(context.Context), args[1].(model.Scope), args[2].(model.KeyFilter))
 	})
 	return _c
 }
@@ -343,7 +341,7 @@ func (_c *MockKeyRepositoryInterface_List_Call) Return(_a0 []model.Key, _a1 erro
 	return _c
 }
 
-func (_c *MockKeyRepositoryInterface_List_Call) RunAndReturn(run func(context.Context, model.Scope, repositories.KeyFilter) ([]model.Key, error)) *MockKeyRepositoryInterface_List_Call {
+func (_c *MockKeyRepositoryInterface_List_Call) RunAndReturn(run func(context.Context, model.Scope, model.KeyFilter) ([]model.Key, error)) *MockKeyRepositoryInterface_List_Call {
 	_c.Call.Return(run)
 	return _c
 }
