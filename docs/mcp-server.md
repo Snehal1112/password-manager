@@ -77,6 +77,7 @@ independent, and all default to `false`:
 | `allow_destructive` | Delete, purge, revoke | 4 |
 | `allow_crypto` | Sign, verify, encrypt, decrypt | 4 |
 | `allow_secret_values` | `get_secret` can return plaintext | 0 (changes an existing tool) |
+| `allow_interactive_login` | A `login` tool to re-authenticate mid-conversation | 1 (never under a service account) |
 
 ```yaml
 mcp:
@@ -162,9 +163,10 @@ only one thing standing in the way.
 
 ## Identity
 
-The server holds one identity for its whole lifetime. There is no per-user
-authentication — the server is a child process of your MCP client, running as
-you.
+The server resolves one identity at startup and normally keeps it for its
+whole lifetime — the server is a child process of your MCP client, running
+as you. The one exception is the `login` tool below, off by default, which
+lets a chat message replace that identity while the process keeps running.
 
 **Cached session** (the default, and fine for local use): whatever
 `rocketvault users login` cached. The agent then acts as *you*, which means its
@@ -173,6 +175,38 @@ actions are indistinguishable from yours in the audit log.
 **Service account** (use this for anything else): a dedicated principal with
 its own role grants, so agent activity is attributable and its permissions are
 exactly what you chose.
+
+### Interactive login
+
+With `mcp.allow_interactive_login: true`, a `login` tool is registered:
+
+```yaml
+mcp:
+  allow_interactive_login: true
+```
+
+Call it with a username, password and current TOTP code, the same three
+things `rocketvault users login` asks for:
+
+> login(username: "admin", password: "...", totp_code: "123456")
+
+On success, every later tool call in the conversation authenticates as that
+user, until the process restarts or `login` is called again. The response
+confirms who you're now acting as (`username`, `roles`, `expires_at`) — it
+never includes the token itself.
+
+**Only available under a cached-session identity.** `login` is not
+registered at all when `mcp.require_service_account: true`, regardless of
+`allow_interactive_login` — a service account's whole point is that the
+agent cannot act as a human, and a login tool able to override that would
+defeat it. Run `rocketvault mcp --check` to confirm which identity mode a
+given server is running under.
+
+**Credentials are chat text.** Typing a password and TOTP code into a
+message puts them in the model's context and in this conversation's
+transcript, not just your shell history. That is a real trade-off against
+running `rocketvault users login` in a terminal first — weigh it before
+enabling this flag, particularly on a shared or logged conversation.
 
 There is **no CLI command to create a service account** — the only way is the
 REST API. Create one against a running server, authenticated as an admin:
