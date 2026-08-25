@@ -244,6 +244,14 @@ type MCPConfig struct {
 	ClientSecret string `mapstructure:"client_secret"`
 }
 
+// UsesServiceAccount reports whether this configuration identifies a service
+// account rather than relying on the cached CLI session. It is the single
+// definition of that predicate, which gates both the identity the MCP server
+// starts as and whether the login tool can ever be registered.
+func (c MCPConfig) UsesServiceAccount() bool {
+	return c.ClientID != "" && c.ClientSecret != ""
+}
+
 // LoadMCPConfig reads MCP settings from Viper, seeding restrictive defaults
 // and overriding only keys that are actually set.
 func LoadMCPConfig() (MCPConfig, error) {

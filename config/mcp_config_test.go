@@ -172,6 +172,29 @@ func TestMCPConfig_RejectsRequireServiceAccountWithoutCredentials(t *testing.T) 
 		"demanding a service account while providing none can never start")
 }
 
+func TestMCPConfig_UsesServiceAccount(t *testing.T) {
+	cases := []struct {
+		name         string
+		clientID     string
+		clientSecret string
+		want         bool
+	}{
+		{"both set", "mcp-agent", "s3cr3t", true},
+		{"neither set", "", "", false},
+		// Validate rejects a half-configured account outright, so neither
+		// half alone may select the service-account identity.
+		{"only client_id", "mcp-agent", "", false},
+		{"only client_secret", "", "s3cr3t", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := MCPConfig{ClientID: tc.clientID, ClientSecret: tc.clientSecret}
+			require.Equal(t, tc.want, cfg.UsesServiceAccount())
+		})
+	}
+}
+
 func TestMCPConfig_RejectsClientIDWithoutSecret(t *testing.T) {
 	resetViper(t)
 	viper.Set("mcp.client_id", "mcp-agent")

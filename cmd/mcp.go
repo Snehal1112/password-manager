@@ -137,7 +137,7 @@ func resolveMCPBaseURL(serverFlag string) (string, bool, error) {
 // would fail on its first tool call, several turns into a conversation and
 // far from the actual problem.
 func resolveMCPTokenSource(cfg config.MCPConfig, baseURL string, httpClient *http.Client) (vaultapi.TokenSource, string, error) {
-	if cfg.ClientID != "" && cfg.ClientSecret != "" {
+	if cfg.UsesServiceAccount() {
 		source, err := vaultapi.NewServiceAccountSource(vaultapi.ServiceAccountConfig{
 			BaseURL:      baseURL,
 			ClientID:     cfg.ClientID,
@@ -225,12 +225,13 @@ func buildMCPServer(cmd *cobra.Command, logger *slog.Logger) (*mcpserver.Server,
 		BaseURL: baseURL,
 
 		Identity: swappable,
-		// The same condition resolveMCPTokenSource already used to choose
-		// the service-account branch, restated here rather than threaded
-		// back through its return values -- it has no other caller that
-		// would need the extra value, and every existing test of that
-		// function stays unchanged.
-		IsServiceAccountIdentity: cfg.ClientID != "" && cfg.ClientSecret != "",
+		// The same predicate resolveMCPTokenSource used to choose the
+		// service-account branch, asked again rather than threaded back
+		// through its return values -- it has no other caller that would
+		// need the extra value, and every existing test of that function
+		// stays unchanged. Both sites call the one method, so the two
+		// cannot drift apart.
+		IsServiceAccountIdentity: cfg.UsesServiceAccount(),
 		JWTExpiry:                viper.GetDuration("jwt.expiry"),
 	})
 	if err != nil {
