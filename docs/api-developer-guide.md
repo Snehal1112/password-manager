@@ -416,13 +416,44 @@ components (RSA `n`/`e`, EC `x`/`y`), same as `POST /api/v1/keys`.
 
 ## Rate Limiting
 
-The API implements rate limiting to prevent abuse:
+Two independent limits apply, and a request must pass both. Exceeding either returns
+`429 Too Many Requests`.
 
-- Default limit: 300 requests per minute per IP for general endpoints, 5 requests per minute for auth endpoints (login/refresh/oauth2)
-- Headers included in responses:
-  - `X-RateLimit-Limit`: Maximum requests per minute
-  - `X-RateLimit-Remaining`: Remaining requests
-  - `X-RateLimit-Reset`: Time when limit resets (Unix timestamp)
+| Limit | Counted per | Default | Config key |
+|-------|-------------|---------|------------|
+| General endpoints | client IP | 300 req/min | `rate_limit.default` |
+| Auth endpoints (`/login`, `/refresh`, `/oauth2/token`) | client IP | 5 req/min | `rate_limit.auth` |
+| All authenticated endpoints | vault | 600 req/min | `rate_limit.per_vault` |
+
+Each limit reports its own response headers, so you can tell which ceiling you hit:
+
+| Header | Meaning |
+|--------|---------|
+| `X-RateLimit-Limit` / `-Remaining` / `-Reset` | Your per-IP budget. |
+| `X-RateLimit-Vault-Limit` / `-Remaining` / `-Reset` | The budget of the vault you addressed. |
+
+`-Reset` is a Unix timestamp for when the bucket is full again. Both are continuously-refilling
+token buckets, not fixed windows, so capacity returns gradually rather than all at once.
+
+### The per-vault limit
+
+The per-vault budget is shared by every caller of that vault, so a client can be throttled by
+someone else's traffic against the same vault while its own per-IP budget is untouched. Check
+`X-RateLimit-Vault-Remaining` to distinguish the two cases before retrying.
+
+Three behaviours affect how you should integrate:
+
+- **Requests that resolve no vault of their own count against the `default` vault.** That covers
+  vault-management routes (`/vaults/…`) and the legacy flat resource paths (`/secrets`, `/keys`,
+  `/certificates`). Prefer the vault-scoped routes (`/vaults/{name}/secrets`) so your traffic is
+  budgeted against your own vault.
+- **Rejected requests still count.** The limit is applied before authorization, so a `403` still
+  spends vault budget. Do not retry a `403` in a tight loop — you will throttle the vault for
+  everyone using it.
+- **Health probes are exempt.** `/health`, `/health/ready`, `/health/live` and `/health/database`
+  are never counted, so a probe cannot exhaust a vault's budget.
+
+Back off on `429` and honour `-Reset`.
 
 ## Best Practices
 
@@ -983,7 +1014,7 @@ curl https://api.rocketvault.local/api/v1/health | jq .
 4. **Validate SSL certificates** when making API calls
 5. **Use appropriate timeouts** to prevent hanging requests
 6. **Implement proper error handling** without exposing sensitive information
-7. **Rate limiting** is enforced - respect the limits to avoid being blocked
+7. **Rate limiting** is enforced per IP *and* per vault - respect both to avoid being blocked
 
 ## Support
 

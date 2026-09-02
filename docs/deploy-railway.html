@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Deploying RocketVault to Railway — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">Deploying RocketVault to Railway</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/deploy-railway.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#1-install-the-cli-and-create-the-project">1. Install the CLI and create the project</a></li><li><a href="#2-attach-a-persistent-volume">2. Attach a persistent volume</a></li><li><a href="#3-set-the-required-environment-variables">3. Set the required environment variables</a></li><li><a href="#optional-softhsm-software-hsm">Optional: SoftHSM (software HSM)</a></li><li><a href="#4-deploy">4. Deploy</a></li><li><a href="#5-create-the-first-admin">5. Create the first admin</a></li><li><a href="#single-instance-only">Single instance only</a></li></ol></nav>
+<main class="doc">
+<p><code>railway.json</code> in the repo root controls the build and deploy settings Railway reads on
+every deployment (builder, health check, restart policy). It cannot declare volumes,
+variables, or replica counts — those are project-level resources set through the CLI or
+dashboard, covered below.</p>
+<h2 id="1-install-the-cli-and-create-the-project">1. Install the CLI and create the project</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway login
+railway init   # from the repo root; builds from the committed Dockerfile
+</pre></div>
+<h2 id="2-attach-a-persistent-volume">2. Attach a persistent volume</h2>
+<p>RocketVault's SQLite database file — which also holds the JWT signing key
+(<code>jwt.key_source: self_pki</code>) and logs — lives under <code>/app/data</code>. Without a volume there,
+a redeploy loses the database, invalidates every session, and drops all logs.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway volume add --mount-path /app/data -s &lt;service-name&gt;
+</pre></div>
+<p>Dashboard alternative: select the service → <strong>Volumes</strong> → <strong>New Volume</strong>, mount path
+<code>/app/data</code>.</p>
+<h2 id="3-set-the-required-environment-variables">3. Set the required environment variables</h2>
+<p>Both must be base64-encoded random values:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway variable set RV_MASTER_KEY=&quot;$(openssl rand -base64 32)&quot; -s &lt;service-name&gt;
+railway variable set RV_BOOTSTRAP_TOKEN=&quot;$(openssl rand -base64 32)&quot; -s &lt;service-name&gt;
+</pre></div>
+<p>Optional — default to <code>http://localhost:8774</code> if unset; set these once Railway assigns a
+domain:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway variable set RV_ISSUER=&quot;https://&lt;your-app&gt;.up.railway.app&quot; -s &lt;service-name&gt;
+railway variable set RV_CORS_ORIGINS=&quot;https://&lt;your-app&gt;.up.railway.app&quot; -s &lt;service-name&gt;
+</pre></div>
+<p><code>RV_DB_DRIVER</code> defaults to <code>sqlite3</code> in <code>docker-entrypoint.sh</code>, so it does not need to be
+set. Set it explicitly only if you want that intent visible in the dashboard:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway variable set RV_DB_DRIVER=sqlite3 -s &lt;service-name&gt;
+</pre></div>
+<p><code>RV_HSM_PIN</code> is left unset — HSM is off by default.</p>
+<h2 id="optional-softhsm-software-hsm">Optional: SoftHSM (software HSM)</h2>
+<p>SoftHSM2 is a software token that implements PKCS#11, letting you test the HSM code path without hardware — note: key material lives on disk with no hardware tamper-resistance.</p>
+<p>To enable SoftHSM2 in your Railway deployment:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway variable set RV_HSM_ENABLED=true -s &lt;service-name&gt;
+railway variable set RV_HSM_PIN=&quot;&lt;your-pin&gt;&quot; -s &lt;service-name&gt;
+railway variable set RV_HSM_SO_PIN=&quot;&lt;your-so-pin&gt;&quot; -s &lt;service-name&gt;
+</pre></div>
+<ul>
+<li><code>RV_HSM_ENABLED</code>: Set to <code>true</code> to initialize the token on container start and enable <code>hsm.enabled: true</code> in the config. Default: <code>false</code>.</li>
+<li><code>RV_HSM_PIN</code>: User PIN for PKCS#11 operations (any value you choose).</li>
+<li><code>RV_HSM_SO_PIN</code>: Security Officer PIN used only at token initialization. Defaults to <code>RV_HSM_PIN</code> if unset.</li>
+</ul>
+<p>Token data persists at <code>/app/data/softhsm/tokens/</code> on your persistent volume, just like the SQLite DB.</p>
+<p>See <a href="./hsm-softhsm2-testing.md">HSM / PKCS#11 with SoftHSM2</a> for manual local setup and testing procedures.</p>
+<h2 id="4-deploy">4. Deploy</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway up
+</pre></div>
+<h2 id="5-create-the-first-admin">5. Create the first admin</h2>
+<p><code>railway ssh -- &lt;cmd&gt;</code> runs a one-off command inside the deployed container and exits,
+unlike a bare <code>railway ssh</code>, which opens an interactive shell:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">railway ssh -s &lt;service-name&gt; -- \
+  /app/rocketvault users admin --admin-username=admin --admin-password=&lt;pw&gt; --bootstrap-token=&lt;RV_BOOTSTRAP_TOKEN&gt;
+</pre></div>
+<h2 id="single-instance-only">Single instance only</h2>
+<p>RocketVault is a single-vault system: multiple replicas would race on schema migrations
+at startup. Scale vertically, not horizontally. Do not raise the replica count from the
+dashboard's Scaling settings — <code>railway.json</code> has no replica field, and none should be
+added.</p>
+<p>RocketVault serves on <code>:8774</code>. Railway terminates TLS at its edge proxy and forwards HTTP
+to the container port Railway auto-detects from the Dockerfile's <code>EXPOSE</code>.</p>
+
+</main>
+<footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="assets/doc-theme.js"></script>
+</body>
+</html>

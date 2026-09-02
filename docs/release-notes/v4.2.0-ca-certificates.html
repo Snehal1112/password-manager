@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>v4.2.0 — CA certificates and encrypted secret exports — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">v4.2.0 — CA certificates and encrypted secret exports</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/release-notes/v4.2.0-ca-certificates.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#what-was-wrong">What was wrong</a></li><li><a href="#what-changed">What changed</a></li><li><a href="#breaking-certificates-issued-before-this-release-cannot-be-repaired">Breaking: certificates issued before this release cannot be repaired</a></li><li><a href="#why-it-went-unnoticed">Why it went unnoticed</a></li><li><a href="#encrypted-secret-exports">Encrypted secret exports</a></li><li><a href="#breaking-an-export-with-no-passphrase-source-now-fails">Breaking: an export with no passphrase source now fails</a></li><li><a href="#breaking-post-secretsexport-rejects-encrypt-true">Breaking: POST /secrets/export rejects "encrypt": true</a></li></ol></nav>
+<main class="doc">
+<p>Two certificate defects present in every release to date, fixed together
+because fixing either alone would have made the other worse. See
+<code>.claude/known-bugs.md</code> § B43 and § B44. This release also makes
+<code>rocketvault secrets export</code> actually encrypt, closing a defect where the
+<code>--encrypt</code> flag claimed protection it never provided — see &quot;Encrypted
+secret exports&quot; below and <code>.claude/known-bugs.md</code> § B36.</p>
+<ul>
+<li>Certificates issued as CAs did not assert the <code>keyCertSign</code> key usage, so
+nothing they signed could be verified by a standards-conforming client.</li>
+<li>Every self-signed certificate was issued as a Certificate Authority,
+including ordinary TLS server certificates, with no way to ask for anything
+else.</li>
+</ul>
+<h2 id="what-was-wrong">What was wrong</h2>
+<p><strong>No <code>keyCertSign</code> on a CA.</strong> <code>crypto.CreateX509Template</code> built one X.509
+template for leaves and CAs alike. It set <code>IsCA</code> and <code>BasicConstraintsValid</code>
+from the request, but always set the key usage to
+<code>digitalSignature | keyEncipherment</code>. RFC 5280 requires a CA that asserts a
+key-usage extension to include <code>keyCertSign</code>, and Go's verifier, OpenSSL and
+browsers all enforce it.</p>
+<p>The consequence: <code>rocketvault certificate create --ca-cert-id ...</code> returned a
+certificate that looked correct and had a valid signature, but</p>
+<ul>
+<li><code>leaf.CheckSignatureFrom(ca)</code> failed with
+<code>x509: invalid signature: parent certificate cannot sign this kind of certificate</code></li>
+<li>chain verification against the CA failed with
+<code>x509: certificate signed by unknown authority</code></li>
+</ul>
+<p>Issuance never reported an error, because <code>x509.CreateCertificate</code> does not
+check the signing parent's key usage — only verification does.</p>
+<p><strong>Every self-signed certificate was a CA.</strong> Both self-signed code paths —
+creation and renewal — passed <code>IsCA: true</code> unconditionally, and neither the
+API nor the CLI exposed any way to request otherwise. So a certificate issued
+for a web server carried <code>Basic Constraints: CA:TRUE</code>. To any party that
+trusts such a certificate, its holder is an issuer: if the private key leaks,
+the holder can mint certificates for arbitrary names.</p>
+<p>The two defects held each other in place. A certificate marked <code>CA:TRUE</code>
+without <code>keyCertSign</code> is refused as a signer, so the first defect was
+accidentally the only thing stopping the second from being exploitable. That
+is why the fix for one could not ship without the fix for the other.</p>
+<h2 id="what-changed">What changed</h2>
+<ul>
+<li>A certificate created with the CA option now asserts
+<code>digitalSignature | keyEncipherment | keyCertSign | cRLSign</code>. Leaf
+certificates are unchanged and still do <strong>not</strong> carry <code>keyCertSign</code>.</li>
+<li>A self-signed certificate is now an ordinary leaf unless you ask for a CA:
+<code>--is-ca</code> on <code>rocketvault certificate create</code>, or <code>&quot;is_ca&quot;: true</code> in the
+<code>POST /certificates</code> body. It cannot be combined with <code>--ca-cert-id</code> /
+<code>ca_cert_id</code>; issuing an intermediate CA is not supported and the
+combination is rejected rather than quietly ignored.</li>
+<li>Renewal preserves what the certificate already was, with one deliberate
+exception. A CA issued by this release renews as a CA, a leaf renews as a
+leaf.</li>
+<li>The exception is a certificate issued <strong>before</strong> this release: it asserts
+<code>CA:TRUE</code> but carries no <code>keyCertSign</code>, and that missing bit is the only
+reason it never worked as an issuer. Renewing it as a CA would hand it the
+<code>keyCertSign</code> the fixed template now adds and turn it into a fully working
+authority. Renewal therefore <strong>demotes such a certificate to an ordinary
+leaf</strong> and records the demotion in the audit log under the
+<code>renew_certificate</code> operation with status <code>ca_demoted</code>. Nothing is lost:
+nothing that certificate ever signed verified in the first place. If it was
+genuinely meant to be a CA, reissue it with <code>--is-ca</code>.</li>
+</ul>
+<h2 id="breaking-certificates-issued-before-this-release-cannot-be-repaired">Breaking: certificates issued before this release cannot be repaired</h2>
+<p><strong>Both the key usage and the CA flag live inside the signed certificate body.
+Upgrading does not change a certificate that already exists</strong>, and there is no
+migration that can. So:</p>
+<ul>
+<li>Every CA certificate issued by any earlier version stays unusable as an
+issuer, for its whole remaining lifetime.</li>
+<li>Every certificate signed by such a CA keeps chaining to an unusable issuer,
+and stays unverifiable even after you upgrade.</li>
+<li>Every self-signed certificate issued by any earlier version keeps asserting
+<code>CA:TRUE</code>, whatever it was meant to be. Upgrading does not narrow it. Treat
+the private key of any such certificate as issuer-grade material until the
+certificate is replaced.</li>
+</ul>
+<h3 id="reissue-procedure">Reissue procedure</h3>
+<p>A certificate name is unique per vault, and that uniqueness is enforced by a
+plain unique index that does not exclude soft-deleted rows
+(<code>idx_certificates_vault_name</code>). A name is therefore <strong>not</strong> free for reuse
+until the old row is purged, not merely deleted. The procedure below gives the
+replacement CA a new name for that reason; see step 6 if you must keep the old
+name exactly.</p>
+<ol>
+<li>
+<p>Upgrade to this release. New issuance is correct from that moment on.</p>
+</li>
+<li>
+<p>Reissue each CA certificate under a <strong>new name</strong> — a version or date suffix
+is enough — now asking for a CA explicitly:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate create --vault &lt;vault&gt; --name &lt;ca-name&gt;-2026 \
+  --key-id &lt;ca-key-uuid&gt; --is-ca --validity-days 3650
+</pre></div>
+<p>Reusing the same key is fine — only the certificate body needs to change.
+The name becomes the certificate's Subject CN, so pick one you are happy to
+see in a trust store. Keeping the old CA in place through the migration is
+deliberate: it is how you find what still chains to it.</p>
+</li>
+<li>
+<p>Reissue every certificate that was signed by the old CA, pointing at the
+<strong>new</strong> CA certificate's ID:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate create --vault &lt;vault&gt; --name &lt;common-name&gt; \
+  --key-id &lt;key-uuid&gt; --ca-cert-id &lt;new-ca-cert-uuid&gt; --validity-days 365
+</pre></div>
+</li>
+<li>
+<p>Reissue every self-signed certificate that was never meant to be a CA —
+omit <code>--is-ca</code> this time:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate create --vault &lt;vault&gt; --name &lt;common-name&gt; \
+  --key-id &lt;key-uuid&gt; --validity-days 365
+</pre></div>
+<p>Renewing such a certificate is <strong>not</strong> a substitute for reissuing it. Since
+the fix above, renewal demotes a pre-fix <code>CA:TRUE</code> certificate to an
+ordinary leaf and records <code>ca_demoted</code> in the audit log, so it no longer
+stays over-broad — but renewal keeps the same key and the same subject. A
+certificate that spent its whole life asserting <code>CA:TRUE</code> should have its
+private key treated as issuer-grade material, and demotion does not
+change that: only reissuing it gives it a new key.</p>
+</li>
+<li>
+<p>Distribute the new CA certificate to every trust store that held the old
+one, then retire the old certificates:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate delete &lt;old-cert-id&gt; --vault &lt;vault&gt;
+</pre></div>
+<p>This is a soft delete: the certificate leaves <code>certificate list</code> and the
+background scheduler destroys it once the retention window ends.</p>
+</li>
+<li>
+<p><strong>Only if you must keep the old name exactly.</strong> Soft-deleting does not free
+the name, so a same-named recreate fails on the unique index. Purge the old
+row first — a hard delete, with no recovery afterwards — and only then
+recreate under the old name. There is no CLI purge subcommand for
+certificates; purge is REST-only:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -X DELETE -H &quot;Authorization: Bearer $TOKEN&quot; \
+  https://&lt;host&gt;/api/v1/vaults/&lt;vault&gt;/deleted/certificates/&lt;old-cert-id&gt;/purge
+</pre></div>
+<p>Do this only after step 3 has reissued everything that chained to the old
+CA — once the row is gone, so is the record of what it signed. A
+certificate with purge protection enabled refuses the purge; clear it with
+<code>rocketvault certificate update &lt;old-cert-id&gt; --purge-protection=false</code>
+<strong>before</strong> step 5's soft delete, not after — <code>certificate update</code> can only
+see a certificate that has not yet been soft-deleted. A vault with purge
+protection enabled needs its own flag cleared separately, via the vault
+update path, not the certificate command above. See <code>.claude/known-bugs.md</code>
+§ B50.</p>
+</li>
+</ol>
+<h3 id="checking-a-certificate-you-already-hold">Checking a certificate you already hold</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">openssl x509 -in cert.pem -noout -text | grep -A1 -e &quot;X509v3 Key Usage&quot; -e &quot;Basic Constraints&quot;
+</pre></div>
+<ul>
+<li>A CA issued before this release shows <code>CA:TRUE</code> with a key usage of
+<code>Digital Signature, Key Encipherment</code> and no <code>Certificate Sign</code>.</li>
+<li>A correctly issued CA shows <code>CA:TRUE</code> and <code>Certificate Sign, CRL Sign</code>.</li>
+<li>A correctly issued ordinary certificate shows <code>CA:FALSE</code> and no
+<code>Certificate Sign</code>. Anything showing <code>CA:TRUE</code> that you did not ask to be a
+CA predates this release and should be reissued.</li>
+</ul>
+<h2 id="why-it-went-unnoticed">Why it went unnoticed</h2>
+<p>No test verified a chain, and no test asserted on <code>IsCA</code> or on key usage at
+all. The certificate tests asserted that issuance returned a PEM block and
+that fields round-tripped, never that the result validated or that it claimed
+no more authority than it needed. The fix adds both: chain verification
+(<code>CheckSignatureFrom</code> plus a cert-pool <code>Verify</code>, for RSA and ECDSA CAs) and
+assertions that an ordinary certificate is a leaf with no signing authority,
+so the same class of defect cannot return silently.</p>
+<h2 id="encrypted-secret-exports">Encrypted secret exports</h2>
+<p><code>rocketvault secrets export</code> now encrypts. The <code>--encrypt</code> flag has defaulted
+to <code>true</code> since it was introduced and was never read by any code, so every
+export written under it was plaintext (<code>.claude/known-bugs.md</code> § B36).
+Full design: <code>docs/superpowers/specs/2026-08-21-cli-bug-fixes-b35-b41-design.md</code>.</p>
+<h3 id="what-an-encrypted-export-is">What an encrypted export is</h3>
+<p>A JSON envelope carrying an argon2id salt, the KDF parameters, and the export
+document sealed with AES-256-GCM under a key derived from your passphrase. The
+key is derived from the passphrase alone, never from the instance's master key,
+so an export can be opened by any RocketVault installation given the passphrase
+and survives a <code>master-key rotate</code>.</p>
+<p>The envelope is JSON whatever <code>--format</code> you asked for; the format describes the
+payload inside it. A <code>--format csv</code> export is still imported with <code>--format csv</code>.</p>
+<h3 id="where-the-passphrase-comes-from">Where the passphrase comes from</h3>
+<p>In order: <code>--passphrase-file &lt;path&gt;</code> (first line, trimmed), then the
+<code>ROCKETVAULT_EXPORT_PASSPHRASE</code> environment variable, then an interactive prompt
+(asked twice on export, once on import).</p>
+<h2 id="breaking-an-export-with-no-passphrase-source-now-fails">Breaking: an export with no passphrase source now fails</h2>
+<p>A scripted export that supplies no passphrase and has no terminal — the common
+<code>rocketvault secrets export --file secrets.json</code> in a CI job or a cron entry —
+now <strong>fails and writes no file</strong>, where it previously wrote plaintext. This is
+deliberate: the previous behavior is the bug.</p>
+<p>Two non-interactive escape hatches:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># 1. A passphrase file, e.g. mounted from your own secret store
+rocketvault secrets export --file secrets.json \
+  --passphrase-file /run/secrets/export-pass
+
+# 2. The environment variable
+ROCKETVAULT_EXPORT_PASSPHRASE=… rocketvault secrets export --file secrets.json
+</pre></div>
+<p>If a downstream tool genuinely needs a readable file, ask for plaintext
+explicitly with <code>--encrypt=false</code>. The command then prints a warning naming what
+the file exposes — every secret's name, plaintext value and tags — and writes it
+anyway.</p>
+<h3 id="secrets-import-detects-encryption"><code>secrets import</code> detects encryption</h3>
+<p>Import inspects the file's contents, so no flag tells it whether a file is
+encrypted. <code>--encrypted</code> is now redundant; it is <strong>deprecated and ignored</strong>, not
+removed, so existing invocations keep working. It will be removed in a later
+release.</p>
+<h2 id="breaking-post-secretsexport-rejects-encrypt-true">Breaking: <code>POST /secrets/export</code> rejects <code>&quot;encrypt&quot;: true</code></h2>
+<blockquote>
+<p><strong>Note (2026-08-22):</strong> this restriction was later lifted. See
+<a href="v4.3.0-api-secrets-passphrase.md"><code>v4.3.0-api-secrets-passphrase.md</code></a> —
+<code>POST /secrets/export</code> and <code>POST /secrets/import</code> now accept a <code>passphrase</code>
+field/form value and support encrypted export/import directly. The section
+below is left as written; it was accurate for this release.</p>
+</blockquote>
+<p>The API's <code>encrypt</code> field was dead in the same way the CLI flag was. A request
+body is the wrong place to carry a passphrase, so the field is now rejected with
+400 rather than silently returning plaintext. Encrypted export is CLI-only.</p>
+<h3 id="exports-written-before-this-release">Exports written before this release</h3>
+<p>They are plaintext. Nothing in this release can change that retroactively —
+find them, treat every value in them as disclosed, and rotate accordingly.
+<code>secrets import</code> still reads them: a plaintext export is imported exactly as
+before, with no passphrase.</p>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import (
 
 	"rocketvault/app"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/metrics"
 	"rocketvault/internal/middleware"
 	authzServices "rocketvault/internal/services/authorization"
 )
@@ -64,6 +65,11 @@ func Init(options ...Options) *API {
 	}
 
 	mw := middleware.NewMiddleware(api.App.ServiceContainer)
+	// Count per-vault throttling only when /metrics is actually served —
+	// registering the collector otherwise would export a metric nothing reads.
+	if api.metricsEnabled {
+		mw.SetVaultRateLimitMetrics(metrics.NewDefaultPrometheusVaultRateLimitMetrics())
+	}
 	api.Logger.WithField("basePath", api.basePath).Infoln("Api configured with")
 
 	r := api.BaseRoutes
@@ -75,6 +81,10 @@ func Init(options ...Options) *API {
 		mw.RateLimitMiddleware,
 		mw.AuthenticationMiddleware,
 		mw.VaultResolutionMiddleware,
+		// Must follow VaultResolutionMiddleware — the target vault is not known
+		// before it. Complements the per-IP RateLimitMiddleware above: that one
+		// stops a single noisy host, this stops a single noisy tenant.
+		mw.VaultRateLimitMiddleware,
 		mw.PolicyMiddleware,
 		mw.AuthorizationMiddleware,
 	)

@@ -21,6 +21,10 @@
 # Fly.io, which terminates TLS itself). Edit Caddyfile's placeholder domain
 # first, then bring it up with the "proxy" profile:
 #   docker compose --profile proxy up --build
+#
+# Optional Prometheus scraper (see prometheus.yml), on its own profile:
+#   docker compose --profile metrics up --build
+# Then check the target is UP at http://localhost:9090/targets.
 
 services:
   postgres:
@@ -94,6 +98,32 @@ services:
     networks:
       - rocketvault_net
 
+  # Optional Prometheus scraper for RocketVault's GET /metrics endpoint. Not
+  # started by a plain "docker compose up" -- requires --profile metrics:
+  #
+  #   docker compose --profile metrics up --build
+  #
+  # Scrapes rocketvault:8774/metrics over rocketvault_net, so nothing extra
+  # needs publishing. /metrics carries no authentication (it is registered on
+  # the root router to bypass the middleware chain), and it exposes vault
+  # names via the rocketvault_vault_rate_limit_exceeded_total label -- so on a
+  # public host, restrict the published Prometheus port below, or drop it and
+  # reach the UI through an SSH tunnel.
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    profiles: ["metrics"]
+    depends_on:
+      rocketvault:
+        condition: service_healthy
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks:
+      - rocketvault_net
+
   # Optional TLS-terminating reverse proxy. Not started by a plain
   # "docker compose up" -- requires --profile proxy, since Caddyfile's
   # placeholder domain must be edited to a real one first (Caddy will
@@ -119,6 +149,7 @@ services:
 volumes:
   postgres_data:
   rocketvault_logs:
+  prometheus_data:
   caddy_data:
   caddy_config:
   caddy_logs:

@@ -694,7 +694,7 @@ curl -s $BASE/api/v1/health/live</pre>
       <tr><td><code>environment</code></td><td><code>development</code> | <code>production</code> — sets DB pool defaults</td></tr>
       <tr><td><code>database</code></td><td><code>connection</code>, <code>driver</code>, pool sizing (<code>max_open_conns</code>, …)</td></tr>
       <tr><td><code>log</code></td><td>level, file, format, rotation (<code>max_backups</code>, <code>max_age_days</code>, <code>max_size_mb</code>)</td></tr>
-      <tr><td><code>rate_limit</code></td><td><code>default</code> (req/min) and <code>auth</code> (login endpoints)</td></tr>
+      <tr><td><code>rate_limit</code></td><td><code>default</code> (req/min per IP), <code>auth</code> (login endpoints, per IP) and <code>per_vault</code> (req/min per vault — see §21)</td></tr>
       <tr><td><code>server</code></td><td><code>listen_addr</code>, timeouts, <code>cors_allowed_origins</code>, <code>http2</code>, <code>tls</code></td></tr>
       <tr><td><code>retry</code></td><td>database / external_services / circuit_breaker backoff config</td></tr>
       <tr><td><code>soft_delete</code></td><td><code>enabled</code>, <code>retention_days</code>, <code>purge_protection</code></td></tr>
@@ -1616,7 +1616,67 @@ curl -s -X POST $BASE/api/v1/keys -H "Authorization: Bearer $TOKEN" \
     <div class="callout-label">default vault cannot be deleted</div>
     <p>Vault management requires the <code>vaults:manage</code> permission (admin only). The <code>default</code> vault cannot be deleted.</p>
   </div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Manual Testing §12.5</a></p>
+
+  <h3>What the isolation model is — and is not</h3>
+  <p>The precise description of RocketVault's model is <strong>multi-vault isolation with
+    delegated per-vault administration</strong>. It is not self-service multi-tenant SaaS, and the
+    distinction decides whether the product fits your deployment. Read this section before
+    describing a RocketVault instance as "multi-tenant" to anyone evaluating it.</p>
+  <p><strong>What you genuinely get:</strong></p>
+  <ul>
+    <li><strong>Real isolation.</strong> Secrets, keys and certificates are scoped by
+      <code>vault_id</code> in the database query itself, not filtered in application code after
+      the fact.</li>
+    <li><strong>Delegated per-vault administration.</strong> The
+      <code>Key Vault Data Access Administrator</code> role lets someone manage grants and revokes
+      within their own vault, without global admin rights and without reaching any other vault.</li>
+    <li><strong>Independent per-vault RBAC.</strong> One principal can hold different roles in
+      different vaults at once; access in vault A implies nothing about vault B.</li>
+    <li><strong>No cross-vault leakage.</strong> A member of vault A cannot enumerate vault B, or
+      learn that it exists, without a separate grant.</li>
+    <li><strong>Per-vault request budgets.</strong> One vault's traffic cannot exhaust another's —
+      see <a href="#rate-limiting">Rate Limiting</a>.</li>
+  </ul>
+  <p><strong>What is not supported today:</strong></p>
+  <table>
+    <thead><tr><th>Gap</th><th>What it means in practice</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>No self-service vault provisioning</td>
+        <td>Creating or updating a vault requires a <em>global</em> <code>vaults:manage</code>
+          grant, not one scoped to a vault. A tenant administrator cannot create their own vault —
+          a platform operator must provision it for them. This is the blocker for
+          managed-service-provider and hosting-provider deployments where customers expect to
+          create vaults without raising a ticket.</td>
+      </tr>
+      <tr>
+        <td>No tenant entity — vaults are flat</td>
+        <td>Nothing groups several vaults under one customer or organisation; the vault is the
+          only isolation unit. So there is no way to express "revoke this contractor from all of
+          customer X's vaults", no reporting that rolls up per customer, and no unit to attach
+          billing or quota to.</td>
+      </tr>
+      <tr>
+        <td>No per-vault metering</td>
+        <td>Per-vault rate limiting exists, but request volume, storage consumption and billing
+          are not measured per vault beyond a Prometheus counter of throttling rejections.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="callout callout-info">
+    <div class="callout-label">If you need full tenant separation today</div>
+    <p>Run one RocketVault instance per tenant. Self-hosting makes this cheap — a single Go binary
+      with SQLite or Postgres — and it gives stronger isolation than any in-product namespace
+      feature would, at the cost of managing more instances. The multi-vault model above is the
+      right fit when one platform team runs the instance and provisions an isolated vault per
+      internal team or customer.</p>
+  </div>
+  <p>These gaps are tracked as high-priority roadmap items. Note they are not Azure Key Vault
+    parity gaps: Azure has no tenancy concept inside the vault service either — in Azure, tenancy
+    lives in the platform above it (subscription and Entra ID tenant).</p>
+  <p class="see-also">See also: <a href="#vault-rbac">Vault RBAC &amp; Roles</a> ·
+    <a href="#rate-limiting">Rate Limiting</a> ·
+    <a href="../MANUAL_TESTING.html">Manual Testing §12.5</a></p>
 </section>
 
 <section id="soft-delete">
@@ -1817,18 +1877,60 @@ rocketvault backup restore --file /path/backup.json ...</pre>
 <section id="rate-limiting">
   <h2>21. Rate Limiting</h2>
   <h3>What it is</h3>
-  <p>Per-IP rate limits protect the API. Auth endpoints have a tighter limit than general
-    endpoints.</p>
+  <p>Two independent limits protect the API, and a request must pass both. <strong>Per-IP</strong>
+    limits stop a single noisy host; the <strong>per-vault</strong> limit stops a single noisy
+    tenant whose traffic is spread across many hosts. All three are continuously-refilling
+    token buckets, so steady traffic is never blocked by a fixed-window boundary.</p>
   <table>
-    <thead><tr><th>Endpoint group</th><th>Default (dev)</th></tr></thead>
+    <thead><tr><th>Limit</th><th>Counted per</th><th>Default</th><th>Config key</th></tr></thead>
     <tbody>
-      <tr><td>All API endpoints</td><td>300 req/min</td></tr>
-      <tr><td>Auth (<code>/login</code>, <code>/refresh</code>, <code>/oauth2/token</code>)</td><td>5 req/min</td></tr>
+      <tr><td>All API endpoints</td><td>client IP</td><td>300 req/min</td><td><code>rate_limit.default</code></td></tr>
+      <tr><td>Auth (<code>/login</code>, <code>/refresh</code>, <code>/oauth2/token</code>)</td><td>client IP</td><td>5 req/min</td><td><code>rate_limit.auth</code></td></tr>
+      <tr><td>All authenticated API endpoints</td><td>vault</td><td>600 req/min</td><td><code>rate_limit.per_vault</code></td></tr>
     </tbody>
   </table>
-  <div class="callout callout-warn"><div class="callout-label">Note</div><p>Tune via the <code>rate_limit.default</code> and <code>rate_limit.auth</code>
-    config keys. Exceeding a limit returns <code>429 Too Many Requests</code>.</p></div>
-  <p class="see-also">See also: <a href="../MANUAL_TESTING.html">Endpoint table — Manual Testing §17</a></p>
+  <p>Exceeding any limit returns <code>429 Too Many Requests</code>. Each limit reports its own
+    response headers, so a client can tell which ceiling it hit:</p>
+  <table>
+    <thead><tr><th>Header</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>X-RateLimit-Limit</code> / <code>-Remaining</code> / <code>-Reset</code></td><td>The per-IP budget.</td></tr>
+      <tr><td><code>X-RateLimit-Vault-Limit</code> / <code>-Remaining</code> / <code>-Reset</code></td><td>The per-vault budget.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Per-vault limiting — the noisy-neighbour guard</h3>
+  <p>Without it, one busy vault can spend the whole instance's request budget and degrade every
+    other vault. The per-vault bucket makes each vault's capacity its own: traffic against vault
+    A can never consume vault B's budget. This matters most when you host an isolated vault per
+    team or per customer — see <a href="#multi-vault">Multi-Vault</a>.</p>
+  <p>Three behaviours are worth knowing before you tune it:</p>
+  <ul>
+    <li><strong>Health probes are exempt.</strong> <code>/health</code>, <code>/health/ready</code>,
+      <code>/health/live</code> and <code>/health/database</code> resolve no vault, so they are never
+      counted — otherwise a frequent liveness probe would drain the default vault's budget and
+      throttle real traffic.</li>
+    <li><strong>Routes with no vault of their own count against the <code>default</code> vault.</strong>
+      That covers vault-management routes (<code>/vaults/…</code>) and the legacy flat resource paths
+      (<code>/secrets</code>, <code>/keys</code>, <code>/certificates</code>). Heavy use of those shares
+      a budget with the default vault's own traffic.</li>
+    <li><strong>Rejected requests still count.</strong> The limit is applied before the authorization
+      check, so a caller who is denied (<code>403</code>) still spends vault budget. This is
+      deliberate — it means an unauthorized client hammering a vault is throttled rather than being
+      handed unlimited free rejections.</li>
+  </ul>
+  <p>The per-vault limit runs after authentication, so it is a tenant-fairness control, not a
+    denial-of-service control. Unauthenticated floods are the per-IP limiter's job.</p>
+
+  <h3>Seeing who is being throttled</h3>
+  <p>With <code>monitoring.enable_metrics: true</code>, every per-vault rejection increments a
+    Prometheus counter labelled with the vault, so you can identify the noisy tenant rather than
+    just observing that something is being throttled:</p>
+  <pre><code>rocketvault_vault_rate_limit_exceeded_total{vault="&lt;vault-uuid&gt;"}</code></pre>
+  <p>Rejections are also written to the audit log under the <code>vault_rate_limit</code> operation.</p>
+  <p class="see-also">See also: <a href="#multi-vault">Multi-Vault</a> ·
+    <a href="#health">Health &amp; Monitoring</a> ·
+    <a href="../MANUAL_TESTING.html">Endpoint table — Manual Testing §17</a></p>
 </section>
 
 <section id="performance">

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>v4.1.0 — Role parity and vault-authorization fix — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">v4.1.0 — Role parity and vault-authorization fix</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/release-notes/v4.1.0-role-parity-and-authz-fix.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#new-roles">New roles</a></li><li><a href="#fixed-role-assignment-management-was-global-admin-only">Fixed: role-assignment management was global-admin-only</a></li><li><a href="#fixed-vault-management-routes-were-unreachable-for-non-admins-regardless-of-grant">Fixed: vault-management routes were unreachable for non-admins regardless of grant</a></li><li><a href="#fixed-cli-vault-admin-commands-had-no-authorization-check">Fixed: CLI vault-admin commands had no authorization check</a></li><li><a href="#new-endpoint">New endpoint</a></li><li><a href="#breaking-key_cache-renamed-to-cachekeys">Breaking: key_cache.* renamed to cache.keys.*</a></li><li><a href="#fixed-flat-data-plane-routes-ignored-the-vault-when-reading-and-writing">Fixed: flat data-plane routes ignored the vault when reading and writing</a></li><li><a href="#fixed-item-backuprestore-was-authorized-by-ownership-not-vault-scope">Fixed: item backup/restore was authorized by ownership, not vault scope</a></li><li><a href="#breaking-hs256-jwts-are-no-longer-accepted">Breaking: HS256 JWTs are no longer accepted</a></li></ol></nav>
+<main class="doc">
+<p>Adds four Azure Key Vault built-in roles and fixes a root-cause authorization
+bug that made several existing per-vault checks unreachable in production.
+Full design: <code>docs/superpowers/specs/2026-08-11-azure-role-parity-and-vault-authz-fix-design.md</code>.</p>
+<h2 id="new-roles">New roles</h2>
+<table>
+<thead>
+<tr>
+<th>Role</th>
+<th>Grants</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Key Vault Purge Operator</td>
+<td>Purge a soft-deleted vault</td>
+</tr>
+<tr>
+<td>Key Vault Certificate User</td>
+<td>Read certificates (currently identical to Reader's certificate access — see the parity doc for why)</td>
+</tr>
+<tr>
+<td>Key Vault Crypto Service Encryption User</td>
+<td>Read key metadata plus wrap/unwrap only</td>
+</tr>
+<tr>
+<td>Key Vault Data Access Administrator</td>
+<td>Grant and revoke role assignments within its own vault</td>
+</tr>
+</tbody>
+</table>
+<p><code>Key Vault Crypto Service Release User</code> is intentionally not included —
+RocketVault has no confidential-computing/TEE attestation flow to gate.</p>
+<h2 id="fixed-role-assignment-management-was-global-admin-only">Fixed: role-assignment management was global-admin-only</h2>
+<p>The known limitation documented in the v4.0.0 release notes (&quot;Managing role
+assignments for a vault currently requires the global admin role&quot;) is fixed.
+Grant <code>Key Vault Data Access Administrator</code> in a vault to let a non-admin
+manage that vault's role assignments without full admin.</p>
+<h2 id="fixed-vault-management-routes-were-unreachable-for-non-admins-regardless-of-grant">Fixed: vault-management routes were unreachable for non-admins regardless of grant</h2>
+<p><code>GET/PATCH/DELETE /vaults/{name}</code> and <code>POST/GET /vaults</code> were gated by a
+global, vault-blind admin-only permission ahead of their own per-vault
+checks. A principal with a <code>vaults:manage</code> access-policy grant scoped to a
+specific vault could not use it — the global gate rejected the request
+first, in every version since the vault-management authorization fix of
+2026-07-19 (which fixed a different bug in the same code path but did not
+catch this one; see the design doc's &quot;Relationship to the 2026-07-19 fix&quot;).
+<code>createVault</code> and <code>listVaults</code> had no per-vault check at all and were
+reachable only by admins as a side effect of the same bug.</p>
+<p><strong>This is a breaking authorization change if you were relying on the bug</strong>:
+a non-admin who could previously only reach vault-management routes because
+they held the <em>global</em> <code>admin</code> role continues to work unchanged. A non-admin
+who holds a <code>vaults:manage</code> grant can now reach <code>createVault</code>/<code>listVaults</code>
+only via a <strong>global</strong> (<code>vault_id: null</code>) grant — not a vault-specific one
+(see the design doc §2 for why). Audit your access-policy grants if you
+depend on this distinction.</p>
+<h2 id="fixed-cli-vault-admin-commands-had-no-authorization-check">Fixed: CLI vault-admin commands had no authorization check</h2>
+<p><code>rocketvault vaults create/update/delete/recover/purge</code> previously called the
+service layer directly with <strong>zero</strong> authorization check — any successfully
+authenticated user, any role, could delete or purge any vault via the CLI.
+This is now gated identically to the HTTP API (<code>vaults:manage</code> for
+create/update/delete/recover, <code>Key Vault Purge Operator</code> for purge).</p>
+<p><strong>If you have automation scripts or non-admin operators currently running
+these CLI commands successfully without an admin account</strong>, they will start
+failing with <code>permission denied</code> after upgrading, unless the calling
+principal holds the matching grant. This is the intended fix for a real
+authorization hole, not a regression — grant the appropriate role via
+<code>rocketvault vault-access grant</code> before or immediately after upgrading.</p>
+<h2 id="new-endpoint">New endpoint</h2>
+<p><code>DELETE /api/v1/vaults/{vault_name}/purge</code> — vault purge is now reachable
+over HTTP, not just the CLI, and is authorized the same way every other
+vault data-plane route is (deny-by-default role-assignment check), rather
+than the CLI's previous ad hoc — and, until this release, entirely
+absent — gate.</p>
+<h2 id="breaking-key_cache-renamed-to-cachekeys">Breaking: <code>key_cache.*</code> renamed to <code>cache.keys.*</code></h2>
+<p>Cache configuration is now unified under one <code>cache:</code> YAML section covering
+secrets, keys, and (new) vaults, with <code>certificates</code>/<code>users</code> reserved for
+future use. <code>key_cache.enabled</code>/<code>ttl</code>/<code>max_entries</code>/<code>cleanup_interval</code> no
+longer exist — set <code>cache.keys.enabled</code>/<code>ttl</code>/<code>max_entries</code>/<code>cleanup_interval</code>
+instead. No deprecated alias; update <code>.rocketvault.yaml</code> before upgrading.</p>
+<p>Vault lookups (the vault named in every request's URL) are now cached too —
+<code>VaultResolutionMiddleware</code> previously hit the database on nearly every API
+request with no caching layer at all. Configure via <code>cache.vaults.*</code>, same
+shape as the other domains.</p>
+<p>Full design: <code>docs/superpowers/specs/2026-08-14-generic-cache-config-design.md</code>.</p>
+<h2 id="fixed-flat-data-plane-routes-ignored-the-vault-when-reading-and-writing">Fixed: flat data-plane routes ignored the vault when reading and writing</h2>
+<p><code>GET/PUT /api/v1/secrets/{id}</code>, <code>/keys/{id}</code>, <code>/certificates/{id}</code> and their
+sub-routes (versions, policies, crypto operations, soft-delete flows) were
+authorized against the <strong>default</strong> vault but looked the resource up by owner
+alone, with no vault constraint. A user who kept any data-plane grant on the
+default vault could keep reading and writing resources they had created in other
+vaults — even after their role assignment in those vaults was revoked. Reported
+as High severity in the 2026-08-16 penetration test and confirmed by live
+exploitation. Flat routes now resolve to a vault scope pinned to the default
+vault, exactly like <code>/vaults/{vault_name}/...</code> routes resolve to the vault they
+name.</p>
+<p><strong>Two breaking behavior changes:</strong></p>
+<ol>
+<li><strong>Flat routes can only reach the default vault.</strong> A request for a resource in
+any other vault now returns 404. Use <code>/api/v1/vaults/{vault_name}/...</code>, or set
+<code>Vault</code> in <code>vaultclient.Config</code>, which builds that URL for you.</li>
+<li><strong>Flat-route listings widened within the default vault.</strong> <code>GET /secrets</code>,
+<code>GET /keys</code>, <code>GET /certificates</code>, <code>POST /secrets/export</code> and the deleted-item
+lists previously returned only the caller's own rows; they now return every
+row in the default vault. This is the same &quot;vault members see all&quot; semantic
+the vault-scoped routes have always used, and callers still need the
+corresponding data action on the default vault to reach the route at all.</li>
+<li><strong>Per-item backup/restore now follows the same restriction.</strong> It kept its
+old unscoped admin read through this fix, so the enumeration above never
+covered it; the dedicated fix below scopes it the same way, and a flat-route
+backup/restore request for an item outside the default vault now also
+returns 404.</li>
+</ol>
+<h2 id="fixed-item-backuprestore-was-authorized-by-ownership-not-vault-scope">Fixed: item backup/restore was authorized by ownership, not vault scope</h2>
+<p><code>ItemBackupService.BackupSecret</code>/<code>BackupKey</code>/<code>BackupCertificate</code> read the
+target item via an unscoped admin read and then compared <code>item.UserID</code> to
+the caller, refusing anyone else with <code>403 Forbidden</code> — even a caller who
+held the matching RBAC data action (<code>ActionSecretsBackup</code>/<code>ActionKeysBackup</code>/
+<code>ActionCertificatesBackup</code>). Azure grants that action with no ownership
+concept at all, so this was both a parity gap and, because the underlying
+read was unscoped, the only thing stopping a caller authorized in one vault
+from backing up an item that happened to live in a different vault, by ID.
+All three methods now read with <code>model.NewVaultScope(vaultID, userID)</code>,
+where <code>vaultID</code> is the vault the request was authorized against — the same
+rule restore already followed for writes, per the fix above.</p>
+<p><strong>Two operator-visible effects:</strong></p>
+<ol>
+<li><strong>A non-owning caller who holds the backup action can now back up any
+item in an authorized vault.</strong> Previously refused with 403, this now
+succeeds — matching Azure, where <code>keys/backup/action</code> (and the
+secrets/certificates equivalents) carries no ownership check.</li>
+<li><strong>An item outside the authorized vault, or one that doesn't exist, now
+reports 404 instead of 403.</strong> The vault-scoped read is the sole
+authorization gate; there's no longer a separate ownership comparison to
+distinguish &quot;wrong owner&quot; from &quot;not found&quot; — both look identical to the
+caller, matching every other vault-scoped resource route.</li>
+</ol>
+<p>Full design: <code>docs/superpowers/plans/2026-08-19-item-backup-vault-scoped-authz.md</code>.</p>
+<h2 id="breaking-hs256-jwts-are-no-longer-accepted">Breaking: HS256 JWTs are no longer accepted</h2>
+<p>The legacy HS256 verification path is removed. <code>ValidateToken</code> accepts only
+tokens carrying a <code>kid</code> header that resolves to a public key published by the
+configured <code>jwt.key_source</code> provider (RS256/ES256). <code>jwt_secret</code> and
+<code>jwt.migration_window</code> are no longer read by any code — leaving them in
+<code>.rocketvault.yaml</code> is harmless but has no effect.</p>
+<p>Why: the fallback's HMAC key was <code>jwt_secret</code>, a static value committed to the
+repository, and its deadline was recomputed as <code>now + jwt.migration_window</code> at
+service construction, so the &quot;24h window&quot; restarted on every process boot and
+never closed. Anyone who could read the repository could mint an admin token.
+Rotate <code>jwt_secret</code> anyway if you ever deployed with the shipped value.</p>
+<p>Also breaking: a signing-provider failure now aborts startup with
+<code>JWT signing provider initialisation failed: …</code> instead of silently degrading
+to HS256. In practice the default <code>os_store</code> provider cannot fail — it
+auto-generates a key when the keychain is empty — so this only affects
+deployments with a misconfigured <code>jwt.key_source</code>, <code>external_pki</code> without key
+material, or <code>self_pki</code> without its dependencies.</p>
+<p>Sessions signed by the existing asymmetric key survive the upgrade unchanged.</p>
+<p>Full design: <code>docs/superpowers/specs/2026-08-16-remove-hs256-jwt-fallback-design.md</code>.</p>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>

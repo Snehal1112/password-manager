@@ -55,29 +55,30 @@ type Container interface {
 	GetVaultService() vaultServices.VaultService
 }
 
-// ipRateLimiter manages per-IP token-bucket limiters.
-// Token buckets refill continuously, so steady traffic is never blocked
-// by a fixed-window reset the way a counter-based limiter would be.
-type ipRateLimiter struct {
+// keyedRateLimiter manages token-bucket limiters keyed by an arbitrary string.
+// The key is a client IP for the per-IP limiters and a vault id for the
+// per-vault limiter. Token buckets refill continuously, so steady traffic is
+// never blocked by a fixed-window reset the way a counter-based limiter would be.
+type keyedRateLimiter struct {
 	limiters sync.Map
 	r        rate.Limit // tokens added per second
 	b        int        // burst size (= configured per-minute limit)
 }
 
-func newIPRateLimiter(perMinute int64) *ipRateLimiter {
-	return &ipRateLimiter{
+func newKeyedRateLimiter(perMinute int64) *keyedRateLimiter {
+	return &keyedRateLimiter{
 		r: rate.Every(time.Minute / time.Duration(perMinute)),
 		b: int(perMinute),
 	}
 }
 
-// get returns the limiter for the given IP, creating one if it doesn't exist.
-func (l *ipRateLimiter) get(ip string) *rate.Limiter {
-	if v, ok := l.limiters.Load(ip); ok {
+// get returns the limiter for the given key, creating one if it doesn't exist.
+func (l *keyedRateLimiter) get(key string) *rate.Limiter {
+	if v, ok := l.limiters.Load(key); ok {
 		return v.(*rate.Limiter)
 	}
 	lim := rate.NewLimiter(l.r, l.b)
-	l.limiters.Store(ip, lim)
+	l.limiters.Store(key, lim)
 	return lim
 }
 
@@ -87,9 +88,14 @@ func (l *ipRateLimiter) get(ip string) *rate.Limiter {
 type Middleware struct {
 	container      Container
 	logger         *logging.Logger
-	defaultLimiter *ipRateLimiter
-	authLimiter    *ipRateLimiter
-	corsOrigins    map[string]bool
+	defaultLimiter *keyedRateLimiter
+	authLimiter    *keyedRateLimiter
+	// vaultLimiter buckets by vault id, so one tenant cannot spend another's
+	// request budget. Unlike the per-IP maps above its keyspace is bounded by
+	// the number of vaults, so entries are never evicted.
+	vaultLimiter      *keyedRateLimiter
+	vaultLimitMetrics VaultRateLimitRecorder
+	corsOrigins       map[string]bool
 }
 
 // NewMiddleware creates a new middleware with service dependencies.
@@ -113,6 +119,10 @@ func NewMiddleware(container Container) *Middleware {
 	if authLimit <= 0 {
 		authLimit = 5
 	}
+	perVaultLimit := viper.GetInt64("rate_limit.per_vault")
+	if perVaultLimit <= 0 {
+		perVaultLimit = defaultVaultRateLimit
+	}
 
 	// Load CORS allowed origins from configuration.
 	allowed := viper.GetStringSlice("server.cors_allowed_origins")
@@ -124,8 +134,9 @@ func NewMiddleware(container Container) *Middleware {
 	return &Middleware{
 		container:      container,
 		logger:         container.GetLogger(),
-		defaultLimiter: newIPRateLimiter(defaultLimit),
-		authLimiter:    newIPRateLimiter(authLimit),
+		defaultLimiter: newKeyedRateLimiter(defaultLimit),
+		authLimiter:    newKeyedRateLimiter(authLimit),
+		vaultLimiter:   newKeyedRateLimiter(perVaultLimit),
 		corsOrigins:    corsOrigins,
 	}
 }
@@ -219,6 +230,18 @@ func (m *Middleware) RateLimitMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isHealthProbe reports whether path is a health probe that carries no vault.
+// VaultResolutionMiddleware skips these, so anything downstream that needs a
+// resolved vault must skip them too. Note this list is deliberately not shared
+// with AuthenticationMiddleware's public-path list, which excludes
+// /health/database.
+func isHealthProbe(path string) bool {
+	return strings.HasSuffix(path, "/health") ||
+		strings.HasSuffix(path, "/health/ready") ||
+		strings.HasSuffix(path, "/health/live") ||
+		strings.HasSuffix(path, "/health/database")
 }
 
 // ExtractClientIP returns the client's IP address, preferring X-Forwarded-For.
@@ -578,10 +601,7 @@ func (m *Middleware) VaultResolutionMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Skip vault resolution for health/liveness probes so they stay
 		// independent of the database and the vaults table.
-		if strings.HasSuffix(r.URL.Path, "/health") ||
-			strings.HasSuffix(r.URL.Path, "/health/ready") ||
-			strings.HasSuffix(r.URL.Path, "/health/live") ||
-			strings.HasSuffix(r.URL.Path, "/health/database") {
+		if isHealthProbe(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

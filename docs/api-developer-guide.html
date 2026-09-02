@@ -156,7 +156,9 @@ Content-Type: application/json
 <ul>
 <li><code>format</code>: <code>&quot;json&quot;</code> or <code>&quot;csv&quot;</code></li>
 <li><code>encrypt</code>: Boolean, whether to encrypt the export</li>
-<li><code>passphrase</code>: String, required when <code>encrypt</code> is <code>true</code>. A non-empty passphrase alone (without <code>encrypt: true</code>) also triggers encryption. Never logged or echoed back. No minimum length enforced.</li>
+<li><code>passphrase</code>: String, required when <code>encrypt</code> is <code>true</code>. A non-empty
+passphrase alone (without <code>encrypt: true</code>) also triggers encryption. Never
+logged or echoed back. No minimum length enforced.</li>
 <li><code>tags</code>: Array of tag strings to filter secrets</li>
 <li><code>include_tags</code>: Boolean, include tags in export</li>
 </ul>
@@ -171,7 +173,9 @@ Content-Type: multipart/form-data
 <li><code>file</code>: File containing secrets data</li>
 <li><code>format</code>: <code>&quot;json&quot;</code> or <code>&quot;csv&quot;</code></li>
 <li><code>overwrite</code>: <code>&quot;true&quot;</code> or <code>&quot;false&quot;</code></li>
-<li><code>passphrase</code>: Required only when the uploaded file is a passphrase-sealed encrypted export (detected automatically by content). Ignored for a plaintext file.</li>
+<li><code>passphrase</code>: Required only when the uploaded file is a passphrase-sealed
+encrypted export (detected automatically by content). Ignored for a
+plaintext file.</li>
 </ul>
 <p><strong>Response:</strong></p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
@@ -222,6 +226,64 @@ Authorization: Bearer &lt;token&gt;
 <ul>
 <li><code>id</code>: Secret UUID</li>
 </ul>
+<h3 id="key-endpoints">Key Endpoints</h3>
+<p>All key endpoints require authentication, plus a per-vault role assignment
+granting the matching data action (see the <a href="admin-manual.html">Administrator Manual</a>
+for the full RSA/ECDSA/OCT create, rotate, and crypto-operation reference).</p>
+<h4 id="import-key">Import Key</h4>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">http</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">POST /api/v1/keys/import
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+</pre></div>
+<p>Imports an externally-generated RSA or ECDSA private key supplied as a JWK,
+storing it exactly as a generated key would be (encrypted PEM, or a
+non-extractable PKCS#11 object on an HSM-backed vault). This is the REST
+equivalent of <code>rocketvault keys import</code> (see the <a href="cli-guide.md">CLI Guide</a>).</p>
+<p>Requires the <code>Microsoft.KeyVault/vaults/keys/import/action</code> data action in the
+target vault, granted by the <code>Key Vault Crypto Officer</code> or
+<code>Key Vault Administrator</code> role.</p>
+<p><strong>Request Body:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;name&quot;: &quot;imported-signing-key&quot;,
+  &quot;jwk&quot;: {
+    &quot;kty&quot;: &quot;RSA&quot;,
+    &quot;n&quot;: &quot;...&quot;,
+    &quot;e&quot;: &quot;AQAB&quot;,
+    &quot;d&quot;: &quot;...&quot;,
+    &quot;p&quot;: &quot;...&quot;,
+    &quot;q&quot;: &quot;...&quot;
+  },
+  &quot;tags&quot;: [&quot;production&quot;, &quot;migrated&quot;],
+  &quot;enabled&quot;: true,
+  &quot;purge_protection&quot;: false
+}
+</pre></div>
+<p><strong>Parameters:</strong></p>
+<ul>
+<li><code>name</code>: String, required. Key name.</li>
+<li><code>jwk</code>: Object, required. A JWK containing private key material (<code>kty</code>
+<code>&quot;RSA&quot;</code> or <code>&quot;EC&quot;</code>). A public-only JWK (no private component) is rejected
+with a 400.</li>
+<li><code>tags</code>: Array of tag strings, optional.</li>
+<li><code>enabled</code>: Boolean, optional. Defaults to <code>true</code>.</li>
+<li><code>purge_protection</code>: Boolean, optional. Leaves the stored default alone when
+omitted.</li>
+</ul>
+<p><strong>Response:</strong> <code>201 Created</code></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">json</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">{
+  &quot;id&quot;: &quot;550e8400-e29b-41d4-a716-446655440000&quot;,
+  &quot;name&quot;: &quot;imported-signing-key&quot;,
+  &quot;type&quot;: &quot;RSA&quot;,
+  &quot;bits&quot;: 2048,
+  &quot;enabled&quot;: true,
+  &quot;revoked&quot;: false,
+  &quot;tags&quot;: [&quot;production&quot;, &quot;migrated&quot;],
+  &quot;user_id&quot;: &quot;550e8400-e29b-41d4-a716-446655440001&quot;,
+  &quot;created_at&quot;: &quot;2026-08-25T10:30:00Z&quot;
+}
+</pre></div>
+<p>Private key material is never returned; the response includes only public
+components (RSA <code>n</code>/<code>e</code>, EC <code>x</code>/<code>y</code>), same as <code>POST /api/v1/keys</code>.</p>
 <h2 id="error-handling">Error Handling</h2>
 <h3 id="http-status-codes">HTTP Status Codes</h3>
 <ul>
@@ -258,17 +320,76 @@ Authorization: Bearer &lt;token&gt;
 }
 </pre></div>
 <h2 id="rate-limiting">Rate Limiting</h2>
-<p>The API implements rate limiting to prevent abuse:</p>
+<p>Two independent limits apply, and a request must pass both. Exceeding either returns
+<code>429 Too Many Requests</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Limit</th>
+<th>Counted per</th>
+<th>Default</th>
+<th>Config key</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>General endpoints</td>
+<td>client IP</td>
+<td>300 req/min</td>
+<td><code>rate_limit.default</code></td>
+</tr>
+<tr>
+<td>Auth endpoints (<code>/login</code>, <code>/refresh</code>, <code>/oauth2/token</code>)</td>
+<td>client IP</td>
+<td>5 req/min</td>
+<td><code>rate_limit.auth</code></td>
+</tr>
+<tr>
+<td>All authenticated endpoints</td>
+<td>vault</td>
+<td>600 req/min</td>
+<td><code>rate_limit.per_vault</code></td>
+</tr>
+</tbody>
+</table>
+<p>Each limit reports its own response headers, so you can tell which ceiling you hit:</p>
+<table>
+<thead>
+<tr>
+<th>Header</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>X-RateLimit-Limit</code> / <code>-Remaining</code> / <code>-Reset</code></td>
+<td>Your per-IP budget.</td>
+</tr>
+<tr>
+<td><code>X-RateLimit-Vault-Limit</code> / <code>-Remaining</code> / <code>-Reset</code></td>
+<td>The budget of the vault you addressed.</td>
+</tr>
+</tbody>
+</table>
+<p><code>-Reset</code> is a Unix timestamp for when the bucket is full again. Both are continuously-refilling
+token buckets, not fixed windows, so capacity returns gradually rather than all at once.</p>
+<h3 id="the-per-vault-limit">The per-vault limit</h3>
+<p>The per-vault budget is shared by every caller of that vault, so a client can be throttled by
+someone else's traffic against the same vault while its own per-IP budget is untouched. Check
+<code>X-RateLimit-Vault-Remaining</code> to distinguish the two cases before retrying.</p>
+<p>Three behaviours affect how you should integrate:</p>
 <ul>
-<li>Default limit: 300 requests per minute per IP for general endpoints, 5 requests per minute for auth endpoints (login/refresh/oauth2)</li>
-<li>Headers included in responses:
-<ul>
-<li><code>X-RateLimit-Limit</code>: Maximum requests per minute</li>
-<li><code>X-RateLimit-Remaining</code>: Remaining requests</li>
-<li><code>X-RateLimit-Reset</code>: Time when limit resets (Unix timestamp)</li>
+<li><strong>Requests that resolve no vault of their own count against the <code>default</code> vault.</strong> That covers
+vault-management routes (<code>/vaults/…</code>) and the legacy flat resource paths (<code>/secrets</code>, <code>/keys</code>,
+<code>/certificates</code>). Prefer the vault-scoped routes (<code>/vaults/{name}/secrets</code>) so your traffic is
+budgeted against your own vault.</li>
+<li><strong>Rejected requests still count.</strong> The limit is applied before authorization, so a <code>403</code> still
+spends vault budget. Do not retry a <code>403</code> in a tight loop — you will throttle the vault for
+everyone using it.</li>
+<li><strong>Health probes are exempt.</strong> <code>/health</code>, <code>/health/ready</code>, <code>/health/live</code> and <code>/health/database</code>
+are never counted, so a probe cannot exhaust a vault's budget.</li>
 </ul>
-</li>
-</ul>
+<p>Back off on <code>429</code> and honour <code>-Reset</code>.</p>
 <h2 id="best-practices">Best Practices</h2>
 <h3 id="1-handle-authentication-gracefully">1. Handle Authentication Gracefully</h3>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">javascript</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">// Example: Automatic token refresh
@@ -806,7 +927,7 @@ curl https://api.rocketvault.local/api/v1/health | jq .
 <li><strong>Validate SSL certificates</strong> when making API calls</li>
 <li><strong>Use appropriate timeouts</strong> to prevent hanging requests</li>
 <li><strong>Implement proper error handling</strong> without exposing sensitive information</li>
-<li><strong>Rate limiting</strong> is enforced - respect the limits to avoid being blocked</li>
+<li><strong>Rate limiting</strong> is enforced per IP <em>and</em> per vault - respect both to avoid being blocked</li>
 </ol>
 <h2 id="support">Support</h2>
 <p>For additional support or questions about the API:</p>

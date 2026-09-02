@@ -357,8 +357,8 @@ func TestRateLimitMiddleware_UsesIPNotAddrPort(t *testing.T) {
 
 	m := &Middleware{
 		logger:         logger,
-		defaultLimiter: newIPRateLimiter(60),
-		authLimiter:    newIPRateLimiter(5),
+		defaultLimiter: newKeyedRateLimiter(60),
+		authLimiter:    newKeyedRateLimiter(5),
 	}
 
 	handler := m.RateLimitMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

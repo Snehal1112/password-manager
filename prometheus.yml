@@ -1,0 +1,36 @@
+# Prometheus scrape configuration for RocketVault.
+#
+# Used by the optional "prometheus" service in docker-compose.yml, which is
+# gated behind the "metrics" profile:
+#
+#   docker compose --profile metrics up --build
+#
+# Targets are resolved on the rocketvault_net bridge network, so "rocketvault"
+# is the compose service name and 8774 is the container-internal port, not the
+# published host port. To run Prometheus outside compose against a local
+# server, replace the target with host.docker.internal:8774 (Docker Desktop) or
+# localhost:8774 (Prometheus installed directly on the host).
+
+global:
+  # RocketVault refreshes its rocketvault_db_* gauges on the
+  # monitoring.metrics_interval ticker, 60s by default. Scraping faster than
+  # that re-reads the same values, so keep this at or above that interval
+  # unless you also lower metrics_interval in .rocketvault.yaml.
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: rocketvault
+    # The path is unversioned and deliberately outside /api/v1 -- it is
+    # registered on the root router so it bypasses the auth middleware chain.
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["numericlabs.lxd:8774"]
+        labels:
+          service: rocketvault
+
+  # Prometheus scraping itself. Useful for confirming the stack is alive when
+  # the RocketVault target is down.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

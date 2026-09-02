@@ -70,6 +70,14 @@ log:
 rate_limit:
   default: 300  # requests per minute per IP for all endpoints
   auth: 5       # requests per minute per IP for login/refresh/oauth2 endpoints
+  # Requests per minute per VAULT, across every caller of that vault. This is
+  # the noisy-neighbour guard: without it one busy vault can spend the whole
+  # instance's request budget. Applies to every authenticated API route after
+  # the vault is resolved; health probes are exempt. Routes that resolve no
+  # vault of their own (vault management, legacy flat resource paths) count
+  # against the default vault. Rejections return 429 and are reported under the
+  # X-RateLimit-Vault-* response headers.
+  per_vault: 600
 
 # Server Configuration
 server:
