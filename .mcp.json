@@ -3,6 +3,11 @@
     "rocketvault": {
       "command": "/home/numericlabs/data/rocket/rocketvault/rocketvault",
       "args": ["mcp"]
+    },
+    "shadcn": {
+      "command": "bunx",
+      "args": ["--bun", "shadcn", "mcp"],
+      "cwd": "web"
     }
   }
 }
