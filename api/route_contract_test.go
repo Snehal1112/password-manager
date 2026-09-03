@@ -66,7 +66,7 @@ func stripConstraints(tmpl string) string {
 // server never registers. That gap let RefreshRemote post to
 // "/api/v1/refresh" (unregistered; refreshToken is only mounted at
 // "/api/v1/users/refresh" on the users subrouter) while its own test and
-// cmd/root_test.go both asserted the wrong path against a such a mock and
+// cmd/root_test.go both asserted the wrong path against such a mock and
 // passed. Walking the real route table closes that gap.
 func TestClientPathsAreRegistered(t *testing.T) {
 	container := &routerWalkContainer{policyContainer: &policyContainer{}, logger: userTestLog()}
@@ -92,7 +92,6 @@ func TestClientPathsAreRegistered(t *testing.T) {
 	}
 
 	for _, cr := range clientCalledRoutes {
-		cr := cr
 		t.Run(cr.Method+"_"+cr.Path, func(t *testing.T) {
 			key := cr.Method + " " + stripConstraints(cr.Path)
 			if !registered[key] {
