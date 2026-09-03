@@ -23,5 +23,17 @@ numericlabs.lxd {
 
 	tls /home/numericlabs/data/tls/server.crt /home/numericlabs/data/tls/server.key
 
-	reverse_proxy 127.0.0.1:8774
+	# The Vite dev server (web/, `bun run dev`) is served under /app. Vite is
+	# configured with base "/app/", so it already emits /app-prefixed asset and
+	# HMR URLs — the prefix must NOT be stripped here. Use `handle`, not
+	# `handle_path`. reverse_proxy passes the HMR websocket upgrade through on
+	# its own.
+	handle /app* {
+		reverse_proxy 127.0.0.1:5173
+	}
+
+	# Everything else is the RocketVault API on :8774.
+	handle {
+		reverse_proxy 127.0.0.1:8774
+	}
 }
