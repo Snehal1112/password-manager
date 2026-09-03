@@ -689,7 +689,7 @@ func TestResolveRemoteAuthentication_ExpiredCache_RefreshesTransparently(t *test
 	userID := uuid.New()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/refresh", r.URL.Path)
+		require.Equal(t, "/api/v1/users/refresh", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(model.RefreshTokenResponse{
 			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID.String(), Username: "admin", Roles: []string{"admin"},

@@ -57,14 +57,15 @@ func LoginRemote(ctx context.Context, httpClient *http.Client, server, username,
 }
 
 // RefreshRemote exchanges a refresh token for a new access token against
-// target's POST /api/v1/refresh.
+// target's POST /api/v1/users/refresh. The route is registered on the users
+// subrouter (api/users.go), not at the API root.
 func RefreshRemote(ctx context.Context, httpClient *http.Client, server, refreshToken string) (*authServices.RefreshTokenResult, error) {
 	body, err := json.Marshal(model.RefreshTokenRequest{RefreshToken: refreshToken})
 	if err != nil {
 		return nil, fmt.Errorf("cliclient: encode refresh request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+"/api/v1/refresh", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, server+"/api/v1/users/refresh", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("cliclient: build refresh request: %w", err)
 	}

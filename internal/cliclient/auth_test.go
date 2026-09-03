@@ -62,7 +62,7 @@ func TestRefreshRemote_Success(t *testing.T) {
 	userID := uuid.New()
 	expiresAt := time.Now().Add(15 * time.Minute).Truncate(time.Second).UTC()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/refresh", r.URL.Path)
+		require.Equal(t, "/api/v1/users/refresh", r.URL.Path)
 		var req model.RefreshTokenRequest
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		assert.Equal(t, "refresh-tok", req.RefreshToken)
