@@ -3,16 +3,62 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"testing"
 
 	"github.com/lib/pq"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/logging"
 )
+
+// newTestDBRepository creates the minimal old-shape prerequisite tables that
+// migrateSchema's ALTER TABLE statements need a target for (the same set the
+// neighbouring migration tests in this package -- e.g.
+// TestMigrate_CreatesRoleAssignmentsTable in migrate_assignment_test.go --
+// already create by hand), then returns a *DBRepository ready to run
+// migrateSchema against conn.
+func newTestDBRepository(t *testing.T, conn *sql.DB) *DBRepository {
+	t.Helper()
+	_, err := conn.Exec(`
+		CREATE TABLE users (
+			id       TEXT PRIMARY KEY,
+			username TEXT NOT NULL,
+			role     TEXT NOT NULL
+		);
+		CREATE TABLE secrets (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE keys (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE certificates (
+			id   TEXT PRIMARY KEY,
+			name TEXT NOT NULL
+		);
+		CREATE TABLE audit_logs (
+			id TEXT PRIMARY KEY
+		);
+		CREATE TABLE access_policies (
+			id             TEXT PRIMARY KEY,
+			principal_id   TEXT NOT NULL,
+			principal_type TEXT NOT NULL,
+			resource_type  TEXT NOT NULL,
+			operation      TEXT NOT NULL,
+			effect         TEXT NOT NULL,
+			created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+	`)
+	require.NoError(t, err)
+	return NewRepository(logging.InitLogger())
+}
 
 // TestInitializeDB tests the InitializeDB function to ensure it opens a SQLite connection and creates tables.
 func TestInitializeDB(t *testing.T) {
@@ -113,6 +159,29 @@ func TestInitializeDB_SeedsDefaultVault(t *testing.T) {
 	err := d.GetDB().QueryRow("SELECT name FROM vaults WHERE id = ?", "00000000-0000-0000-0000-00000000efa1").Scan(&name)
 	assert.NoError(t, err, "default vault should be seeded")
 	assert.Equal(t, "default", name)
+}
+
+// TestMigrateSchema_CreatesVaultProvisioningGrants verifies that migrateSchema
+// creates the vault_provisioning_grants table and its idx_vaults_created_by
+// index on a pre-existing (old-shape) database.
+func TestMigrateSchema_CreatesVaultProvisioningGrants(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer db.Close()
+
+	repo := newTestDBRepository(t, db)
+	require.NoError(t, repo.migrateSchema(db))
+
+	var name string
+	err = db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='vault_provisioning_grants'`,
+	).Scan(&name)
+	require.NoError(t, err, "migrateSchema must create vault_provisioning_grants")
+
+	err = db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_vaults_created_by'`,
+	).Scan(&name)
+	require.NoError(t, err, "migrateSchema must create idx_vaults_created_by")
 }
 
 // TestSeedDefaultVault_Idempotent verifies seedDefaultVault does not error or duplicate.

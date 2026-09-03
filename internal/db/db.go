@@ -720,6 +720,18 @@ func (d *DBRepository) createOptimizedSchema(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_role_assignments_vault ON role_assignments(vault_id);
 		CREATE INDEX IF NOT EXISTS idx_role_assignments_principal_vault ON role_assignments(principal_id, vault_id);
 
+		CREATE TABLE IF NOT EXISTS vault_provisioning_grants (
+			id           TEXT PRIMARY KEY,
+			principal_id TEXT NOT NULL UNIQUE,
+			quota        INTEGER NOT NULL,
+			created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by   TEXT NOT NULL
+		);
+		-- No FOREIGN KEY on principal_id: a grantee may be an oauth2_clients
+		-- row (a service account) rather than a users row, and the MSP
+		-- automation this table exists for is exactly that.
+		CREATE INDEX IF NOT EXISTS idx_vaults_created_by ON vaults(created_by);
+
 		CREATE TABLE IF NOT EXISTS oauth2_clients (
 			id            TEXT PRIMARY KEY,
 			name          TEXT NOT NULL UNIQUE,
@@ -868,6 +880,20 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_vault_webhook_configs_vault_id ON vault_webhook_configs(vault_id)",
+		// Feature: bounded provisioning grants -- a right to create vaults up to
+		// a quota, as a safer alternative to a global vaults:manage grant
+		// (idempotent -- table did not exist before this migration on any
+		// pre-existing database).
+		`CREATE TABLE IF NOT EXISTS vault_provisioning_grants (
+			id           TEXT PRIMARY KEY,
+			principal_id TEXT NOT NULL UNIQUE,
+			quota        INTEGER NOT NULL,
+			created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			created_by   TEXT NOT NULL
+		)`,
+		// idx_vaults_created_by is created further down, after the vaults
+		// table itself is created (a legacy database being migrated has no
+		// vaults table yet at this point in the list).
 		// Feature: rotation_policies for secrets (backfill will add vault_id below)
 		`CREATE TABLE IF NOT EXISTS rotation_policies (
 			id TEXT PRIMARY KEY,
@@ -915,6 +941,9 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 			scheduled_purge_at TIMESTAMP NULL
 		)`,
 		"CREATE INDEX IF NOT EXISTS idx_vaults_name ON vaults(name)",
+		// Provisioning grants: plan 04 counts vaults by created_by on every
+		// provisioned create, and vaults had only idx_vaults_name until now.
+		"CREATE INDEX IF NOT EXISTS idx_vaults_created_by ON vaults(created_by)",
 		// Vault tags + modification tracking (Azure parity). Tags stored as a JSON
 		// object; (de)serialization is confined to vault_repository.go.
 		"ALTER TABLE vaults ADD COLUMN tags TEXT NOT NULL DEFAULT '{}'",
