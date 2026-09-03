@@ -153,15 +153,79 @@ enumerating groups, so the next adapter phase does not have to remember
 to edit prose."
 ```
 
+---
+
+### Task 3: Add a remote-server journey to the journeys doc
+
+`docs/VAULT_USER_ACCESS_JOURNEYS_v3.md` carries 21 end-to-end scenarios organized by actor, and every one of them runs against a local instance. Remote mode appears only as a flag in the global list at line 79, a `preview-migration` caveat that refuses `--server`, and a `context add` example around line 1472. There is no journey for "operate against a deployed server", which is the workflow phase 2 exists to enable.
+
+Write it against what has actually landed by this point — `secrets`, `users login`, `users logout`, and nothing else. Do not describe `vault-access` remotely; that arrives in `03b`, and this doc's own discipline is that commands come from `cmd/`, never from what is planned.
+
+**Files:**
+- Modify: `docs/VAULT_USER_ACCESS_JOURNEYS_v3.md`
+
+**Interfaces:**
+- Produces: nothing importable.
+
+- [ ] **Step 1: Read the conventions before writing**
+
+Read two existing journeys end to end — Journey B (onboarding, line 169) for the actor-and-narrative shape, and Journey K (the CLI/HTTP purge divergence, line 694) for how the doc handles a capability gap. Match them. In particular:
+
+- Each journey opens with an **Actor** line naming a person and their role.
+- Commands are copied from `cmd/`, with real flags. Verify each against the source before writing it.
+- Where a capability is missing, the journey says so plainly rather than showing an invocation that would fail. This journey has several such points and they are the most valuable part of it.
+
+- [ ] **Step 2: Write the journey**
+
+Add it after Journey Q, following the existing heading pattern. It should cover, in narrative order:
+
+1. Saving a context (`rocketvault context add`, `context use`) and what the current-context pointer means.
+2. Logging in against it — `rocketvault users login --username … --password … --totp-code …` — and where the session lands: `~/.rocketvault/sessions/srv_<host>__<user>.json`, with `current` pointing at it, separate from any local session for the same username.
+3. Running a bare `rocketvault secrets list` with no credentials, and the transparent refresh when the access token expires.
+4. `rocketvault users logout`, and that it clears only this server's session — the local one survives.
+5. `rocketvault context unset` to return to local mode, showing the same command now reads the local instance.
+
+Then the honest limits, which are the point of putting this in *this* doc rather than the CLI guide:
+
+- Only `secrets` and `users login`/`logout` work remotely at this commit. Every other group — `keys`, `certificates`, `vaults`, `vault-access`, `audit` — is refused by the remote-target guard with a message telling the user to run against the local instance. Name `remoteCapableCommands` in `cmd/root.go` as the authority rather than listing groups that will change.
+- `vaults preview-migration` refuses `--server` by design: it reads the local database file directly. The existing note at line 128 already says this; cross-reference it rather than restating it.
+- Service-account credentials (`--client-id`/`--client-secret`, from `02a`) authenticate with no session file at all, which is the CI shape. Worth its own short subsection since no other journey covers unattended auth.
+
+- [ ] **Step 3: Verify every command**
+
+For each command in the new journey, confirm the flag exists in `cmd/`:
+
+Run: `go build -o rocketvault . && ./rocketvault context add --help && ./rocketvault users login --help && ./rocketvault users logout --help`
+Expected: every flag used in the journey appears. Fix the journey, not the code, on any mismatch.
+
+Then walk the journey end to end against a running server exactly as written, including the failure cases — a guarded command must produce the message the journey claims.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add docs/VAULT_USER_ACCESS_JOURNEYS_v3.md
+git commit -S -m "docs(journeys): add a remote-server journey
+
+Every one of the 21 existing journeys runs against a local instance,
+so the workflow phase 2 exists to enable had no narrative anywhere:
+save a context, log in against it, run bare commands off the cached
+session, log out without touching the local session.
+
+Includes the limits, which is why it belongs here rather than in the
+CLI guide -- only secrets and users login/logout are remote-capable at
+this commit, and preview-migration refuses --server by design."
+```
+
+---
 
 ## Self-Review
 
-**Spec coverage:** These are the last two items the spec lists for phase 2 outside the auth work itself. The third documentation correction (`known-issues-gotchas.md`) lives in the cross-project KB, outside this repo, and is left to the `kb-refresh` skill.
+**Spec coverage:** Tasks 1 and 2 are the last items the spec lists for phase 2 outside the auth work itself. The third documentation correction (`known-issues-gotchas.md`) lives in the cross-project KB, outside this repo, and is left to the `kb-refresh` skill. Task 3 is beyond the spec: the journeys doc had no remote-mode scenario at all, which only became a visible gap once remote login worked.
 
 **Placeholder scan:** One step defers to surrounding code rather than prescribing it — `newAddCmdForTest` in Task 1 Step 1 — because it must match however `cmd/context/`'s existing tests construct a command. It says so and states the fallback. No TBDs.
 
 **Type consistency:** Neither task produces an importable interface; nothing downstream depends on their shapes.
 
-**Ordering:** Task 1 and Task 2 are independent of each other. Both depend on `02b` only for the accuracy of Task 2's prose.
+**Ordering:** Task 1 is independent. Tasks 2 and 3 both depend on `02b` for accuracy — Task 3 more strictly, since its journey logs in with `users login` against a remote target, which does not work until `02b` Task 3 lands.
 
 **Known risk:** documentation that enumerates which command groups are remote-capable goes stale on every adapter phase — this plan exists partly because the last such sentence sat wrong for months. Task 2 Step 2 therefore points readers at `remoteCapableCommands` in `cmd/root.go` as the authority instead of restating the list. If a reviewer pushes back and wants the explicit list in the guide, add a note to plan `03b` to update it, because nothing else will catch it.

@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RocketVault — Real-World Vault, User & Access Journeys (v3, with CLI) — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">RocketVault — Real-World Vault, User & Access Journeys (v3, with CLI)</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/VAULT_USER_ACCESS_JOURNEYS_v3.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#new-in-v3--two-corrections-that-change-the-cast">New in v3 — two corrections that change the cast</a></li><li><a href="#global-setup-used-by-every-journey">Global setup used by every journey</a></li><li><a href="#corrected-cast">Corrected Cast</a></li><li><a href="#journey-a--day-zero-the-admin-discovers-she-has-no-access">Journey A — Day Zero: the admin discovers she has no access</a></li><li><a href="#journey-b--onboarding-a-backend-engineer">Journey B — Onboarding a Backend Engineer</a></li><li><a href="#journey-c--security-engineer-owns-the-key-lifecycle">Journey C — Security Engineer Owns the Key Lifecycle</a></li><li><a href="#journey-d--cicd-service-account-sign-only">Journey D — CI/CD Service Account, Sign-Only</a></li><li><a href="#journey-e--narrowest-possible-crypto-grant">Journey E — Narrowest Possible Crypto Grant</a></li><li><a href="#journey-f--crypto-user-hits-the-rotation-policy-wall">Journey F — Crypto User Hits the Rotation-Policy Wall</a></li><li><a href="#journey-g--delegating-access-management-without-handing-over-the-keys">Journey G — Delegating Access Management Without Handing Over the Keys</a></li><li><a href="#journey-h--emergency-lockout-via-explicit-deny">Journey H — Emergency Lockout via Explicit Deny</a></li><li><a href="#journey-i--revoking-a-compromised-service-account">Journey I — Revoking a Compromised Service Account</a></li><li><a href="#journey-j--retiring-a-vault-and-the-purge-trap">Journey J — Retiring a Vault (and the purge trap)</a></li><li><a href="#journey-k--the-clihttp-purge-divergence">Journey K — The CLI/HTTP Purge Divergence</a></li><li><a href="#journey-l--compliance-auditor">Journey L — Compliance Auditor</a></li><li><a href="#journey-m--offboarding">Journey M — Offboarding</a></li><li><a href="#journey-n--multi-vault-isolation-verification">Journey N — Multi-Vault Isolation Verification</a></li><li><a href="#journey-o--migrating-a-secret-set-to-a-new-vault-and-retiring-the-original">Journey O — Migrating a Secret Set to a New Vault, and Retiring the Original</a></li><li><a href="#journey-p--a-user-role-principal-runs-the-entire-secret-rotation-lifecycle">Journey P — A user-Role Principal Runs the Entire Secret-Rotation Lifecycle</a></li><li><a href="#journey-q--certificate-manager-issues-chains-and-retires-a-tls-certificate">Journey Q — Certificate Manager Issues, Chains, and Retires a TLS Certificate</a></li><li><a href="#journey-r--disaster-recovery-scheduled-backups-and-a-post-rotation-restore">Journey R — Disaster Recovery: Scheduled Backups and a Post-Rotation Restore</a></li><li><a href="#journey-s--rotating-the-master-key-after-an-infrastructure-departure">Journey S — Rotating the Master Key After an Infrastructure Departure</a></li><li><a href="#journey-t--working-across-prod-staging-and-dev-from-one-laptop">Journey T — Working Across Prod, Staging, and Dev From One Laptop</a></li><li><a href="#journey-u--wiring-and-not-relying-on-a-vault-webhook">Journey U — Wiring (and Not Relying On) a Vault Webhook</a></li><li><a href="#cli-quick-reference">CLI Quick Reference</a></li><li><a href="#corrections-retained-from-v2">Corrections retained from v2</a></li></ol></nav>
+<main class="doc">
+<blockquote>
+<p>Every journey now carries the actual CLI commands. Flags and command names are taken from <code>cmd/</code> (<code>cmd/keys/*.go</code>, <code>cmd/keys/rotation_policy.go</code>, <code>cmd/users/*.go</code>, <code>cmd/vaults/*.go</code>, <code>cmd/vault-access/*.go</code>, <code>cmd/rotation.go</code>, <code>cmd/root.go</code>), not invented. Where a capability has no CLI command, that is called out explicitly rather than papered over with a plausible-looking invocation.</p>
+</blockquote>
+<hr>
+<h2 id="new-in-v3--two-corrections-that-change-the-cast">New in v3 — two corrections that change the cast</h2>
+<h3 id="correction-8--the-cli-enforces-a-global-role-gate-the-http-path-does-not">Correction 8 — The CLI enforces a <strong>global role gate</strong> the HTTP path does not</h3>
+<p>This is a bigger CLI/HTTP divergence than the purge one in Journey K, and v2 missed it entirely.</p>
+<p>Every mutating <code>keys</code> CLI command begins with:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">go</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
+    return fmt.Errorf(&quot;forbidden: requires admin or crypto_manager role&quot;)
+}
+</pre></div>
+<p>That check runs <strong>before</strong> the vault data-action check, and it has no HTTP equivalent — vault data-plane routes bypass global RBAC entirely (<code>mapEndpointToPermission</code>).</p>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>CLI additionally requires (global role)</th>
+<th>HTTP requires</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>keys create/update/delete/rotate/sign/verify/wrap/unwrap</code></td>
+<td><code>admin</code> <strong>or</strong> <code>crypto_manager</code></td>
+<td>vault data action only</td>
+</tr>
+<tr>
+<td><code>keys rotation-policy set/delete</code></td>
+<td><code>admin</code> <strong>or</strong> <code>crypto_manager</code></td>
+<td>vault data action only</td>
+</tr>
+<tr>
+<td><code>keys get</code> / <code>keys list</code> / <code>keys rotation-policy get</code></td>
+<td><em>(none — data action only)</em></td>
+<td>vault data action only</td>
+</tr>
+<tr>
+<td><code>secrets create/update/...</code></td>
+<td><code>admin</code> <strong>or</strong> <code>secrets_manager</code></td>
+<td>vault data action only</td>
+</tr>
+<tr>
+<td><code>certificate create/update/...</code></td>
+<td><code>admin</code> <strong>or</strong> <code>certificate_manager</code></td>
+<td>vault data action only</td>
+</tr>
+<tr>
+<td><code>secrets rotation *</code></td>
+<td><em>(none — explicitly &quot;No global role is checked&quot;)</em></td>
+<td>no HTTP route at all</td>
+</tr>
+<tr>
+<td><code>vaults *</code></td>
+<td><code>CanManageVault</code> (admin or <code>(vaults, manage)</code> policy)</td>
+<td>same</td>
+</tr>
+<tr>
+<td><code>vault-access *</code></td>
+<td><code>CanManageRoleAssignments</code></td>
+<td>same</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Consequence</strong>: a user with global role <code>user</code> holding <code>Key Vault Crypto Officer</code> in <code>prod</code> can create a key over REST and gets <code>forbidden: requires admin or crypto_manager role</code> from the CLI. The cast below is corrected to give operators the matching global role.</p>
+<h3 id="correction-9--large-parts-of-the-key-lifecycle-have-no-cli-command-at-all">Correction 9 — Large parts of the key lifecycle have <strong>no CLI command at all</strong></h3>
+<p><code>cmd/keys.go</code> registers exactly: <code>create</code>, <code>delete</code>, <code>get</code>, <code>list</code>, <code>update</code>, <code>rotate</code>, <code>rotation-policy</code> (<code>get</code>/<code>set</code>/<code>delete</code>), <code>wrap</code>, <code>unwrap</code>, <code>sign</code>, <code>verify</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>CLI</th>
+<th>HTTP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Key soft-delete</td>
+<td>✅ <code>keys delete</code></td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Key <strong>recover</strong></td>
+<td>❌ none</td>
+<td>✅ <code>/deleted/keys/{id}/restore</code></td>
+</tr>
+<tr>
+<td>Key <strong>purge</strong></td>
+<td>❌ none</td>
+<td>✅ <code>/deleted/keys/{id}/purge</code></td>
+</tr>
+<tr>
+<td>Key <strong>backup / restore</strong></td>
+<td>❌ none</td>
+<td>✅ <code>/keys/{id}/backup</code>, <code>/keys/restore</code></td>
+</tr>
+<tr>
+<td>Key <strong>rotation policy</strong></td>
+<td>✅ <code>keys rotation-policy get/set/delete</code> (added 2026-08-25)</td>
+<td>✅ <code>GET/PUT/DELETE .../rotationpolicy</code></td>
+</tr>
+<tr>
+<td><strong>Secret</strong> rotation policy</td>
+<td>✅ <code>secrets rotation *</code></td>
+<td>❌ no HTTP route</td>
+</tr>
+<tr>
+<td>OCT (AES) key creation</td>
+<td>❌ <code>--type</code> accepts RSA/ECDSA only</td>
+<td>✅ REST, HSM-only</td>
+</tr>
+</tbody>
+</table>
+<p>Key rotation policy used to be the odd one out — HTTP-only while secret rotation policy was CLI-only. As of 2026-08-25 both surfaces exist for keys too; <code>keys rotation-policy set</code> is a full replace (like the HTTP <code>PUT</code>), so <code>--rotate-after-days</code> and <code>--enabled</code> must both be supplied on every call.</p>
+<p><em>(Corrections 1–7 from v2 are retained at the end of this document.)</em></p>
+<hr>
+<h2 id="global-setup-used-by-every-journey">Global setup used by every journey</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Point at your scratch instance, never a shared dev DB.
+BASE=http://numericlabs.lxd/api/v1
+export CFG=/tmp/rv-test.yaml
+
+# TOTP is mandatory on every login.
+export ROCKETVAULT_TOTP_SECRET=&lt;the secret printed at user creation&gt;
+TOTP_CODE=$(go run scripts/totp_generator.go -secret=&quot;$ROCKETVAULT_TOTP_SECRET&quot; \
+  2&gt;&amp;1 | grep -m1 -oP '(?&lt;=--totp-code )\S+')
+
+# Log in once — the session caches under ~/.rocketvault/sessions and every
+# other CLI command picks it up. HTTP does NOT read this cache; curl needs
+# its own token.
+rocketvault users login --username priya --password '&lt;pw&gt;' --totp-code &quot;$TOTP_CODE&quot;
+
+ADMIN_TOKEN=$(curl -s -X POST $BASE/users/login \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &quot;{\&quot;username\&quot;:\&quot;priya\&quot;,\&quot;password\&quot;:\&quot;&lt;pw&gt;\&quot;,\&quot;totp_code\&quot;:\&quot;$TOTP_CODE\&quot;}&quot; \
+  | jq -r .token)
+</pre></div>
+<p>Global persistent flags available on every command: <code>--config</code>, <code>--username</code>, <code>--password</code>, <code>--totp-code</code>, <code>--output {table|json|yaml}</code>, <code>--vault</code>, <code>--server</code>, <code>--ca-cert</code>, <code>--insecure-skip-verify</code>.</p>
+<hr>
+<h2 id="corrected-cast">Corrected Cast</h2>
+<table>
+<thead>
+<tr>
+<th>Principal</th>
+<th>Global role</th>
+<th>Why that global role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>priya</code></td>
+<td><code>admin</code></td>
+<td>Bootstrap, user creation, vault creation, access policies, audit</td>
+</tr>
+<tr>
+<td><code>wren</code></td>
+<td><code>user</code></td>
+<td>Only ever grants/revokes role assignments — <code>vault-access</code> checks no global role</td>
+</tr>
+<tr>
+<td><code>sofia</code></td>
+<td><strong><code>crypto_manager</code></strong></td>
+<td>Must run <code>keys create/rotate/sign</code> from the CLI (Correction 8)</td>
+</tr>
+<tr>
+<td><code>marcus</code></td>
+<td><strong><code>secrets_manager</code></strong></td>
+<td>Must run <code>secrets create/update</code> from the CLI</td>
+</tr>
+<tr>
+<td><code>daeho</code></td>
+<td><code>user</code></td>
+<td>Read-only via HTTP; <code>keys list</code>/<code>get</code> need no global role</td>
+</tr>
+<tr>
+<td><code>ops-oncall</code></td>
+<td><code>admin</code></td>
+<td>Second admin for separation-of-duties purge</td>
+</tr>
+<tr>
+<td><code>ci-payments-svc</code></td>
+<td>service account</td>
+<td>OAuth2 client, REST only — never uses the CLI</td>
+</tr>
+<tr>
+<td><code>checkout-api-svc</code></td>
+<td>service account</td>
+<td>Same</td>
+</tr>
+<tr>
+<td><code>noor</code></td>
+<td><strong><code>certificate_manager</code></strong></td>
+<td>Must run <code>certificates create/update/delete/renew</code> from the CLI (Correction 8)</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="journey-a--day-zero-the-admin-discovers-she-has-no-access">Journey A — Day Zero: the admin discovers she has no access</h2>
+<p><strong>Actor</strong>: Priya (<code>admin</code>)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># 1. Bootstrap the first admin — one-time token from .rocketvault.yaml.
+#    Requires no prior session. Prints the TOTP secret exactly once.
+rocketvault users admin \
+  --admin-username priya \
+  --admin-password '&lt;pw&gt;' \
+  --bootstrap-token '&lt;token-from-config&gt;'
+
+# 2. Log in.
+rocketvault users login --username priya --password '&lt;pw&gt;' --totp-code &quot;$TOTP_CODE&quot;
+
+# 3. Create the vaults. Name is POSITIONAL — `vaults` commands have no --vault flag.
+rocketvault vaults create dev
+rocketvault vaults create staging
+rocketvault vaults create prod --purge-protection --retention-days 30
+
+rocketvault vaults list
+rocketvault vaults get prod --output json
+
+# Adjust attributes after creation — enabled, purge protection, retention —
+# any subset; each flag is only applied when actually passed on the line.
+rocketvault vaults update staging --retention-days 14
+rocketvault vaults update staging --purge-protection
+</pre></div>
+<blockquote>
+<p><strong>Upgrading an existing pre-P2 install?</strong> <code>rocketvault vaults preview-migration</code> prints, without writing anything, the per-vault role assignments the deny-by-default authorization upgrade would derive from current object ownership (secret/key/cert owners → the matching Officer role in their vault; global admins → Administrator everywhere). It reads the local database file directly — it refuses to run against <code>--server</code> — so confirm every principal that needs access appears in its output <em>before</em> running the real migration, not after.</p>
+</blockquote>
+<p><strong>Now the surprise.</strong> Priya tries to use the vault she just created:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys list --vault prod
+# Error: forbidden: no role grants Microsoft.KeyVault/vaults/keys/read/action in this vault
+
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/secrets \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot;
+# 403
+</pre></div>
+<p><code>HasDataAction</code> has <strong>no admin short-circuit, by design</strong>. Creating a vault is a management operation; everything inside it is not. The fix is to self-grant:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant priya --role &quot;Key Vault Administrator&quot; --vault prod
+rocketvault vault-access grant priya --role &quot;Key Vault Administrator&quot; --vault dev
+rocketvault vault-access grant priya --role &quot;Key Vault Administrator&quot; --vault staging
+
+rocketvault keys list --vault prod      # now works
+</pre></div>
+<p>Create the team, with the global roles Correction 8 requires:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users create --new-username wren   --new-password '&lt;pw&gt;' --new-role user
+rocketvault users create --new-username sofia  --new-password '&lt;pw&gt;' --new-role crypto_manager
+rocketvault users create --new-username marcus --new-password '&lt;pw&gt;' --new-role secrets_manager
+rocketvault users create --new-username daeho  --new-password '&lt;pw&gt;' --new-role user
+rocketvault users create --new-username ops-oncall --new-password '&lt;pw&gt;' --new-role admin
+
+rocketvault users list --output json
+</pre></div>
+<p><code>--new-role</code> is <strong>repeatable</strong>, not comma-separated: <code>--new-role admin --new-role secrets_manager</code>. Each <code>users create</code> prints a TOTP secret once — capture it.</p>
+<blockquote>
+<p><strong>Runbook rule</strong>: &quot;self-grant <code>Key Vault Administrator</code> in every new vault&quot; belongs in your vault provisioning steps, or the vault is unusable to its own creator.</p>
+</blockquote>
+<hr>
+<h2 id="journey-b--onboarding-a-backend-engineer">Journey B — Onboarding a Backend Engineer</h2>
+<p><strong>Actor</strong>: Marcus (<code>secrets_manager</code>)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Week 1 — metadata only.
+rocketvault vault-access grant marcus --role &quot;Key Vault Reader&quot; --vault dev
+
+# As Marcus:
+rocketvault users login --username marcus --password '&lt;pw&gt;' --totp-code &quot;$MARCUS_TOTP&quot;
+rocketvault secrets list --vault dev            # works — metadata
+rocketvault secrets get &lt;secret-id&gt; --vault dev # Error: forbidden — Reader has no secrets/get
+</pre></div>
+<p>Confirm the § B30 regression is closed (Reader must not see values in the versions list):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">MARCUS_TOKEN=$(curl -s -X POST $BASE/users/login -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;username&quot;:&quot;marcus&quot;,&quot;password&quot;:&quot;&lt;pw&gt;&quot;,&quot;totp_code&quot;:&quot;'&quot;$MARCUS_TOTP&quot;'&quot;}' | jq -r .token)
+
+curl -s $BASE/vaults/dev/secrets/&lt;secret-id&gt;/versions \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot; | jq '[.versions[] | has(&quot;value&quot;)] | any'
+# must print: false
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Week 2 — read values.
+rocketvault vault-access revoke &lt;reader-assignment-id&gt; --vault dev
+rocketvault vault-access grant marcus --role &quot;Key Vault Secrets User&quot; --vault dev
+
+# As Marcus:
+rocketvault secrets get &lt;secret-id&gt; --vault dev --output json   # now returns the value
+rocketvault secrets create test-db-pass 's3cr3t' --vault dev     # Error: forbidden (no secrets/set)
+
+# Month 3 — full secret ownership in dev.
+rocketvault vault-access grant marcus --role &quot;Key Vault Secrets Officer&quot; --vault dev
+
+# As Marcus:
+rocketvault secrets create db-pass 's3cr3t-v1' --tags prod,db --vault dev
+rocketvault secrets update &lt;secret-id&gt; 's3cr3t-v2' --vault dev
+rocketvault secrets list --vault dev --tags prod --output json
+
+# Still nothing in prod:
+rocketvault secrets list --vault prod
+# Error: forbidden: no role grants ... in this vault
+</pre></div>
+<blockquote>
+<p>Re-running the same <code>vault-access grant</code> is harmless — <code>AssignRole</code> finds the existing <code>(principal, role, vault)</code> tuple and returns the original assignment rather than duplicating or erroring.</p>
+</blockquote>
+<p>Marcus manages his own account — <code>users get</code>/<code>update</code> are owner-or-admin, with no vault scoping since user accounts are global:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users get &lt;marcus-user-id&gt;            # his own record — allowed
+rocketvault users update &lt;marcus-user-id&gt; --new-password 'new-Str0ng-pw'
+
+# He cannot read or touch anyone else's account:
+rocketvault users get &lt;sofia-user-id&gt;
+# Error: forbidden: can only access your own profile or requires admin role
+
+# Nor grant himself a new role, even on his own account:
+rocketvault users update &lt;marcus-user-id&gt; --new-role admin
+# Error: forbidden: only admins can change roles
+</pre></div>
+<hr>
+<h2 id="journey-c--security-engineer-owns-the-key-lifecycle">Journey C — Security Engineer Owns the Key Lifecycle</h2>
+<p><strong>Actor</strong>: Sofia (<code>crypto_manager</code> — required for every CLI key mutation)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant sofia --role &quot;Key Vault Crypto Officer&quot; --vault prod
+
+# As Sofia:
+rocketvault users login --username sofia --password '&lt;pw&gt;' --totp-code &quot;$SOFIA_TOTP&quot;
+
+rocketvault keys create --name payments-signing --type RSA --bits 4096 \
+  --tags prod,jwt --purge-protection --vault prod
+
+rocketvault keys create --name payments-ec --type ECDSA --curve P-384 \
+  --tags prod --vault prod
+
+rocketvault keys list --vault prod --output json
+rocketvault keys get &lt;key-id&gt; --vault prod --output json
+</pre></div>
+<p>Sign / verify, with base64 data:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">DATA=$(echo -n '{&quot;sub&quot;:&quot;txn-1&quot;}' | base64)
+
+SIG=$(rocketvault keys sign --key-id &lt;key-id&gt; --data &quot;$DATA&quot; \
+        --algorithm RS256 --vault prod)
+
+rocketvault keys verify --key-id &lt;key-id&gt; --data &quot;$DATA&quot; \
+  --signature &quot;$SIG&quot; --algorithm RS256 --vault prod
+# valid: true
+
+TAMPERED=$(echo -n '{&quot;sub&quot;:&quot;attacker&quot;}' | base64)
+rocketvault keys verify --key-id &lt;key-id&gt; --data &quot;$TAMPERED&quot; \
+  --signature &quot;$SIG&quot; --algorithm RS256 --vault prod
+# valid: false
+</pre></div>
+<p>Update mutable attributes — name, tags, revocation, purge protection — without touching key material:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys update &lt;key-id&gt; --tags prod,jwt,q3-review --vault prod
+# Key &lt;key-id&gt; updated successfully at 2026-08-25T...
+
+# Revoking leaves metadata readable but breaks every crypto operation:
+rocketvault keys update &lt;key-id&gt; --revoked --vault prod
+rocketvault keys sign --key-id &lt;key-id&gt; --data &quot;$DATA&quot; --algorithm RS256 --vault prod
+# Error: ... key is revoked
+
+rocketvault keys update &lt;key-id&gt; --revoked=false --vault prod   # un-revoke
+
+# At least one field is required:
+rocketvault keys update &lt;key-id&gt; --vault prod
+# Error: at least one update field (name, revoked, tags, purge-protection) must be provided
+</pre></div>
+<p>Rotate, and prove old versions stay usable:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys rotate &lt;key-id&gt; --vault prod
+
+# --version 1 addresses the pre-rotation material.
+rocketvault keys verify --key-id &lt;key-id&gt; --data &quot;$DATA&quot; \
+  --signature &quot;$SIG&quot; --algorithm RS256 --version 1 --vault prod
+# valid: true — the signature made before rotation still verifies
+</pre></div>
+<p><strong>Rotation policy</strong>, via the CLI (added 2026-08-25 — <code>keys rotation-policy get/set/delete</code>, mirroring the pre-existing <code>GET/PUT/DELETE .../rotationpolicy</code> HTTP routes and requiring the same <code>admin</code>/<code>crypto_manager</code> global role as every other mutating <code>keys</code> command):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Nothing set yet — reported, not an error.
+rocketvault keys rotation-policy get &lt;key-id&gt; --vault prod
+# No rotation policy set for key &lt;key-id&gt;
+
+# --rotate-after-days and --enabled are BOTH required on every call: this is
+# a full replace (like the HTTP PUT), not a partial update. An omitted flag
+# is not &quot;leave unchanged&quot;, it's a validation error.
+rocketvault keys rotation-policy set &lt;key-id&gt; --vault prod
+# Error: --rotate-after-days and --enabled are required: this replaces the
+# whole policy, so every field must be supplied
+
+# Azure parity: rotate-after-days must be &gt;= 7 once the policy is enabled.
+rocketvault keys rotation-policy set &lt;key-id&gt; --rotate-after-days 3 --enabled --vault prod
+# Error: invalid rotation policy: RotateAfterDays: must be at least 7 when
+# the policy is enabled.
+
+rocketvault keys rotation-policy set &lt;key-id&gt; --vault prod \
+  --rotate-after-days 90 --notify-before-expiry-days 14 --expiry-days 365 --enabled
+# Rotation policy set for key &lt;key-id&gt;: next rotation at 2026-11-23T...
+
+rocketvault keys rotation-policy get &lt;key-id&gt; --vault prod --output json
+</pre></div>
+<p>Equivalent HTTP, still fully supported (same underlying <code>KeyService</code> call, same validation):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">SOFIA_TOKEN=$(curl -s -X POST $BASE/users/login -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;username&quot;:&quot;sofia&quot;,&quot;password&quot;:&quot;&lt;pw&gt;&quot;,&quot;totp_code&quot;:&quot;'&quot;$SOFIA_TOTP&quot;'&quot;}' | jq -r .token)
+
+curl -s -X PUT $BASE/vaults/prod/keys/&lt;key-id&gt;/rotationpolicy \
+  -H &quot;Authorization: Bearer $SOFIA_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;rotate_after_days&quot;:90,&quot;notify_before_expiry_days&quot;:14,
+       &quot;expiry_days&quot;:365,&quot;enabled&quot;:true}' | jq .
+</pre></div>
+<p>All four JSON fields are required over HTTP too — same full-replace contract; an omitted field silently zeroes itself rather than leaving the stored value unchanged.</p>
+<p>Deleting the policy stops the scheduler touching this key; the key itself, and manual <code>keys rotate</code>, are unaffected:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys rotation-policy delete &lt;key-id&gt; --vault prod
+# Rotation policy for key &lt;key-id&gt; deleted successfully
+
+rocketvault keys rotation-policy delete &lt;key-id&gt; --vault prod
+# Error: no rotation policy exists for key &lt;key-id&gt;
+</pre></div>
+<p>What actually executes on schedule:</p>
+<ul>
+<li>✅ the rotation itself (<code>RotationExecutor.Check</code> sweeps due, enabled policies)</li>
+<li>✅ <code>expiry_days</code> — <code>RotateKey</code> stamps <code>ExpiresAt</code> on every rotation</li>
+<li>❌ <code>notify_before_expiry_days</code> — <strong>stored and never read</strong>. Per-vault webhook <em>config</em> exists (<code>rocketvault vault-webhook</code>), but nothing sends. There is no outbound HTTP anywhere in the vault/secret/key service packages.</li>
+</ul>
+<blockquote>
+<p>Do not build an operational process that depends on RocketVault warning you before expiry.</p>
+</blockquote>
+<p>Key <strong>import</strong> does not exist:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys import ...
+# Error: unknown command &quot;import&quot; for &quot;rocketvault keys&quot;
+</pre></div>
+<p><code>ActionKeysImport</code> is in the Crypto Officer bundle but no route maps to it either.</p>
+<hr>
+<h2 id="journey-d--cicd-service-account-sign-only">Journey D — CI/CD Service Account, Sign-Only</h2>
+<p><strong>Actor</strong>: <code>ci-payments-svc</code> — REST only; service accounts never use the CLI session cache</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Wren grants the role (note --principal-type).
+rocketvault vault-access grant ci-payments-svc --role &quot;Key Vault Crypto User&quot; \
+  --principal-type service_account --vault prod
+
+rocketvault vault-access list --vault prod --output json
+</pre></div>
+<p>The pipeline itself:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">SVC_TOKEN=$(curl -s -X POST $BASE/oauth2/token \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;grant_type&quot;:&quot;client_credentials&quot;,
+       &quot;client_id&quot;:&quot;ci-payments-svc&quot;,&quot;client_secret&quot;:&quot;'&quot;$VAULT_CLIENT_SECRET&quot;'&quot;}' \
+  | jq -r .access_token)
+
+# Allowed:
+curl -s -X POST $BASE/vaults/prod/keys/&lt;key-id&gt;/sign \
+  -H &quot;Authorization: Bearer $SVC_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;value&quot;:&quot;'&quot;$DATA&quot;'&quot;,&quot;algorithm&quot;:&quot;RS256&quot;}' | jq -r .value
+
+# Denied — Crypto User has no keys/create:
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $BASE/vaults/prod/keys \
+  -H &quot;Authorization: Bearer $SVC_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;name&quot;:&quot;scratch&quot;,&quot;type&quot;:&quot;RSA&quot;,&quot;bits&quot;:2048}'
+# 403
+</pre></div>
+<p>A service account's grant runs the <strong>same <code>HasDataAction</code> codepath</strong> as a human's, with the same per-vault scoping.</p>
+<blockquote>
+<p><strong>Threat-model precision</strong>: Crypto User <em>does</em> include <code>update</code> and <code>backup</code>. A backup blob is master-key-encrypted ciphertext, not plaintext PEM — but it is still key material.</p>
+</blockquote>
+<hr>
+<h2 id="journey-e--narrowest-possible-crypto-grant">Journey E — Narrowest Possible Crypto Grant</h2>
+<p><strong>Actor</strong>: <code>checkout-api-svc</code></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant checkout-api-svc \
+  --role &quot;Key Vault Crypto Service Encryption User&quot; \
+  --principal-type service_account --vault prod
+</pre></div>
+<p>Wrap/unwrap round-trip over the CLI (using an operator's session, to demonstrate the shape):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">MATERIAL=$(openssl rand -base64 32)
+
+WRAPPED=$(rocketvault keys wrap --key-id &lt;rsa-key-id&gt; \
+            --key-material &quot;$MATERIAL&quot; --vault prod)
+
+rocketvault keys unwrap --key-id &lt;rsa-key-id&gt; \
+  --wrapped-key &quot;$WRAPPED&quot; --vault prod
+# prints $MATERIAL back
+</pre></div>
+<blockquote>
+<p>The CLI's wrap/unwrap <strong>always requests RSA-OAEP</strong> — there is no <code>--algorithm</code> flag on either command. AES key wrapping is REST-only.</p>
+</blockquote>
+<p>The service's own calls, and the failure that matters:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Allowed:
+curl -s -X POST $BASE/vaults/prod/keys/&lt;key-id&gt;/wrap \
+  -H &quot;Authorization: Bearer $CHECKOUT_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;plaintext_key&quot;:&quot;'&quot;$MATERIAL&quot;'&quot;,&quot;algorithm&quot;:&quot;RSA-OAEP&quot;}' | jq -r .wrapped_key
+
+# Denied — this role has no keys/encrypt. A bug that calls the wrong
+# endpoint fails closed rather than silently doing different crypto:
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $BASE/vaults/prod/keys/&lt;key-id&gt;/encrypt \
+  -H &quot;Authorization: Bearer $CHECKOUT_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;algorithm&quot;:&quot;RSA-OAEP-256&quot;,&quot;value&quot;:&quot;'&quot;$DATA&quot;'&quot;}'
+# 403
+</pre></div>
+<p>On HSM-backed keys, wrap/unwrap is limited to AES-KW and the RSA-OAEP variants. <code>A128CBC</code>/<code>A192CBC</code>/<code>A256CBC</code> are rejected on wrap because the wrap contract carries <strong>no IV channel</strong>; CBC and GCM are available through <code>encrypt</code>/<code>decrypt</code>, which do round-trip the IV.</p>
+<hr>
+<h2 id="journey-f--crypto-user-hits-the-rotation-policy-wall">Journey F — Crypto User Hits the Rotation-Policy Wall</h2>
+<p><strong>Actor</strong>: <code>cryptouser</code>, granted <code>Key Vault Crypto User</code> and nothing else</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant cryptouser --role &quot;Key Vault Crypto User&quot; --vault prod
+</pre></div>
+<p>Allowed:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">CU_TOKEN=$(curl -s -X POST $BASE/users/login -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;username&quot;:&quot;cryptouser&quot;,&quot;password&quot;:&quot;&lt;pw&gt;&quot;,&quot;totp_code&quot;:&quot;&lt;code&gt;&quot;}' | jq -r .token)
+
+curl -s -X POST $BASE/vaults/prod/keys/&lt;key-id&gt;/encrypt \
+  -H &quot;Authorization: Bearer $CU_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;algorithm&quot;:&quot;RSA-OAEP-256&quot;,&quot;value&quot;:&quot;'&quot;$DATA&quot;'&quot;}'
+# 200
+
+curl -s -X PUT $BASE/vaults/prod/keys/&lt;key-id&gt; \
+  -H &quot;Authorization: Bearer $CU_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;tags&quot;:[&quot;updated-by-cryptouser&quot;]}'
+# 200 — Crypto User gained `update` on 2026-08-18
+</pre></div>
+<p>Denied — all three methods:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">for M in GET PUT DELETE; do
+  curl -s -o /dev/null -w &quot;$M %{http_code}\n&quot; -X $M \
+    $BASE/vaults/prod/keys/&lt;key-id&gt;/rotationpolicy \
+    -H &quot;Authorization: Bearer $CU_TOKEN&quot;
+done
+# GET 403
+# PUT 403
+# DELETE 403
+</pre></div>
+<p><strong>The contrast check that proves these are real authorization denials</strong>, not an endpoint quirk:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -o /dev/null -w '%{http_code}\n' \
+  $BASE/vaults/prod/keys/&lt;key-id&gt;/rotationpolicy \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot;
+# 404 rotation policy not found — a genuine &quot;nothing set yet&quot;
+</pre></div>
+<p>Same route, different principal, different failure mode. A test that only asserts &quot;non-200&quot; cannot tell these apart. The exclusion is deliberate: commit <code>cdd591c</code> added the rotation-policy actions to Crypto Officer and Administrator only, stating <em>&quot;not Crypto User, matching Azure.&quot;</em></p>
+<hr>
+<h2 id="journey-g--delegating-access-management-without-handing-over-the-keys">Journey G — Delegating Access Management Without Handing Over the Keys</h2>
+<p><strong>Actor</strong>: Wren (global role <code>user</code> — <code>vault-access</code> checks no global role)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant wren --role &quot;Key Vault Data Access Administrator&quot; --vault prod
+
+# As Wren:
+rocketvault users login --username wren --password '&lt;pw&gt;' --totp-code &quot;$WREN_TOTP&quot;
+
+# 1. She can grant other roles — this succeeds:
+rocketvault vault-access grant marcus --role &quot;Key Vault Secrets User&quot; --vault prod
+# granted Key Vault Secrets User to marcus in vault (assignment 8516e7fd-...)
+
+rocketvault vault-access list --vault prod --output json
+
+# 2. She has zero data-plane access herself:
+rocketvault secrets list --vault prod
+# Error: forbidden: no role grants ... in this vault
+
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/secrets \
+  -H &quot;Authorization: Bearer $WREN_TOKEN&quot;
+# 403
+
+# 3. Self-escalation is blocked — the eight-role allow-list:
+rocketvault vault-access grant wren --role &quot;Key Vault Purge Operator&quot; --vault prod
+# Error: grant failed: role cannot be granted by a non-admin caller
+
+rocketvault vault-access grant wren --role &quot;Key Vault Data Access Administrator&quot; --vault prod
+# Error: grant failed: role cannot be granted by a non-admin caller
+
+# 4. The same allow-list gates revoke, so she can't escape via the back door:
+rocketvault vault-access revoke &lt;purge-operator-assignment-id&gt; --vault prod
+# Error: role cannot be granted by a non-admin caller
+
+# 5. Access policies are a different surface entirely — admin-only:
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/access-policies \
+  -H &quot;Authorization: Bearer $WREN_TOKEN&quot;
+# 403 Insufficient permissions: admin role required to manage access policies
+</pre></div>
+<p>She <em>can</em> grant any of the eight: Administrator, Reader, Secrets User, Secrets Officer, Crypto User, Crypto Officer, Certificates Officer, Crypto Service Encryption User.</p>
+<p>Marcus, holding only Secrets User, cannot even list assignments:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access list --vault prod   # as marcus
+# Error: permission denied: admin, vaults/manage, or Key Vault Data Access
+#        Administrator required for this vault
+</pre></div>
+<p>Reference:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access roles     # no auth required; lists all 11 + deprecated legacy names
+</pre></div>
+<hr>
+<h2 id="journey-h--emergency-lockout-via-explicit-deny">Journey H — Emergency Lockout via Explicit Deny</h2>
+<p><strong>Actor</strong>: Priya (admin — Wren cannot do this)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Baseline: Marcus can read.
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/secrets/&lt;secret-id&gt; \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot;
+# 200
+
+# Suspend one operation on one resource — no CLI command; HTTP only.
+POLICY_ID=$(curl -s -X POST $BASE/access-policies \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;principal_id&quot;:&quot;&lt;marcus-user-id&gt;&quot;,&quot;principal_type&quot;:&quot;user&quot;,
+       &quot;resource_type&quot;:&quot;secrets&quot;,&quot;operation&quot;:&quot;get&quot;,&quot;effect&quot;:&quot;deny&quot;,
+       &quot;vault_id&quot;:&quot;&lt;prod-vault-id&gt;&quot;}' | jq -r .id)
+
+curl -s $BASE/vaults/prod/secrets/&lt;secret-id&gt; \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot;
+# 403 Forbidden: access policy denied      &lt;-- note the DIFFERENT string
+
+curl -s $BASE/access-policies/principal/&lt;marcus-user-id&gt; \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; | jq '.total'
+# 1
+
+# Marcus's role assignment is untouched:
+rocketvault vault-access list --vault prod --output json | jq '.[] | select(.principal_username==&quot;marcus&quot;)'
+
+# Investigation clears him — revert instantly, no restart, no cache flush.
+curl -s -X DELETE $BASE/access-policies/$POLICY_ID -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot;
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/secrets/&lt;secret-id&gt; \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot;
+# 200
+</pre></div>
+<p>Two different <code>403</code> strings, two different gates:</p>
+<ul>
+<li><code>access policy denied</code> → Gate 2, rejected <strong>before</strong> the role check ran</li>
+<li><code>no role assignment grants this operation in this vault</code> → Gate 3</li>
+</ul>
+<hr>
+<h2 id="journey-i--revoking-a-compromised-service-account">Journey I — Revoking a Compromised Service Account</h2>
+<p><strong>Actor</strong>: Wren</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Capture the assignment ID first — you need it to revoke.
+ASSIGNMENT_ID=$(rocketvault vault-access list --vault prod --output json \
+  | jq -r '.[] | select(.principal_username==&quot;checkout-api-svc&quot;) | .id')
+
+# Prove the token works right now, and record its claims.
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/keys/&lt;key-id&gt; \
+  -H &quot;Authorization: Bearer $SVC_TOKEN&quot;
+# 200
+
+echo &quot;$SVC_TOKEN&quot; | cut -d. -f2 | base64 -d 2&gt;/dev/null | jq '{exp,jti,sub}'
+
+# Revoke.
+rocketvault vault-access revoke &quot;$ASSIGNMENT_ID&quot; --vault prod
+# revoked assignment &lt;id&gt;
+
+# SAME token, no new login, no reissue:
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/keys/&lt;key-id&gt; \
+  -H &quot;Authorization: Bearer $SVC_TOKEN&quot;
+# 403
+
+echo &quot;$SVC_TOKEN&quot; | cut -d. -f2 | base64 -d 2&gt;/dev/null | jq '{exp,jti,sub}'
+# byte-identical to before — exp still ~55 minutes out
+</pre></div>
+<p>Nothing about the token changed. Only the <code>role_assignments</code> row did. Both <code>PolicyMiddleware</code> (HTTP) and <code>RequireDataAction</code> (CLI) call the same live <code>HasDataAction</code> lookup per request — no cache, no JWT-embedded claim, no revocation lag.</p>
+<p>Then rotate the key so any material the leaked credentials wrapped is invalidated going forward:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys rotate &lt;key-id&gt; --vault prod    # as sofia (crypto_manager)
+</pre></div>
+<hr>
+<h2 id="journey-j--retiring-a-vault-and-the-purge-trap">Journey J — Retiring a Vault (and the purge trap)</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Soft-delete cascades to contained secrets/keys/certs, stamping each
+# with the vault's own deleted_at.
+rocketvault vaults delete staging
+
+rocketvault vaults list --include-deleted --output json
+
+# Recovery cascades too — but ONLY restores children matching that exact
+# deleted_at timestamp.
+rocketvault vaults recover staging
+</pre></div>
+<blockquote>
+<p>A secret that had been soft-deleted <strong>individually, earlier</strong> carries a different <code>deleted_at</code> and is excluded by the <code>WHERE vault_id = ? AND deleted_at = ?</code> clause. It needs its own explicit restore. Don't assume vault recovery brings everything back.</p>
+</blockquote>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Separation of duties: a different principal authorizes the permanent purge.
+rocketvault vault-access grant ops-oncall --role &quot;Key Vault Purge Operator&quot; --vault staging
+
+rocketvault vaults delete staging
+rocketvault vaults purge staging      # as ops-oncall
+</pre></div>
+<p><code>ActionVaultPurge</code> is granted by <strong>no other role</strong> — not Administrator's data-plane bundle, not Crypto Officer.</p>
+<h3 id="-the-purge-trap">⚠️ The purge trap</h3>
+<p><code>PurgeVault</code> deletes the vault row and its <code>access_policies</code> rows and <strong>stops</strong>. No cascade call. No FK forcing it either — <code>secrets</code>/<code>keys</code>/<code>certificates</code> carry a plain <code>vault_id TEXT NOT NULL</code> with <strong>no</strong> <code>REFERENCES vaults(id)</code>, unlike <code>role_assignments.vault_id</code>, which does have <code>ON DELETE CASCADE</code>.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Verify the orphans directly — the API cannot show you them.
+sqlite3 /tmp/rv-test.db \
+  &quot;SELECT id, name, vault_id, deleted_at FROM secrets WHERE vault_id='&lt;purged-vault-id&gt;';&quot;
+# rows still present, still soft-deleted, pointing at a vault that no longer exists
+</pre></div>
+<p>They are unreachable through any route (vault-scoped routes 404 because the name no longer resolves; flat routes only ever hit <code>default</code>) and are never swept by the purge scheduler, which only purges individually-deleted <em>items</em>.</p>
+<p><strong>Purge a vault's contents item-by-item before purging the vault</strong>, or accept permanently orphaned rows.</p>
+<p>One guardrail does exist in the other direction:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># A vault containing any purge-protected item refuses bulk purge, fail-closed.
+rocketvault vaults purge &lt;vault-with-protected-contents&gt;
+# Error: ... purge protection enabled
+</pre></div>
+<hr>
+<h2 id="journey-k--the-clihttp-purge-divergence">Journey K — The CLI/HTTP Purge Divergence</h2>
+<p><strong>Actor</strong>: Priya, <code>admin</code>, with <strong>no</strong> Purge Operator grant in <code>dev</code></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vaults delete dev
+
+# HTTP — no admin bypass on this path:
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE $BASE/vaults/dev/purge \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot;
+# 403
+
+# CLI — admin bypass in CanPurgeVault:
+rocketvault vaults purge dev
+# succeeds
+</pre></div>
+<table>
+<thead>
+<tr>
+<th>Caller</th>
+<th>CLI <code>vaults purge</code></th>
+<th><code>DELETE /vaults/{name}/purge</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Non-admin with <strong>Key Vault Purge Operator</strong></td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><strong>Admin</strong> with no role grant</td>
+<td>✅ (admin bypass)</td>
+<td>❌ 403</td>
+</tr>
+</tbody>
+</table>
+<p>Same person, same authority, same vault — two different answers depending on which door she walks through. Confirm explicitly rather than assuming parity. (Correction 8's global-role gate is the <em>other</em>, larger divergence.)</p>
+<hr>
+<h2 id="journey-l--compliance-auditor">Journey L — Compliance Auditor</h2>
+<p><strong>Actor</strong>: Dae-Ho (global role <code>user</code>)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant daeho --role &quot;Key Vault Reader&quot; --vault prod
+rocketvault vault-access grant daeho --role &quot;Key Vault Reader&quot; --vault staging
+
+# As Dae-Ho — keys list/get need NO global role, only the data action:
+rocketvault users login --username daeho --password '&lt;pw&gt;' --totp-code &quot;$DAEHO_TOTP&quot;
+rocketvault keys list --vault prod --output json
+rocketvault secrets list --vault prod --output json      # metadata only
+rocketvault certificate get &lt;cert-id&gt; --vault prod
+
+rocketvault secrets get &lt;secret-id&gt; --vault prod
+# Error: forbidden — Reader holds readMetadata, not secrets/get
+</pre></div>
+<p><strong>Audit logs are admin-only and cut across all vaults</strong> — his Reader grants are irrelevant:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault audit logs --limit 50
+# Error: forbidden
+
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/audit/logs \
+  -H &quot;Authorization: Bearer $DAEHO_TOKEN&quot;
+# 403
+</pre></div>
+<p>Priya has to run them on his behalf:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault audit logs --from 2026-07-01 --to 2026-09-30 \
+  --action create_key --outcome success --limit 100 --output json
+
+rocketvault audit report --type soc2 --from 2026-07-01 --to 2026-09-30 --format csv
+rocketvault audit report --type gdpr --from 2026-07-01 --to 2026-09-30 \
+  --subject-id &lt;daeho-user-id&gt;
+
+rocketvault audit config                        # omitted/0 --retention-days = view, not set
+# Current audit log retention: 90 days
+
+rocketvault audit config --retention-days 90    # set — a daily job then purges older entries
+# Retention policy updated: 90 days
+</pre></div>
+<blockquote>
+<p><strong>Friction point worth flagging to whoever designs your compliance process</strong>: a vault-scoped read-only auditor cannot self-serve audit evidence.</p>
+</blockquote>
+<p>Tear down the temporary grant:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access revoke &lt;daeho-staging-assignment-id&gt; --vault staging
+</pre></div>
+<hr>
+<h2 id="journey-m--offboarding">Journey M — Offboarding</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># 1. Enumerate per vault — there is no &quot;revoke everything&quot; command.
+for V in default dev staging prod; do
+  echo &quot;== $V&quot;
+  rocketvault vault-access list --vault &quot;$V&quot; --output json \
+    | jq -r '.[] | select(.principal_username==&quot;marcus&quot;) | &quot;\(.id) \(.role)&quot;'
+done
+
+# 2. Revoke each. Takes effect on Marcus's very next request.
+rocketvault vault-access revoke &lt;assignment-id&gt; --vault dev
+
+# 3. Delete the account. His existing JWT should 401 immediately, not at TTL.
+rocketvault users delete &lt;marcus-user-id&gt;
+
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/dev/secrets \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot;
+# 401
+
+# 4. Clean up any explicit-deny policies naming him — user deletion does NOT
+#    remove these.
+curl -s $BASE/access-policies/principal/&lt;marcus-user-id&gt; \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; | jq -r '.policies[].id' \
+  | xargs -I{} curl -s -X DELETE $BASE/access-policies/{} \
+      -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot;
+
+# 5. Clear his cached CLI session on any shared machine (local only — this
+#    does NOT revoke the token server-side).
+rocketvault users logout
+</pre></div>
+<hr>
+<h2 id="journey-n--multi-vault-isolation-verification">Journey N — Multi-Vault Isolation Verification</h2>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Two users, one vault each.
+rocketvault vault-access grant alice --role &quot;Key Vault Secrets Officer&quot; --vault vault-a
+rocketvault vault-access grant bob   --role &quot;Key Vault Secrets Officer&quot; --vault vault-b
+
+# As alice, target vault-b's secret by its exact UUID:
+rocketvault secrets get &lt;vault-b-secret-id&gt; --vault vault-b
+# Error: forbidden: no role grants ... in this vault
+
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/vault-b/secrets/&lt;id&gt; \
+  -H &quot;Authorization: Bearer $ALICE_TOKEN&quot;
+# 403 — not a silent success, not a partial leak
+
+# `default` behaves identically to a named vault, except it cannot be deleted:
+rocketvault vaults delete default
+# Error: the default vault cannot be deleted
+</pre></div>
+<p><strong>Cache check — security-relevant, not a perf check.</strong> <code>vaultcache</code> sits directly in the authorization path:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># With cache.vaults.enabled: true and a live TTL window:
+curl -s -X PATCH $BASE/vaults/vault-a \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;enabled&quot;:false}'
+
+# Immediately resolve the same vault by name through a different path:
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/vault-a/secrets \
+  -H &quot;Authorization: Bearer $ALICE_TOKEN&quot;
+# Confirm this does not reflect a stale cached vault record in a way that
+# produces an incorrect authorization decision.
+</pre></div>
+<hr>
+<h2 id="journey-o--migrating-a-secret-set-to-a-new-vault-and-retiring-the-original">Journey O — Migrating a Secret Set to a New Vault, and Retiring the Original</h2>
+<p><strong>Actor</strong>: Marcus (<code>secrets_manager</code>, continuing his Journey B ownership of <code>dev</code>)</p>
+<p>Payments is being split into its own vault. Priya provisions it and grants Marcus the same role he already holds in <code>dev</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vaults create payments
+
+rocketvault vault-access grant priya  --role &quot;Key Vault Administrator&quot; --vault payments
+rocketvault vault-access grant marcus --role &quot;Key Vault Secrets Officer&quot; --vault payments
+</pre></div>
+<p>Marcus needs a fresh credential for the service account that will live in the new vault. <code>generate-password</code> runs entirely locally — no login, no vault, nothing stored:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users login --username marcus --password '&lt;pw&gt;' --totp-code &quot;$MARCUS_TOTP&quot;
+
+GENERATED_PW=$(rocketvault secrets generate-password --length 24 --special=true \
+  | awk '{print $NF}')
+# Generated password: &lt;24 random chars&gt;
+
+rocketvault secrets create payments-db-pass &quot;$GENERATED_PW&quot; --tags prod,db --vault payments
+</pre></div>
+<blockquote>
+<p><code>generate-password</code> and the HTTP <code>POST /vaults/{name}/secrets/generate</code> route are <strong>not</strong> the same operation. The CLI command only prints a string — it never touches a vault. The HTTP route (<code>generateSecret</code> in <code>api/secrets.go</code>) takes a <code>name</code> and creates the secret in one step, storing the generated value directly. There is no CLI command that does what the HTTP route does, and no HTTP route that does what the CLI command does.</p>
+</blockquote>
+<p>Now migrate the rest of the deprecated <code>payments-legacy</code>-tagged secrets out of <code>dev</code>. Export is encrypted by default — passphrase from the environment so the run is non-interactive:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export ROCKETVAULT_EXPORT_PASSPHRASE='correct-horse-battery-staple'
+
+rocketvault secrets export --file /tmp/payments-legacy.json \
+  --tags payments-legacy --vault dev
+# Secrets exported successfully
+# Format: json
+# Encryption: passphrase (argon2id + AES-256-GCM)
+# File: /tmp/payments-legacy.json
+</pre></div>
+<p>Import into the new vault — first, the wrong-usage case, with the passphrase deliberately unset:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">unset ROCKETVAULT_EXPORT_PASSPHRASE
+
+rocketvault secrets import --file /tmp/payments-legacy.json --vault payments
+# Error: /tmp/payments-legacy.json is an encrypted export but no passphrase
+# is available: pass --passphrase-file or set ROCKETVAULT_EXPORT_PASSPHRASE
+</pre></div>
+<p>Wrong passphrase fails differently — the file is real, the key derived from it just doesn't open the envelope:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">echo 'not-the-real-passphrase' &gt; /tmp/wrong-pass.txt
+rocketvault secrets import --file /tmp/payments-legacy.json \
+  --passphrase-file /tmp/wrong-pass.txt --vault payments
+# Error: failed to decrypt /tmp/payments-legacy.json: wrong passphrase or corrupted file
+</pre></div>
+<p>Correct passphrase, correct target vault:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">echo 'correct-horse-battery-staple' &gt; /tmp/export-pass.txt
+rocketvault secrets import --file /tmp/payments-legacy.json \
+  --passphrase-file /tmp/export-pass.txt --vault payments
+# Secrets imported successfully
+# Imported: 6
+# Skipped: 0
+# Failed: 0
+
+rocketvault secrets list --vault payments --tags payments-legacy --output json
+</pre></div>
+<blockquote>
+<p><code>--format</code> describes the payload inside the envelope, not the file on disk. A sealed CSV export is still a JSON envelope on the filesystem — it's read back with <code>--format csv</code>, never <code>--format json</code>, even though <code>file /tmp/whatever</code> would report it as JSON.</p>
+</blockquote>
+<p>With the copies confirmed in <code>payments</code>, retire the originals in <code>dev</code> — soft-delete only, no CLI recover/purge:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets delete &lt;legacy-secret-id&gt; --vault dev
+</pre></div>
+<blockquote>
+<p><code>secrets delete</code> has no <code>--force</code>/confirmation prompt and no equivalent &quot;delete all matching tag&quot; batch form — each of the six migrated secrets is deleted by its own UUID, one invocation per secret.</p>
+</blockquote>
+<p>Equivalent HTTP for export/import — genuinely different request shapes, not just a different auth header. Export is a JSON body returning raw file bytes; import is <code>multipart/form-data</code>, matching what <code>cmd/secrets/export.go</code>/<code>import.go</code>'s remote-mode paths (<code>cliclient.ExportSecretsRemote</code>/<code>ImportSecretsRemote</code>) send under the hood:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">MARCUS_TOKEN=$(curl -s -X POST $BASE/users/login -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;username&quot;:&quot;marcus&quot;,&quot;password&quot;:&quot;&lt;pw&gt;&quot;,&quot;totp_code&quot;:&quot;'&quot;$MARCUS_TOTP&quot;'&quot;}' | jq -r .token)
+
+curl -s -X POST $BASE/vaults/dev/secrets/export \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;format&quot;:&quot;json&quot;,&quot;tags&quot;:[&quot;payments-legacy&quot;],&quot;include_tags&quot;:true,
+       &quot;encrypt&quot;:true,&quot;passphrase&quot;:&quot;correct-horse-battery-staple&quot;}' \
+  -o /tmp/payments-legacy-http.json
+# Content-Disposition: attachment; filename=secrets-export-&lt;timestamp&gt;.json
+
+curl -s -X POST $BASE/vaults/payments/secrets/import \
+  -H &quot;Authorization: Bearer $MARCUS_TOKEN&quot; \
+  -F &quot;file=@/tmp/payments-legacy-http.json&quot; \
+  -F &quot;format=json&quot; -F &quot;overwrite=false&quot; \
+  -F &quot;passphrase=correct-horse-battery-staple&quot; | jq .
+# {&quot;success&quot;:true,&quot;message&quot;:&quot;Successfully imported 6/6 secrets&quot;, ...}
+</pre></div>
+<p>No CLI/HTTP authorization divergence here beyond Correction 8's usual gate: both <code>export</code> and <code>import</code> still require <code>admin</code> or <code>secrets_manager</code> globally on the CLI path (Marcus holds <code>secrets_manager</code>), on top of the same <code>ActionSecretsGet</code>/<code>ActionSecretsSet</code> vault role check HTTP enforces alone.</p>
+<hr>
+<h2 id="journey-p--a-user-role-principal-runs-the-entire-secret-rotation-lifecycle">Journey P — A <code>user</code>-Role Principal Runs the Entire Secret-Rotation Lifecycle</h2>
+<p><strong>Actor</strong>: Wren (global role <code>user</code> — elsewhere in this doc she only ever grants/revokes role assignments, per Correction 8's table)</p>
+<p>The platform team wants <code>prod-db-password</code> (a database credential secret Marcus created earlier under <code>Key Vault Secrets Officer</code>) rotated automatically every 30 days. They hand the on-call rotation duty to Wren. She has no <code>admin</code>, no <code>secrets_manager</code> — just <code>user</code> — so the first thing worth checking is whether that even matters for this feature.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant wren --role &quot;Key Vault Secrets Officer&quot; --vault prod
+# granted Key Vault Secrets Officer to wren in vault (assignment ...)
+
+# As Wren:
+rocketvault users login --username wren --password '&lt;pw&gt;' --totp-code &quot;$WREN_TOTP&quot;
+</pre></div>
+<p><strong>The contrast that matters.</strong> Try the thing Correction 8 already documents as gated, then the thing it documents as not:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets create scratch-secret 'x' --vault prod
+# Error: forbidden: requires admin or secrets_manager role
+
+rocketvault secrets rotation create --name db-cred-30d --interval 30 \
+  --reminder 7 --auto-rotate --vault prod
+# Rotation policy created successfully
+# Policy ID: &lt;policy-id&gt;
+# Name: db-cred-30d
+# Interval: 30 days
+# Auto-rotate: true
+</pre></div>
+<p>Same principal, same vault, same <code>user</code> global role. One command is <code>forbidden</code> before it even looks at her vault grant; the other never asks the question. This is the divergence Correction 8 calls out but no journey had actually run until now.</p>
+<p>Assign it to the real secret:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation assign --policy-id &lt;policy-id&gt; \
+  --secret-id &lt;secret-id&gt; --vault prod
+# Policy assigned to secret successfully.
+</pre></div>
+<blockquote>
+<p><strong>Re-running <code>assign</code> for the same pair does not fail cleanly.</strong> It bubbles a raw, triple-wrapped driver error instead of a friendly &quot;already assigned&quot;:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation assign --policy-id &lt;policy-id&gt; --secret-id &lt;secret-id&gt; --vault prod
+# Error: failed to assign policy to secret: failed to assign policy to secret: failed to
+# assign policy to secret: UNIQUE constraint failed: secret_policies.secret_id, secret_policies.policy_id
+</pre></div>
+<p>The service wraps once, the CLI wraps again on top of <code>RunE</code>'s own <code>%w</code> — three layers of the same sentence around one SQLite constraint name. If you're scripting this, check for <code>UNIQUE constraint failed</code> in the output rather than matching a clean message.</p>
+</blockquote>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation list --vault prod
+# ID           NAME         INTERVAL  AUTO-ROTATE  ENABLED  CREATED
+# --           ----         --------  -----------  -------  -------
+# &lt;policy-id&gt;...  db-cred-30d  30 days   true         true     2026-08-25
+#
+# Found 1 rotation policies
+</pre></div>
+<p><strong>Thirty days pass.</strong> The server has been running the whole time — <code>secret rotation scheduler started</code> at boot — but this policy's auto-rotate would only fire from inside that live <code>serve</code> process, silently, on its own schedule. Wren checks in instead of waiting to find out:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation status --vault prod
+# Rotation Status
+# ────────────────────────────────────────
+# Secrets due for rotation:
+#   - Secret &lt;secret-id-abbrev&gt;... (next: 2026-09-24)
+#
+# Active rotation policies:
+#   - db-cred-30d: every 30 days (auto-rotate enabled)
+</pre></div>
+<p>An incident that week means the credential needs rotating right now, not on the scheduler's clock. <code>rotate</code> is the only CLI path to that, and it still needs a value source:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation rotate --secret-id &lt;secret-id&gt; --policy-id &lt;policy-id&gt; --vault prod
+# Error: no new value: pass --value &lt;value&gt; to set one, or --generate to have one generated
+
+rocketvault secrets rotation rotate --secret-id &lt;secret-id&gt; --policy-id &lt;policy-id&gt; \
+  --generate --length 24 --vault prod
+# Secret rotated successfully.
+
+rocketvault secrets rotation history --secret-id &lt;secret-id&gt; --vault prod
+# ROTATED_AT        TRIGGERED_BY  PREV_VERSION  NEW_VERSION  NOTES
+# ----------        ------------  ------------  -----------  -----
+# 2026-08-25 22:24  manual        1             2
+#
+# Found 1 rotation events
+</pre></div>
+<blockquote>
+<p><code>TRIGGERED_BY</code> reads <code>manual</code> here — and always will, even for a scheduler-driven rotation. <code>model.TriggerScheduled</code> exists in <code>model/rotation.go</code> but is never referenced by any code path; both the CLI's manual <code>rotate</code> and the background scheduler funnel through the same <code>PerformManualRotation</code>, which unconditionally hardcodes <code>TriggeredBy: model.TriggerManual</code>. The column exists but does not actually distinguish rotation sources. Nothing outside RocketVault was told about the new value either way — whatever consumes <code>prod-db-password</code> still needs updating by hand.</p>
+</blockquote>
+<p><strong>Migration.</strong> The service this credential belongs to is being decommissioned in favor of a managed database, so the rotation duty ends. Turn off auto-rotate first — it's a partial update, so only the flags actually passed change:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation update --id &lt;policy-id&gt; --auto-rotate=false --vault prod
+# Rotation policy updated successfully.
+</pre></div>
+<p>Then take the secret out of rotation and remove the policy entirely:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets rotation unassign --policy-id &lt;policy-id&gt; --secret-id &lt;secret-id&gt; --vault prod
+# Policy removed from secret successfully.
+
+rocketvault secrets rotation unassign --policy-id &lt;policy-id&gt; --secret-id &lt;secret-id&gt; --vault prod
+# Error: failed to remove policy from secret: failed to remove policy from secret: policy assignment not found
+
+rocketvault secrets rotation delete --id &lt;policy-id&gt; --vault prod
+# Rotation policy deleted successfully.
+
+rocketvault secrets rotation delete --id &lt;policy-id&gt; --vault prod
+# Error: failed to delete rotation policy: failed to delete rotation policy: rotation policy not found
+</pre></div>
+<blockquote>
+<p>Deleting the policy does not touch <code>prod-db-password</code> or its rotation history — <code>secrets rotation history --secret-id &lt;secret-id&gt; --vault prod</code> still shows the <code>manual</code> entry above, now with a <code>PolicyID</code> that no longer resolves to anything. Past events outlive the policy that caused them, by design.</p>
+</blockquote>
+<p><strong>Confirming Correction 9's other half of the claim</strong> — that this whole surface has no HTTP route at all, so a would-be REST client gets a plain 404, not a 403:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/secrets/rotation-policies \
+  -H &quot;Authorization: Bearer $WREN_TOKEN&quot;
+# 404
+
+curl -s -o /dev/null -w '%{http_code}\n' $BASE/secrets/rotation \
+  -H &quot;Authorization: Bearer $WREN_TOKEN&quot;
+# 404
+</pre></div>
+<p>There is no authorization decision to make over HTTP for this feature — it isn't wired up, period.</p>
+<table>
+<thead>
+<tr>
+<th>Caller (global role <code>user</code>, <code>Key Vault Secrets Officer</code> in <code>prod</code>)</th>
+<th><code>secrets rotation create/assign/rotate/update/delete/unassign/list/history/status</code></th>
+<th><code>secrets create/update/delete</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CLI</td>
+<td>✅ — no global role checked</td>
+<td>❌ <code>forbidden: requires admin or secrets_manager role</code></td>
+</tr>
+<tr>
+<td>HTTP</td>
+<td>404 — no route exists</td>
+<td>✅ (same vault data action, no global-role concept on this path)</td>
+</tr>
+</tbody>
+</table>
+<p>Every other mutating resource in this codebase — <code>keys</code>, <code>certificate</code>, <code>secrets</code> itself — layers a CLI-only global-role gate on top of the vault check. <code>secrets rotation *</code> is the one command tree where a bare <code>user</code> global role, plus nothing but an ordinary vault role assignment, is sufficient to create policies, assign them to secrets, and rotate credentials on demand. Whether that is an oversight or a deliberate scope decision, it is not documented anywhere as intentional — it is simply what the code does.</p>
+<hr>
+<h2 id="journey-q--certificate-manager-issues-chains-and-retires-a-tls-certificate">Journey Q — Certificate Manager Issues, Chains, and Retires a TLS Certificate</h2>
+<p><strong>Actor</strong>: Noor (<code>certificate_manager</code> — required for every CLI certificate mutation, exactly like Sofia's <code>crypto_manager</code> requirement in Journey C)</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Priya creates the account with the global role Correction 8 requires.
+rocketvault users create --new-username noor --new-password '&lt;pw&gt;' --new-role certificate_manager
+
+# Grant the vault role. &quot;Key Vault Certificates Officer&quot; is full control —
+# read/create/update/delete/backup/restore/recover/purge — and one of the
+# eight roles Wren (Data Access Administrator) is allowed to grant.
+rocketvault vault-access grant noor --role &quot;Key Vault Certificates Officer&quot; --vault prod
+</pre></div>
+<p>A certificate is always issued over an existing key, and key creation needs <code>crypto_manager</code>/<code>admin</code> — a role Noor's <code>certificate_manager</code> does <strong>not</strong> cover. She cannot self-serve the key:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users login --username noor --password '&lt;pw&gt;' --totp-code &quot;$NOOR_TOTP&quot;
+
+rocketvault keys create --name checkout-tls-leaf --type RSA --bits 2048 --vault prod
+# Error: forbidden: requires admin or crypto_manager role
+</pre></div>
+<p>Sofia (<code>crypto_manager</code>) creates the two keys this journey needs — one for the CA, one for the leaf certificate it will sign:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Sofia:
+rocketvault keys create --name checkout-ca-key --type RSA --bits 4096 --vault prod
+rocketvault keys create --name checkout-tls-leaf --type ECDSA --curve P-384 --vault prod
+</pre></div>
+<p><strong>Self-signed certificate over an existing key</strong> — the simple case, no CA involved:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Noor:
+rocketvault certificates create --name checkout-tls-selfsigned \
+  --key-id &lt;checkout-tls-leaf-key-id&gt; --validity-days 365 --tags prod,tls --vault prod
+# ID    Name                       Created
+# &lt;id&gt;  checkout-tls-selfsigned    2026-08-25T...
+</pre></div>
+<p>Flag validation runs before any authorization or key lookup:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificates create --key-id &lt;checkout-tls-leaf-key-id&gt; --validity-days 365 --vault prod
+# Error: name, key-id, and validity-days are required
+</pre></div>
+<p><strong>CA-signed issuance</strong> — first stand up a CA certificate (<code>--is-ca</code>, self-signed since it has no <code>--ca-cert-id</code> of its own), then issue the leaf against it:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificates create --name checkout-root-ca \
+  --key-id &lt;checkout-ca-key-id&gt; --is-ca --validity-days 3650 --vault prod
+# ID           Name              Created
+# &lt;ca-cert-id&gt; checkout-root-ca  2026-08-25T...
+
+rocketvault certificates create --name checkout-tls-chained \
+  --key-id &lt;checkout-tls-leaf-key-id&gt; --ca-cert-id &lt;ca-cert-id&gt; \
+  --validity-days 90 --tags prod,tls --auto-renew --renewal-days 30 --vault prod
+</pre></div>
+<p><code>--is-ca</code> and <code>--ca-cert-id</code> are mutually exclusive by design — a certificate is either the CA or signed by one, never both in the same call:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificates create --name broken --key-id &lt;checkout-tls-leaf-key-id&gt; \
+  --is-ca --ca-cert-id &lt;ca-cert-id&gt; --validity-days 90 --vault prod
+# Error: failed to create certificate: cannot issue a CA-signed certificate as a CA: intermediate CA certificates are not supported
+</pre></div>
+<p><code>--auto-renew</code>/<code>--renewal-days</code> only arm the background scheduler; nothing about <code>notify_before_expiry_days</code>-style delivery exists here either (Journey C's finding holds for certs too — check the scheduler ran, don't expect a notification).</p>
+<p>List and inspect, <code>certificate</code> (singular) works everywhere as an alias for <code>certificates</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate list --vault prod --output json
+rocketvault certificate get &lt;ca-cert-id&gt; --vault prod
+# ID    Name              Tags  Expires        AutoRenew  Created
+# &lt;id&gt;  checkout-root-ca        2036-08-23...  false      2026-08-25T...
+</pre></div>
+<p><code>get</code>/<code>list</code> need no global role — only the vault data action, same as <code>keys get</code>/<code>list</code> in Correction 8's table. Daeho, holding only <code>Key Vault Reader</code> in <code>prod</code>, can run both against these certs without ever touching <code>certificate_manager</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate list --vault prod   # as daeho, works
+</pre></div>
+<p><strong>Update</strong> — metadata only, never re-signs, and only the flags you actually pass take effect:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate update &lt;leaf-cert-id&gt; --tags prod,tls,rotated-2026-08 --vault prod
+# Certificate updated successfully: &lt;leaf-cert-id&gt;
+
+rocketvault certificate get &lt;leaf-cert-id&gt; --vault prod --output json | jq .name
+# unchanged — --name was not passed on this call
+</pre></div>
+<p><strong>Renew</strong> — re-issues in place over the <em>same</em> key and ID, and, unlike every other mutating cert command, checks <code>certificates/create</code>, not <code>certificates/update</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate renew &lt;leaf-cert-id&gt; --validity-days 180 --vault prod
+# Certificate renewed successfully!
+# Certificate ID: &lt;leaf-cert-id&gt;
+# Validity: 180 days
+</pre></div>
+<p>Prove the divergence: grant a role with <code>update</code> but not <code>create</code>, and renew still fails even though update-only commands would succeed for that same principal:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-access grant noor --role &quot;Key Vault Certificate User&quot; --vault staging
+# As noor, in staging (Certificate User = read only, per model/azure_roles.go):
+rocketvault certificate renew &lt;staging-cert-id&gt; --vault staging
+# Error: failed to renew certificate: forbidden: no role grants Microsoft.KeyVault/vaults/certificates/create in this vault
+</pre></div>
+<p>A CA cert past its own validity window, or disabled, blocks renewal of anything it signed — the renewal is refused, never silently downgraded to self-signed.</p>
+<p><strong>Delete</strong> — soft-delete only; the CLI has no <code>recover</code>/<code>purge</code> for certificates (REST-only, mirroring Correction 9's key-lifecycle gaps):</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault certificate delete &lt;leaf-cert-id&gt; --vault prod
+# Certificate deleted successfully: &lt;leaf-cert-id&gt;
+
+rocketvault certificate list --vault prod --output json | jq '[.[] | select(.id==&quot;&lt;leaf-cert-id&gt;&quot;)]'
+# []  -- gone from the listing, but still present as a soft-deleted row
+
+rocketvault certificate get &lt;leaf-cert-id&gt; --vault prod
+# Error: failed to get certificate: certificate not found: certificate not found or access denied
+</pre></div>
+<p>Recovering it needs REST, since the CLI has no equivalent subcommand:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X POST $BASE/vaults/prod/deleted/certificates/&lt;leaf-cert-id&gt;/restore \
+  -H &quot;Authorization: Bearer $NOOR_OR_ADMIN_TOKEN&quot;
+</pre></div>
+<hr>
+<h2 id="journey-r--disaster-recovery-scheduled-backups-and-a-post-rotation-restore">Journey R — Disaster Recovery: Scheduled Backups and a Post-Rotation Restore</h2>
+<p><strong>Actor</strong>: Priya (<code>admin</code>) — per <code>backup --help</code>: <em>&quot;Every subcommand requires the global admin role.&quot;</em> This is a pure global-role gate: <code>requireBackupAdmin</code> checks only the <code>admin</code> role, with no vault lookup at all. A <code>--vault</code> flag does exist (inherited from the root command on every subcommand), but <code>backup</code> never reads it — it has no vault-scoped form, and an operator with a role in only one vault cannot use these commands regardless of what they pass to <code>--vault</code>.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault backup list --dir /var/backups/rocketvault   # as marcus (secrets_manager)
+# Error: forbidden: requires admin role
+</pre></div>
+<h3 id="setting-up-the-nightly-job">Setting up the nightly job</h3>
+<p>RocketVault has no built-in backup scheduler — no <code>--schedule</code> flag, no daemon. &quot;Scheduled&quot; means an external cron/systemd timer invoking the CLI directly. The cached CLI session (see Global setup) refreshes itself transparently via its refresh token, so a non-interactive cron job keeps working as long as someone has logged in at least once and the refresh token hasn't itself expired:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># /etc/cron.d/rocketvault-backup
+0 2 * * * root cd /opt/rocketvault &amp;&amp; ./rocketvault backup create \
+  --file /var/backups/rocketvault/nightly-$(date +\%F).backup \
+  &gt;&gt; /var/log/rv-backup.log 2&gt;&amp;1
+</pre></div>
+<p>Priya runs the same command by hand first, to confirm the pipeline actually works before trusting it to cron:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault backup create --file /var/backups/rocketvault/nightly-2026-08-25.backup
+# Backup created successfully.
+# File: /var/backups/rocketvault/nightly-2026-08-25.backup
+# Encrypted: true
+</pre></div>
+<blockquote>
+<p>The file destination is <code>--file</code>/<code>-f</code>, not <code>--output</code>/<code>-o</code>. <code>backup create</code> briefly had its own local <code>--output</code> flag for the file path, which collided with root's persistent <code>--output</code> (the table/json/yaml format selector) and made <code>backup create --output &lt;path&gt;</code> fail outright with a format-validation error; fixed 2026-08-22 by renaming it to <code>--file</code>/<code>-f</code> (<code>.claude/known-bugs.md</code> § B48).</p>
+</blockquote>
+<h3 id="confirming-what-landed">Confirming what landed</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault backup list --dir /var/backups/rocketvault
+# TIMESTAMP  VERSION  TABLES  RECORDS  ENCRYPTED  FILE                          SIZE    MODIFIED
+# ---------  -------  ------  -------  ---------  ----                          ----    --------
+# -          -        -       -        true       nightly-2026-08-25.backup     482113  2026-08-25 02:00:01
+#
+# Found 1 backup files in /var/backups/rocketvault
+</pre></div>
+<p>The dashes are correct, not broken: <code>backup list</code> never touches the master key, so a default encrypted backup can't be parsed for its timestamp/version/table/record counts — only filename, size and mtime come from the filesystem. <code>backup create</code>'s own <code>Encrypted: true</code> line at write time is your real confirmation; <code>list</code> is for inventory, not verification.</p>
+<h3 id="the-incident">The incident</h3>
+<p>Wednesday: a bad migration corrupts the <code>secrets</code> table in <code>prod</code>. Priya decides to restore Monday night's backup rather than hand-repair rows.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Stop the server first. Nothing in &quot;backup restore&quot; enforces this -- it's
+# operator discipline, not a safety check the command performs.
+sudo systemctl stop rocketvault
+
+rocketvault backup restore --file /var/backups/rocketvault/nightly-2026-08-25.backup
+# WARNING: This will replace all existing data in the database.
+# Backup file: /var/backups/rocketvault/nightly-2026-08-25.backup
+# Decrypt: true
+# Are you sure you want to continue? (type 'yes' to confirm): yes
+# Error: restore failed: failed to read backup file: failed to decrypt backup: failed to decrypt: cipher: message authentication failed
+</pre></div>
+<p><strong>The trap</strong>: on Tuesday, between the backup and the incident, ops ran routine master-key hygiene:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault master-key rotate --new-key-env NEW_MASTER_KEY --yes
+</pre></div>
+<p>Both <code>secrets.value</code>-style column encryption <em>and</em> a backup file's own <code>--encrypt</code> wrapper are sealed with the exact same <code>master_key</code> from configuration (<code>common.EncryptSecret</code>/<code>DecryptSecret</code>, both reading <code>viper.GetString(&quot;master_key&quot;)</code>). <code>master-key rotate</code> re-encrypts every live row onto the new key, but — as its own <code>--help</code> states outright — <em>&quot;Backup files made with 'rocketvault backup create' are not touched by this command and stay sealed under the old key, so keep that key if you may need to restore one.&quot;</em> Monday's backup is still wrapped in Monday's key; the server's config now holds Tuesday's. Same GCM auth-tag failure either layer, whichever fails first.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Point this instance at the key that was active when the backup was taken,
+# just for the restore -- not the current production key.
+export MASTER_KEY=&quot;&lt;the pre-rotation key, saved before Tuesday's rotation&gt;&quot;
+
+rocketvault backup restore --file /var/backups/rocketvault/nightly-2026-08-25.backup
+# WARNING: This will replace all existing data in the database.
+# Backup file: /var/backups/rocketvault/nightly-2026-08-25.backup
+# Decrypt: true
+# Are you sure you want to continue? (type 'yes' to confirm): yes
+# Database restored successfully from /var/backups/rocketvault/nightly-2026-08-25.backup
+</pre></div>
+<blockquote>
+<p><strong>This is why <code>master-key rotate</code>'s own help says to &quot;keep that key if you may need to restore one.&quot;</strong> Losing the pre-rotation key permanently is not just an inconvenience here — every secret value, key PEM and certificate private key restored from that backup is column-level ciphertext sealed under the same lost key, independent of the file wrapper. There is no recovery path if it's gone.</p>
+</blockquote>
+<p>Two more things worth knowing before declaring the incident closed:</p>
+<ul>
+<li><strong>The restore doesn't undo Tuesday's rotation.</strong> The just-restored <code>secrets</code>/<code>keys</code>/<code>certificates</code> rows are back to being sealed under the <em>old</em> key, while <code>MASTER_KEY</code> is still pointed at it. Before pointing the running server back at the new key, either re-run <code>master-key rotate</code> onto the new key again, or leave the config on the old key — decide deliberately, don't let it default silently.</li>
+<li><strong>Restore only refills tables present in the file.</strong> <code>RestoreBackup</code>'s <code>Long</code> text is explicit: <em>&quot;Tables the backup does not contain are left alone.&quot;</em> A table added by a schema migration after Monday's backup was taken is untouched by the restore — for better or worse, restoring an old backup does not roll back your schema, only your data.</li>
+</ul>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">sudo systemctl start rocketvault
+# Have Marcus and Sofia re-run &quot;users login&quot; -- the sessions table is one of
+# the tables the backup covers, wiped and refilled like every other, so any
+# server-side session state created after Monday's backup point is gone too.
+</pre></div>
+<hr>
+<p><strong>What a RocketVault backup is, precisely, for anyone planning a DR runbook around it</strong>: one JSON file, whole-instance (every vault, no vault-scoped restriction — the inherited <code>--vault</code> flag is accepted but ignored), covering every table verbatim — including soft-deleted rows, users, role assignments, sessions and the audit log. Secret values and private keys inside it are exactly as sealed as they are in the live database, regardless of the file's own <code>--encrypt</code> flag; <code>--encrypt</code> only wraps the outer JSON blob, using whatever <code>master_key</code> was configured at that moment. There is no dry-run for restore and no partial/selective restore — it is whole-file, whole-transaction, or nothing.</p>
+<hr>
+<h2 id="journey-s--rotating-the-master-key-after-an-infrastructure-departure">Journey S — Rotating the Master Key After an Infrastructure Departure</h2>
+<p><strong>Actor</strong>: Priya (<code>admin</code> — <code>master-key rotate</code> checks the global admin role only; unlike the Correction 8 gate on <code>keys</code>/<code>secrets</code>, <code>crypto_manager</code> and <code>secrets_manager</code> do <strong>not</strong> get a pass here)</p>
+<p><strong>Why</strong>: An SRE who held root SSH access to the database host is leaving the team. Journey M's offboarding steps (revoke role assignments, delete the account) stop that person authenticating through the API or CLI ever again — but they did nothing about the master key. Anyone with filesystem access to the host could have copied <code>dev-rocketvault.db</code> (or a Postgres dump) alongside <code>.rocketvault.yaml</code>'s <code>master_key</code> before their access was cut. Every <code>secrets.value</code>, <code>secret_versions.value</code>, <code>keys.value</code>, <code>key_versions.value</code>, and <code>certificates.private_key</code> row is still decryptable with whatever key they walked out with. Revoking their <code>role_assignments</code> rows, as Journey I and M do, is irrelevant to this threat — it only gates authenticated requests through the running server. The only remedy for a key that has already left the building is <code>rocketvault master-key rotate</code>.</p>
+<p>This is a different kind of operation from everything else in this document: not vault-scoped (<code>--vault</code> is accepted as a global flag but does not apply — the key protects every vault at once), not a role-assignment decision, and — per <code>docs/runbooks/master-key-rotation.md</code> — meant to run <strong>offline</strong>, in a maintenance window.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Confirm the gate first — daeho (global role `user`) cannot even dry-run this.
+rocketvault master-key rotate --new-key-env NEW_MASTER_KEY --dry-run
+# Error: forbidden: requires admin role
+</pre></div>
+<h3 id="step-1--generate-the-new-key-and-avoid-the-naming-trap">Step 1 — Generate the new key, and avoid the naming trap</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export NEW_MASTER_KEY=&quot;$(openssl rand -base64 32)&quot;
+</pre></div>
+<blockquote>
+<p>Do not leave a stray <code>MASTER_KEY</code> exported in this shell. Viper resolves an exported <code>MASTER_KEY</code> before the config file, so <code>--old-key-env</code> (left unset here, defaulting to the config file) would silently pick up that leftover value instead of <code>.rocketvault.yaml</code>'s <code>master_key</code>. If it happens to equal the new key, the run refuses outright — and note the tool always labels the default source &quot;config file (master_key)&quot; in this error, even when an exported <code>MASTER_KEY</code> is what actually supplied the value:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: the new master key is identical to the old one (old key source: config file
+(master_key)); note that an exported MASTER_KEY environment variable takes
+precedence over the config file
+</pre></div>
+<p>Store <code>$NEW_MASTER_KEY</code> in a secret manager now — if it's lost after the real run, every row it just resealed is unrecoverable.</p>
+</blockquote>
+<h3 id="-nothing-in-the-code-stops-you-from-running-this-against-a-live-server">⚠️ Nothing in the code stops you from running this against a live server</h3>
+<p>The <code>--help</code> text and the runbook both say to stop the server first. That is advice, not an enforced precondition — <code>runMasterKeyRotate</code> never checks whether the server process is running, holds a lock, or has a PID file. The actual guard is narrower and comes later: every <code>UPDATE</code> in <code>rekey.go</code>'s <code>applyBatch</code> is qualified with <code>AND &lt;column&gt; = ?</code> bound to the exact ciphertext read during the earlier plan pass, so a row rewritten by a still-live server between plan and apply matches zero rows and the batch aborts:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: master key rotation failed: keys.value: row [&lt;id&gt;] changed while the rotation
+was running (0 rows updated, expected 1) — stop the RocketVault server and re-run
+</pre></div>
+<p>That failure only kills the batch and target it happened in — targets are processed one table at a time (<code>secrets</code> → <code>secret_versions</code> → <code>keys</code> → <code>key_versions</code> → <code>certificates</code>), each fully read-then-written, and batches within a target commit independently at <code>--batch-size</code> (default 100). Run this against a live server and the realistic outcome isn't corruption, it's a <strong>partially rotated instance</strong>: <code>secrets</code> fully done, <code>keys</code> half-done, and an error telling you to stop the server and re-run. Re-running with the same key pair is safe — <code>classify()</code> recognizes rows already sealed under the new key and skips them — but &quot;safe to resume&quot; is not the same guarantee as &quot;one atomic operation.&quot; Stop the server. The advice is load-bearing even though nothing enforces it.</p>
+<h3 id="step-2--back-up-first">Step 2 — Back up first</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">cp dev-rocketvault.db dev-rocketvault.db.pre-rotation-2026-08-25   # SQLite
+# pg_dump &quot;$DATABASE_URL&quot; &gt; rocketvault-pre-rotation.sql           # Postgres
+</pre></div>
+<p>This backup plus the still-valid old key is the only rollback path — <code>master-key rotate</code> has no inverse command. (See Journey R for what happens if you rotate the key <em>before</em> verifying you can still restore an old backup with the key you're about to retire.)</p>
+<h3 id="step-3--dry-run-and-read-the-report-before-touching-anything">Step 3 — Dry run, and read the report before touching anything</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault master-key rotate --new-key-env NEW_MASTER_KEY --dry-run
+</pre></div>
+<p>Verified output, run against a real dev instance:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Old master key source: config file (master_key)
+New master key source: environment variable NEW_MASTER_KEY
+Mode: DRY RUN (no rows will be written)
+
+TABLE            COLUMN       ROWS  RE-ENCRYPTED  ALREADY NEW KEY  SKIPPED (HSM)
+secrets          value        3     3             0                0
+secret_versions  value        0     0             0                0
+keys             value        1     0             0                1
+key_versions     value        0     0             0                0
+certificates     private_key  0     0             0                0
+
+Total rows re-encrypted: 3
+
+Dry run complete. No rows were modified.
+</pre></div>
+<p><code>SKIPPED (HSM)</code> counts key rows whose <code>value</code> column is a <code>pkcs11:</code>-prefixed token label rather than sealed PEM — that key material never left the HSM in the first place, so there is nothing for this command to touch, and it is <strong>not</strong> covered by this rotation at all. A departing engineer's exposure to HSM-backed key material is a separate PKCS#11/PIN-rotation problem, not this one.</p>
+<h3 id="step-4--run-it-for-real">Step 4 — Run it for real</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault master-key rotate --new-key-env NEW_MASTER_KEY
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">This rewrites every master-key-encrypted row in the database.
+Stop the RocketVault server and take a database backup before continuing.
+Type 'yes' to continue:
+</pre></div>
+<blockquote>
+<p><strong>Scripting trap</strong>: typing anything other than the exact string <code>yes</code> — including a blank line — prints <code>Aborted.</code> and <strong>exits 0</strong>. A maintenance script that only checks the exit code will read an aborted, no-op rotation as a success. For unattended runs, pass <code>--yes</code> explicitly rather than piping an answer to the prompt.</p>
+</blockquote>
+<p>On confirmation, the table reprints with the same counts as the dry run, followed by:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Rotation complete. Set the new key as master_key in the configuration (or as the
+MASTER_KEY environment variable) and restart the server.
+Reminder: existing database backup files were sealed under the old key and are not
+affected by this rotation — they will not restore once the old key is retired.
+</pre></div>
+<h3 id="step-5--finish-the-job-by-hand">Step 5 — Finish the job by hand</h3>
+<p>Nothing is written back to the config file for you:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># .rocketvault.yaml
+master_key: &quot;&lt;value of $NEW_MASTER_KEY&gt;&quot;
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault serve
+rocketvault secrets list --vault default    # doesn't just list — GetSecret-style
+                                             # paths decrypt every value; a clean
+                                             # read is real proof config and DB agree
+</pre></div>
+<blockquote>
+<p>Don't use <code>certificates list</code> as your restart check — <code>ListCertificates</code>/<code>GetCertificate</code> never touch <code>private_key</code>, so a clean <code>certificates list</code> proves nothing about whether the rotation and the running config actually agree.</p>
+</blockquote>
+<h3 id="the-compromise-driven-trade-off-this-journey-exists-for">The compromise-driven trade-off this journey exists for</h3>
+<p>Rotating the key stops the departed engineer's copy from decrypting <em>future</em> writes and any row this run touched. It does <strong>not</strong> retroactively protect anything if you keep the old key around — and you may need to, briefly, for restore purposes:</p>
+<table>
+<thead>
+<tr>
+<th>Guarantee</th>
+<th>Real behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A row is never clobbered by two concurrent writers</td>
+<td>✅ guarded <code>UPDATE ... AND value = &lt;ciphertext read during plan&gt;</code></td>
+</tr>
+<tr>
+<td>The whole run is one atomic transaction</td>
+<td>❌ commits per batch, per target — a crash mid-run leaves some tables rotated, others not</td>
+</tr>
+<tr>
+<td>Server-stopped precondition is enforced</td>
+<td>❌ advisory only (help text + runbook); no lock, no PID check</td>
+</tr>
+<tr>
+<td>Safe to re-run after an interruption</td>
+<td>✅ <code>classify()</code> skips rows already on the new key</td>
+</tr>
+<tr>
+<td>Existing <code>backup create</code> archives get rotated too</td>
+<td>❌ never — they stay sealed under the retired key permanently (Journey R)</td>
+</tr>
+<tr>
+<td>New key is written to <code>.rocketvault.yaml</code> for you</td>
+<td>❌ manual edit, always</td>
+</tr>
+</tbody>
+</table>
+<p>That last two rows are the actual bite of this journey: if the whole point is to invalidate a key someone else copied, keeping it around &quot;just in case an old backup needs restoring&quot; defeats the purpose, but destroying it immediately makes every pre-rotation backup permanently unrestorable. Decide which risk you're accepting — retire the old key on a delay long enough to cover your backup retention window, or take a fresh <code>backup create</code> immediately after rotating and delete the old backups outright — before you throw the old key away. <code>master-key rotate</code> will not remind you to make that call; the runbook (<code>docs/runbooks/master-key-rotation.md</code>, step 8) is the only place it's written down.</p>
+<hr>
+<h2 id="journey-t--working-across-prod-staging-and-dev-from-one-laptop">Journey T — Working Across Prod, Staging, and Dev From One Laptop</h2>
+<p><strong>Actor</strong>: Priya (<code>admin</code>) — the same <code>dev</code>/<code>staging</code>/<code>prod</code> vaults from Journey A, now reached from three separately-running RocketVault instances instead of one shared box.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Each environment is its own RocketVault deployment (Journey A's vaults
+# just happen to share names with these). --default-username and
+# --default-vault are optional; --server is the only required flag.
+rocketvault context add prod \
+  --server https://vault.prod.internal \
+  --default-username ops-oncall --default-vault prod
+
+rocketvault context add staging \
+  --server https://vault.staging.internal:8443 \
+  --default-vault staging
+
+rocketvault context add dev \
+  --server http://localhost:8774 --default-vault dev
+
+rocketvault context list
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Name     Server                               Default Username  Default Vault  Current
+-------  -----------------------------------  ----------------  -------------  -------
+dev      http://localhost:8774                                  dev
+prod     https://vault.prod.internal          ops-oncall        prod
+staging  https://vault.staging.internal:8443                    staging
+</pre></div>
+<p><code>context add</code> only ever writes to <code>~/.rocketvault/contexts.json</code> — it never dials the server, so a typo'd URL or an environment that's down still saves cleanly. It also stores no credentials.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use prod
+rocketvault context current
+# prod -&gt; https://vault.prod.internal
+
+rocketvault context list --output json | jq '.[] | select(.current)'
+</pre></div>
+<h3 id="the-mistake-this-journey-is-actually-about">The mistake this journey is actually about</h3>
+<p>Priya finishes an incident call against <code>prod</code>, leaves the context switched to it, and goes back to normal <code>dev</code> work the next morning without running <code>context use dev</code> first. What actually happens depends entirely on <em>which</em> command she runs — and the answer is not uniform across the CLI today.</p>
+<p><strong>For most resource groups, the CLI protects her — loudly, not silently:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault keys list --vault dev
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: remote mode (--server/ROCKETVAULT_ADDR/context &quot;https://vault.prod.internal&quot;) is not yet supported for &quot;rocketvault keys list&quot;; unset it to run against the local instance
+</pre></div>
+<p><code>keys</code>, <code>certificate</code>, <code>vaults</code>, <code>vault-access</code>, <code>users</code>, and <code>audit</code> have no remote adapter yet (<code>isRemoteCapableCommand</code> in <code>cmd/root.go</code> only recognizes <code>secrets</code> subcommands — see the command-support matrix in <code>docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md</code>, which lays out the eventual full-coverage plan; today only <code>secrets</code> actually has a working adapter). With any context active, <code>persistentPreRun</code>'s remote-target guard refuses to run them at all rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.</p>
+<p><strong>For <code>secrets</code>, there is no such guard — it has its own remote adapter, and the danger it creates is real, even if not literally silent:</strong></p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets delete &lt;secret-id&gt;
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: remote authentication failed - no credentials provided and no cached session found for server https://vault.prod.internal; pass --username/--password/--totp-code
+</pre></div>
+<p><code>secrets</code> commands authenticate per server: <code>common.SanitizeServerKey(target.Server)</code> (e.g. <code>srv_https_vault.prod.internal</code>) is baked into the session's filename inside the <strong>same</strong> <code>~/.rocketvault/sessions/</code> directory local sessions already use — there's no separate cache location. Critically, the &quot;current session&quot; pointer is a single global file shared between local and remote mode, so authenticating against a remote server can silently become the session a later bare command reuses.</p>
+<p>That's exactly what happens next. Priya authenticates once to unblock the on-call task:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets create db-password 'CorrectHorseBatteryStaple' \
+  --username ops-oncall --password '&lt;prod-password&gt;' --totp-code 482913
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Secret created successfully.
+</pre></div>
+<p>This caches a session keyed to <code>srv_https_vault.prod.internal</code> and marks it &quot;current.&quot; Nothing about that command's success mentions it also just became the default session for <em>any</em> future bare command, regardless of vault.</p>
+<p><strong>The trap.</strong> The next morning, back at her desk:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># No --server, no --username, no confirmation prompt.
+rocketvault secrets delete &lt;secret-id&gt;
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">time=&quot;…&quot; level=info msg=&quot;Authenticated against remote server&quot; command=&quot;Delete a secret by ID&quot; server=&quot;https://vault.prod.internal&quot; user=ops-oncall
+Secret deleted successfully.
+</pre></div>
+<p>The cached session is reused with <strong>no server-side revalidation</strong> — the CLI only checks the session's local <code>expires_at</code>, it never re-checks the token against the server before firing the request. There is no interactive confirmation and no highlighted warning box, but it is not entirely silent either: both lines above are real <code>logrus</code> INFO-level output on stderr (default RocketVault CLI logging is unconfigured — stderr, Info level, text formatter), and both name the target server. An operator watching their terminal, rather than piping stdout elsewhere and ignoring stderr, would see <code>server=https://vault.prod.internal</code> printed twice. The danger is real but is &quot;easy to miss,&quot; not &quot;silent.&quot;</p>
+<p>If <code>--vault</code> is omitted, the command falls back to the context's <code>--default-vault</code> (<code>prod</code>) rather than erroring — <code>cmd/secrets/delete.go</code> reads <code>target.Vault</code> only when the <code>--vault</code> flag was left empty.</p>
+<blockquote>
+<p><strong>Practical rule</strong>: run <code>rocketvault context current</code> before any <code>secrets create/update/delete/import</code> you intend to be local, and actually read stderr rather than discarding it — it's the one command group where a stale <code>context use</code> has a real blast radius. For every other resource group, forgetting to switch back just produces the loud <code>remote mode ... is not yet supported</code> error above, which is annoying but safe.</p>
+</blockquote>
+<h3 id="localhost-doesnt-get-you-out-of-this"><code>localhost</code> doesn't get you out of this</h3>
+<p>Pointing the <code>dev</code> context at <code>http://localhost:8774</code> does <strong>not</strong> put non-<code>secrets</code> commands back in local mode — it's still &quot;a context is active,&quot; and the guard doesn't special-case loopback addresses:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use dev
+rocketvault keys list --vault dev
+# Error: remote mode (--server/ROCKETVAULT_ADDR/context &quot;http://localhost:8774&quot;)
+#        is not yet supported for &quot;rocketvault keys list&quot;; unset it to run
+#        against the local instance
+</pre></div>
+<p>To go back to genuine local mode — direct database access, no HTTP hop, every command group available — the context has to be cleared, not merely pointed at localhost:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context unset
+rocketvault keys list --vault dev     # works again — no context, no --server, no ROCKETVAULT_ADDR
+</pre></div>
+<p><code>context unset</code> clears only the &quot;current&quot; pointer; the saved <code>prod</code>/<code>staging</code>/<code>dev</code> entries are untouched and <code>context use &lt;name&gt;</code> switches back to any of them later. <code>context remove &lt;name&gt;</code> is the stronger operation — it deletes the saved context outright, and if it happened to be the active one, clears the current pointer as a side effect too (so a removed context can't be left dangling as &quot;current&quot;).</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context remove staging
+rocketvault context list
+# staging is gone; if it had been current, `current` now reports local mode
+</pre></div>
+<h3 id="precedence-for-when-more-than-one-of-these-is-in-play">Precedence, for when more than one of these is in play</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use prod
+rocketvault secrets list --server https://vault.staging.internal:8443
+# Targets staging, not prod — an explicit --server always wins.
+</pre></div>
+<p><code>cliclient.ResolveTarget</code> checks, in order: the <code>--server</code> flag, then <code>ROCKETVAULT_ADDR</code>, then the active context. A context is the lowest-precedence, easiest-to-forget-about source of a target — which is exactly why it's the one that causes surprises days after it was set, not the one typed on the command line in front of you.</p>
+<hr>
+<h2 id="journey-u--wiring-and-not-relying-on-a-vault-webhook">Journey U — Wiring (and Not Relying On) a Vault Webhook</h2>
+<p><strong>Actor</strong>: Priya (<code>admin</code>) — webhook config is authorized by <code>CanManageVault</code>, the same vault-<em>management</em> tier as <code>vaults create/update/delete</code> (Correction 8's table), <strong>not</strong> a per-vault Azure data-plane role. Holding <code>Key Vault Administrator</code> or <code>Key Vault Crypto Officer</code> in a vault is not enough.</p>
+<p>Journey C set a rotation policy on <code>payments-signing</code> with <code>--notify-before-expiry-days 14</code> and flagged that nothing reads that field. Priya goes looking for the obvious fix — point the vault at a webhook — and finds the gap one layer up.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya:
+rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault
+# Webhook configured for vault &quot;prod&quot;:
+#   URL: https://hooks.example/rocketvault
+#   Enabled: true
+#
+#   Signing Secret: XfUHEYSqLFk4IhYKn4Ilr3Q9EGMQGLKCpZWPgjB948c
+#
+# Store the signing secret now — it is not retrievable after this.
+</pre></div>
+<p>Verify, and confirm the secret really is show-once:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-webhook get --vault prod
+# Webhook for vault &quot;prod&quot;:
+#   URL: https://hooks.example/rocketvault
+#   Enabled: true
+#   Created: 2026-08-25T...
+#   Updated: 2026-08-25T...
+# (no Signing Secret field — get never emits it, on this call or any other)
+</pre></div>
+<p>The URL contract is enforced at set-time, not display-time — plain HTTP and embedded credentials are both rejected, and the rejection is careful not to echo a credential back into your terminal history or logs:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-webhook set --vault prod --url http://hooks.example/rocketvault
+# Error: set webhook failed: webhook url must be an absolute https URL: got scheme &quot;http&quot;
+
+rocketvault vault-webhook set --vault prod --url https://user:pass@hooks.example/rocketvault
+# Error: set webhook failed: webhook url must be an absolute https URL: must not embed
+# credentials (user:password@); authenticate the receiver with this vault's webhook
+# signing secret instead
+</pre></div>
+<p><strong>Sofia tries the same thing, holding <code>crypto_manager</code> globally and <code>Key Vault Crypto Officer</code> in <code>prod</code> — both denied</strong>, proving this sits in the vault-management tier, not the data-plane role table:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Sofia:
+rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault
+# Error: permission denied: managing webhook config for vault &quot;prod&quot; requires admin or vaults/manage
+
+curl -s -o /dev/null -w '%{http_code}\n' -X PUT $BASE/vaults/prod/webhook \
+  -H &quot;Authorization: Bearer $SOFIA_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;url&quot;:&quot;https://hooks.example/rocketvault&quot;}'
+# 403
+</pre></div>
+<p>Unlike <code>vaults purge</code> (Journey K), there is <strong>no CLI/HTTP divergence</strong> here: <code>cmd/vault-webhook/authz.go</code>'s <code>requireCanManageVault</code> and <code>api/vault_webhook.go</code>'s <code>resolveAndAuthorizeVault</code> both call the identical <code>authz.CanManageVault</code>. Same door, same answer, from either side.</p>
+<p>Equivalent HTTP, as Priya, for completeness:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">curl -s -X PUT $BASE/vaults/prod/webhook \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;url&quot;:&quot;https://hooks.example/rocketvault&quot;,&quot;rotate_secret&quot;:false}' | jq .
+# {&quot;url&quot;:&quot;...&quot;, &quot;enabled&quot;:true, &quot;created_at&quot;:&quot;...&quot;, &quot;updated_at&quot;:&quot;...&quot;}
+# — no signing_secret field on an update that didn't rotate one; it only
+# appears in the response body the moment one is minted (create, or
+# --rotate-secret / &quot;rotate_secret&quot;:true)
+
+curl -s $BASE/vaults/prod/webhook -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; | jq .
+curl -s -X DELETE $BASE/vaults/prod/webhook -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot;
+</pre></div>
+<p><code>delete</code> is idempotent on both surfaces — deleting a vault with no webhook configured still succeeds:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-webhook delete --vault prod
+# webhook configuration deleted for vault &quot;prod&quot;
+
+rocketvault vault-webhook delete --vault prod
+# webhook configuration deleted for vault &quot;prod&quot;    &lt;-- same message, not an error
+</pre></div>
+<blockquote>
+<h3 id="the-config-is-real-nothing-sends">The config is real. Nothing sends.</h3>
+<p><code>rocketvault vault-webhook set/get/delete</code> genuinely creates, encrypts, and stores a webhook config with a real signing secret — this is not vaporware. But as of this writing it is <strong>pure configuration with no consumer anywhere in the codebase</strong>: nothing in RocketVault ever makes an outbound HTTP call to a configured webhook URL — there is no sender, dispatcher, or delivery worker. <code>docs/superpowers/specs/2026-08-20-webhook-delivery-primitive-design.md</code> (status: <strong>Proposed</strong>, sub-project 2 of a 6-part plan against <code>.claude/known-bugs.md</code> § B27) lays out how a sender, signature scheme, and SSRF-safe dialer <em>would</em> work — but as of 2026-08-25 that design has not been built. Sub-projects 3–5 (the actual publishers — key-expiry, secret-reminder, certificate-expiry) come after it.</p>
+<p>This is the <strong>same gap Journey C already flagged from the other side</strong>: <code>notify_before_expiry_days</code> on a key rotation policy is stored and echoed back by <code>keys rotation-policy get</code>, but nothing reads it to trigger a send — because there is nothing downstream, webhook or otherwise, that a trigger could call into yet.</p>
+<p><strong>Do not build an operational process that depends on this webhook actually firing.</strong> Configuring it today buys you nothing operationally; it is safe to set up now only in the sense that flipping it on later (once a sender ships) will not require reconfiguring the URL or secret.</p>
+</blockquote>
+<hr>
+<h2 id="cli-quick-reference">CLI Quick Reference</h2>
+<h3 id="command-groups">Command groups</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users        admin | create | get | list | update | delete | login | logout
+rocketvault vaults       create | list | get | update | delete | recover | purge | preview-migration
+rocketvault vault-access roles | grant | revoke | list
+rocketvault vault-webhook get | set | delete
+rocketvault keys         create | get | list | update | delete | rotate | sign | verify | wrap | unwrap
+rocketvault keys rotation-policy  get | set | delete
+rocketvault secrets      create | get | list | update | delete | export | import | generate-password
+rocketvault secrets rotation  create | list | update | delete | assign | unassign | rotate | history | status
+rocketvault certificates create | list | get | update | delete | renew   (&quot;certificate&quot; also works, as an alias)
+rocketvault audit        logs | report | config
+rocketvault backup       create | list | restore
+rocketvault context      add | list | use | current | remove | unset
+rocketvault master-key   rotate
+</pre></div>
+<h3 id="flag-gotchas-worth-knowing">Flag gotchas worth knowing</h3>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Gotcha</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vaults create/delete/recover/purge/update</code></td>
+<td>Vault name is <strong>positional</strong>; these have no <code>--vault</code> flag</td>
+</tr>
+<tr>
+<td><code>users create --new-role</code></td>
+<td><strong>Repeatable</strong>, not comma-separated</td>
+</tr>
+<tr>
+<td><code>keys create --bits</code></td>
+<td>Help says &quot;2048 or 4096&quot; — <strong>3072 is also valid</strong>. Invalid sizes are rejected only after a full authenticated round trip, never at flag-parse time</td>
+</tr>
+<tr>
+<td><code>keys create --curve</code></td>
+<td>Help omits <strong>P-256K</strong>, which works. A P-256K key is stored with type <code>ES256K</code>, not <code>ECDSA</code> — tooling asserting <code>type == &quot;ECDSA&quot;</code> misses them silently</td>
+</tr>
+<tr>
+<td><code>keys create --type</code></td>
+<td>Accepts only <code>RSA</code>/<code>ECDSA</code>. <code>--type ES256K</code> is rejected; reach it via <code>--type ECDSA --curve P-256K</code></td>
+</tr>
+<tr>
+<td><code>keys create</code> (name)</td>
+<td>The CLI validates almost nothing about the name; HTTP enforces <code>^[a-zA-Z][a-zA-Z0-9-]{0,126}$</code>. A CLI-created key can violate a constraint HTTP would reject</td>
+</tr>
+<tr>
+<td><code>keys wrap/unwrap</code></td>
+<td><strong>No <code>--algorithm</code> flag</strong> — always RSA-OAEP</td>
+</tr>
+<tr>
+<td><code>keys rotation-policy set</code></td>
+<td><code>--rotate-after-days</code> and <code>--enabled</code> are <strong>both required on every call</strong> — it's a full replace (like the HTTP <code>PUT</code>), not a partial update</td>
+</tr>
+<tr>
+<td><code>keys sign/verify/wrap/unwrap --version</code></td>
+<td><code>0</code> or omitted = current version</td>
+</tr>
+<tr>
+<td>Duplicate key name</td>
+<td>Rejected only <em>after</em> RSA generation runs, with a raw unwrapped driver error (<code>UNIQUE constraint failed: keys.vault_id, keys.name</code> on SQLite)</td>
+</tr>
+<tr>
+<td><code>secrets rotation --auto-rotate</code></td>
+<td>The scheduler <strong>replaces the live value with a generated one</strong>. Nothing outside RocketVault is told</td>
+</tr>
+<tr>
+<td><code>--server</code> / <code>ROCKETVAULT_ADDR</code></td>
+<td>Not supported by every subcommand; some are local-only and will tell you to unset it</td>
+</tr>
+<tr>
+<td>HTTP <code>-HSM</code> type suffix</td>
+<td><code>buildKeyResponse</code> appends <code>-HSM</code> for PKCS#11-backed keys. <code>keys list --output json</code> still prints plain <code>RSA</code>/<code>ECDSA</code> — the suffix is added by the HTTP handler only</td>
+</tr>
+</tbody>
+</table>
+<h3 id="which-gate-produced-your-error">Which gate produced your error</h3>
+<table>
+<thead>
+<tr>
+<th>Message</th>
+<th>Gate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>forbidden: requires admin or crypto_manager role</code></td>
+<td><strong>CLI-only global role gate</strong> (Correction 8) — no HTTP equivalent</td>
+</tr>
+<tr>
+<td><code>Forbidden: access policy denied</code></td>
+<td>Gate 2 — explicit deny, before the role check</td>
+</tr>
+<tr>
+<td><code>forbidden: no role grants &lt;action&gt; in this vault</code> / <code>Forbidden: no role assignment grants this operation in this vault</code></td>
+<td>Gate 3 — deny-by-default, applies to global admins too</td>
+</tr>
+<tr>
+<td><code>Insufficient permissions: admin role required to manage access policies</code></td>
+<td>Access-policy surface, admin-only</td>
+</tr>
+<tr>
+<td><code>permission denied: admin, vaults/manage, or Key Vault Data Access Administrator required for this vault</code></td>
+<td>Management-level check</td>
+</tr>
+<tr>
+<td><code>grant failed: role cannot be granted by a non-admin caller</code></td>
+<td><code>ErrRoleNotGrantable</code> — eight-role allow-list</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="corrections-retained-from-v2">Corrections retained from v2</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>v1 claimed</th>
+<th>Actually true</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Global <code>admin</code> bypasses all vault checks</td>
+<td><strong>False.</strong> <code>HasDataAction</code> has no admin short-circuit. Admins must self-grant a role in each vault</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Cross-vault access returns 404</td>
+<td>Returns <strong>403 deny-by-default</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Crypto User &quot;can use a key, can't manage it&quot;</td>
+<td>Also has <code>update</code> and <code>backup</code> (added 2026-08-18)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Data Access Administrator manages access generally</td>
+<td>Role assignments <strong>only</strong>; access policies are a separate admin-only surface</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Revocation &quot;immediate for new requests&quot;</td>
+<td>Confirmed precisely: same token, byte-identical claims, 200 → 403</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Purging a vault cleans it up</td>
+<td><strong>Does not cascade</strong> — permanently orphans children</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Crypto Officer can import keys</td>
+<td><code>ActionKeysImport</code> is in the bundle but <strong>no route maps to it</strong></td>
+</tr>
+</tbody>
+</table>
+
+</main>
+<footer class="doc-footer"><a href="admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="assets/doc-theme.js"></script>
+</body>
+</html>

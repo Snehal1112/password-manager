@@ -170,6 +170,7 @@ rocketvault/
 - **[Testing Guide](docs/testing-guide.md)**: Comprehensive testing procedures and scenarios
 - **[Integration Examples](docs/integration-examples.md)**: Integration patterns and examples
 - **[CLI Usage Guide](docs/cli-guide.md)**: Step-by-step CLI walkthrough, first-time setup to everyday use
+- **[Vault, User & Access Journeys](docs/VAULT_USER_ACCESS_JOURNEYS_v3.md)**: 21 end-to-end scenarios organized by actor and role rather than by command — onboarding, delegated access management, emergency explicit-deny, offboarding, vault retirement, multi-vault isolation. Its commands are taken from `cmd/`, never invented, and where a capability has no CLI equivalent the journey says so instead of showing a plausible-looking invocation; several journeys exist specifically to document CLI/HTTP behaviour divergences (e.g. the `vaults purge` admin-bypass split described under Azure Role Additions above). Useful when you need to know how a role behaves in practice, not what a command's flags are
 - **[Setup Guide](doc/setup.md)**: Installation and initial configuration
 - **[v4.0.0 Azure RBAC Release Notes](docs/release-notes/v4.0.0-azure-rbac.md)**: Breaking changes, role table, and upgrade procedure
 - **[MCP Server Guide](docs/mcp-server.md)**: Running `rocketvault mcp` for Claude Code and Claude Desktop, capability tiers, and service-account setup

@@ -44,6 +44,7 @@ var docsList = []docEntry{
 	{"docs/runbooks/hsm-pin-rotation.md", "docs/runbooks/hsm-pin-rotation.html"},
 	{"docs/runbooks/master-key-rotation.md", "docs/runbooks/master-key-rotation.html"},
 	{"docs/usage-guide.md", "docs/usage-guide.html"},
+	{"docs/VAULT_USER_ACCESS_JOURNEYS_v3.md", "docs/VAULT_USER_ACCESS_JOURNEYS_v3.html"},
 }
 
 // extraFiles are hand-written HTML pages the docsList generator doesn't

@@ -221,6 +221,7 @@ rocketvault/
 ### Core Documentation
 
 - [Getting Started — Pick Your Path](docs/getting-started.md) - Which of the 9 ways to use RocketVault fits your use case
+- [Vault, User & Access Journeys](docs/VAULT_USER_ACCESS_JOURNEYS_v3.md) - 21 end-to-end scenarios by role, with the real CLI commands for each
 - [API Specification (OpenAPI/Swagger)](docs/api-specification.yaml) - Complete OpenAPI 3.0 specification
 - [API Developer Guide](docs/api-developer-guide.md) - Comprehensive guide for developers
 - [Integration Examples](docs/integration-examples.md) - Real-world integration examples
@@ -240,6 +241,7 @@ rocketvault/
 - [Azure Key Vault RBAC Parity](.claude/azure-keyvault-parity.md) - Feature-by-feature parity comparison with Azure Key Vault
 - [v4.0.0 Azure RBAC Release Notes](docs/release-notes/v4.0.0-azure-rbac.md) - Breaking changes, role table, and upgrade procedure
 - [Vault-Scoped Users Manual Test Guide](.claude/manual-test-vault-scoped-users.md) - End-to-end manual verification steps
+- [Vault, User & Access Journeys](docs/VAULT_USER_ACCESS_JOURNEYS_v3.md) - How the roles above behave in practice: onboarding, delegation, emergency deny, offboarding, and the CLI/HTTP divergences
 
 ### Additional Resources
 
