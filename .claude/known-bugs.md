@@ -3036,7 +3036,9 @@ know to pass credentials to an unrelated resource command instead. No data
 is at risk and no workaround is destructive, but the discoverability failure
 is total: the error names the wrong remedy.
 **Files**: `cmd/root.go` (`isRemoteCapableCommand` l.235-240, the guard
-l.593-598, `resolveRemoteAuthentication` l.411-491), `cmd/users/login.go`
+l.593-598, `resolveRemoteAuthentication` l.411-491), `cmd/users/login.go`,
+`cmd/users/login_oidc.go`, `cmd/users/logout.go`, `common/session.go:263-265`,
+`internal/vaultapi/login.go`
 
 **Symptom**: with a context active, the obvious command fails:
 
@@ -3071,24 +3073,47 @@ rocketvault secrets list --username admin --password <pw> --totp-code <code>
 Asking for a secret list is how you log in. The session it caches
 (`srv_<host>__<user>.json`) is then reused by later bare commands.
 
-**Fix**: `users login` needs a remote adapter, which requires user-facing
-coverage in `internal/vaultapi` — the package has no `users` methods at all.
-`vaultapi.Login` exists (`internal/vaultapi/login.go`, built for the MCP
-server's interactive-login tool) and already targets the correct route, so
-the CLI adapter is likely thin: add `login` to the remote-capable allowlist
-and dispatch to `vaultapi.Login`, caching the session exactly as
-`resolveRemoteAuthentication` does today.
+**Fix**: planned as
+`docs/superpowers/plans/2026-09-03-cli-remote-vaultapi-02b-remote-login.md`,
+a dedicated three-task plan sequenced right after `02a` rewrites the code
+this touches. The shape:
+widen the remote-capable allowlist beyond `secrets` to admit `users
+login`/`users logout`, and give `remotePersistentPreRun` an unauthenticated
+branch for them — `login` cannot require a token before it starts, since
+producing one is its whole job.
 
-Two partial reliefs are already planned and neither closes this:
-- `docs/superpowers/plans/2026-09-03-cli-remote-vaultapi-02-token-source.md`
-  adds `--client-id`/`--client-secret`, giving CI a remote identity with no
-  login step. That helps service accounts, not humans.
-- The deferred `users` spec named in
-  `docs/superpowers/specs/2026-09-03-cli-remote-vaultapi-consolidation-design.md`
-  ("Non-goals") is where the full group belongs.
+The adapter is thinner than the rest of the group but not free.
+`vaultapi.Login` (`internal/vaultapi/login.go`) already targets the correct
+route, but it returns only a `TokenSource` and a `LoginIdentity` — neither
+exposes the access or refresh token — and it seeds the source through
+`NewSessionSourceFromCache`, whose `SaveSession` defaults to a no-op by
+design (`sessionsource.go:98-101`, so the MCP server's in-chat login stays
+memory-only). No caller can persist the session it just created. The task
+therefore replaces `Login`'s trailing `expiry` parameter with a
+`LoginOptions{Expiry, SaveSession}` struct; the one production caller,
+`internal/mcpserver/tools_login.go:44`, keeps its behaviour by passing no
+hook.
 
-Until then, the guard's error message could at least name the real remedy
-for this one command rather than pointing at local mode.
+**Related defect found while designing the fix**: `logout` is broken in the
+same scenario, for a different reason. `runLogout` (`cmd/users/logout.go:58`)
+calls `common.DeleteSession(username)`, hardcoded to `LocalServerKey`
+(`common/session.go:263-265`), and its no-username path takes whatever
+`LoadCurrentSession` returns with no server check. Exempting it from the
+guard without more would make it delete the **local** session while a remote
+context is active — the wrong file, silently — and leave the remote session
+it was asked to clear in place. It needs `DeleteSessionForServer` plus the
+server-key guard `resolveRemoteAuthentication` already applies
+(`cmd/root.go:446-448`). Same task.
+
+One partial relief is already planned and does not close this: Task 1 of the
+same plan adds `--client-id`/`--client-secret`, giving CI a remote identity
+with no login step. That helps service accounts, not humans.
+
+The `users` *resource* commands (CRUD, bootstrap admin) stay deferred to the
+`users` spec named under "Non-goals" in
+`docs/superpowers/specs/2026-09-03-cli-remote-vaultapi-consolidation-design.md`.
+`vaultapi` has no coverage for them at all. Only the authentication pair
+moves.
 
 **Found**: manually, while verifying the B-adjacent refresh-path fix
 (`0924ba5`). The refresh itself worked; the failure surfaced only because
