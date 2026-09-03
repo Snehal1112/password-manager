@@ -3026,6 +3026,77 @@ and touching it wasn't part of that fix.
 
 ---
 
+### B54 — No way to log in to a remote server: `users login` is blocked by the remote-target guard, so a remote session can only be created as a side effect of a `secrets` command
+
+**Status**: Open, found 2026-09-03
+**Severity**: Medium — remote mode is reachable but its front door is not.
+A user with an active context who has no cached session (or whose refresh
+token has aged out) cannot authenticate by the documented command; they must
+know to pass credentials to an unrelated resource command instead. No data
+is at risk and no workaround is destructive, but the discoverability failure
+is total: the error names the wrong remedy.
+**Files**: `cmd/root.go` (`isRemoteCapableCommand` l.235-240, the guard
+l.593-598, `resolveRemoteAuthentication` l.411-491), `cmd/users/login.go`
+
+**Symptom**: with a context active, the obvious command fails:
+
+```
+$ rocketvault users login --username admin --password <pw> --totp-code <code>
+Error: remote mode (--server/ROCKETVAULT_ADDR/context "https://numericlabs.lxd")
+is not yet supported for "rocketvault users login"; unset it to run against the
+local instance
+```
+
+The error's advice — "unset it to run against the local instance" — is
+actively misleading here. Unsetting the context logs the user into the
+*local* instance, which is not what they asked for and leaves them no closer
+to a remote session.
+
+**Root cause**: `isRemoteCapableCommand` (`cmd/root.go:235-240`) admits only
+the seven `secrets` subcommands. `users login` is in `isSystemCommand` — which
+exempts it from *authentication*, not from the remote-target guard — and is
+neither `isContextGroup`, `isCobraBuiltinCommand`, nor `isLocalOnlyCommand`,
+so it falls through to the blanket refusal at `cmd/root.go:593-598`.
+
+Remote authentication does exist, but only inside
+`resolveRemoteAuthentication` (`cmd/root.go:421-438`), which calls
+`cliclient.LoginRemote` when `--username` and `--password` are present. That
+function runs in `remotePersistentPreRun`, which is reached only by a
+remote-capable command. So the only way to create a remote session today is:
+
+```bash
+rocketvault secrets list --username admin --password <pw> --totp-code <code>
+```
+
+Asking for a secret list is how you log in. The session it caches
+(`srv_<host>__<user>.json`) is then reused by later bare commands.
+
+**Fix**: `users login` needs a remote adapter, which requires user-facing
+coverage in `internal/vaultapi` — the package has no `users` methods at all.
+`vaultapi.Login` exists (`internal/vaultapi/login.go`, built for the MCP
+server's interactive-login tool) and already targets the correct route, so
+the CLI adapter is likely thin: add `login` to the remote-capable allowlist
+and dispatch to `vaultapi.Login`, caching the session exactly as
+`resolveRemoteAuthentication` does today.
+
+Two partial reliefs are already planned and neither closes this:
+- `docs/superpowers/plans/2026-09-03-cli-remote-vaultapi-02-token-source.md`
+  adds `--client-id`/`--client-secret`, giving CI a remote identity with no
+  login step. That helps service accounts, not humans.
+- The deferred `users` spec named in
+  `docs/superpowers/specs/2026-09-03-cli-remote-vaultapi-consolidation-design.md`
+  ("Non-goals") is where the full group belongs.
+
+Until then, the guard's error message could at least name the real remedy
+for this one command rather than pointing at local mode.
+
+**Found**: manually, while verifying the B-adjacent refresh-path fix
+(`0924ba5`). The refresh itself worked; the failure surfaced only because
+the suggested recovery step — re-authenticating with `users login` — turned
+out to be impossible while a context was active.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
