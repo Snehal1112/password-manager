@@ -3122,6 +3122,119 @@ out to be impossible while a context was active.
 
 ---
 
+### B55 — A duplicate resource name returns HTTP 500 with the SQL constraint in the response body, for secrets, keys and certificates alike
+
+**Status**: Open, found 2026-09-03
+**Severity**: Medium — a plain client error is reported as a server fault, and
+the response leaks the table and column names of the violated unique index.
+No data is at risk and the write is correctly rejected, but callers cannot
+distinguish "you chose a taken name" from "the vault is broken" by status
+code, and any client retrying on 5xx will retry forever. The information
+disclosure is the same class B24/B25 closed for PKCS#11 errors, in a path
+those fixes did not cover.
+**Files**: `internal/repositories/name_taken_errors.go:9`,
+`internal/repositories/secret_repository.go:199`,
+`internal/repositories/key_repository.go:391`,
+`internal/repositories/certificate_repository.go:444`,
+`api/errors_key.go:60-62` (the `default` arm)
+
+**Symptom**: reproduced live 2026-09-03 against a scratch instance by
+importing a key whose name already existed in the vault:
+
+```json
+{"detailed_error":"failed to store imported key: key \"imported-rsa\": a resource with this name already exists in this vault: UNIQUE constraint failed: keys.vault_id, keys.name",
+ "id":"Internal server error","message":"Internal server error","request_id":"req-91efe9c9","status_code":500}
+```
+
+**Root cause**: the sentinel exists and is raised correctly —
+`repositories.ErrNameTaken` is wrapped by all three repositories on a unique
+violation, alongside the driver's own error. Nothing maps it. `grep -rn
+ErrNameTaken api/ internal/services/` returns no hits at all, so
+`writeKeyError`'s switch (`api/errors_key.go`) never matches it and falls
+through to `default: c.SetInternalError(err)`, which serialises the whole
+wrapped chain — including the driver's `UNIQUE constraint failed: ...` — into
+`detailed_error`.
+
+This is **not** import-specific. The same sentinel is raised by
+`SecretRepository.Create`, `KeyRepository.Create` and
+`CertificateRepository.Create`, so every create/import path that can collide
+on a name has the same 500. Import is simply where it was noticed.
+
+**Fix recipe**: add a case ahead of the `default` arm in `api/errors_key.go`:
+
+```go
+case errors.Is(err, repositories.ErrNameTaken):
+    c.SetConflict("a resource with this name already exists in this vault")
+```
+
+returning `409`, and make the equivalent mapping wherever secrets and
+certificates render their errors. The response must carry the sentinel's own
+message and **not** the wrapped driver error — the point is to stop
+serialising the chain, so re-wrapping it into a 409 would fix the status code
+and keep the leak. Pin with a test per resource type that asserts both the
+status and the absence of the substring `UNIQUE constraint` in the body.
+
+**Found**: manually, while capturing the §8.1 key-import worked example for
+`.claude/manual-testing-plan.md`. Not reachable from the existing test suite,
+which never creates two resources with the same name in one vault.
+
+---
+
+### B56 — The per-vault rate limiter charges requests it then rejects with 403, so an unauthorized caller can drain a vault's budget
+
+**Status**: Open, found 2026-09-03
+**Severity**: Medium — a principal with **no** access to a vault can exhaust
+that vault's per-minute allowance and deny service to callers who do have
+access. It needs a valid session (the limiter runs after authentication), so
+this is not anonymous, but any authenticated user on the instance can do it to
+any vault whose name they can guess, without holding a single role in it.
+Whether that is acceptable is a deployment question; that nothing records it
+is the defect.
+**Files**: `internal/middleware/vault_rate_limit.go`, `api/api.go:83-88`
+(chain order)
+
+**Symptom**: reproduced live 2026-09-03 with `rate_limit.per_vault: 5`, as an
+admin holding no role assignment in the `default` vault:
+
+```
+req 1: 403     req 5: 403
+req 2: 403     req 6: 429
+req 3: 403     req 7: 429
+req 4: 403     req 8: 429
+```
+
+Five refusals consumed the entire budget. The caller never read anything.
+
+**Root cause**: chain order, and it is the correct order. `api/api.go:83-88`
+runs `VaultResolutionMiddleware` → `VaultRateLimitMiddleware` →
+`PolicyMiddleware`. The limiter must follow vault resolution (the vault is
+unknown before it) and therefore necessarily precedes authorization, so the
+token is spent before the request's authorization outcome exists. There is no
+ordering that both knows the vault and knows the verdict.
+
+**Fix recipe**: not a reordering. Options, in rough order of preference:
+
+1. Refund the token when the handler's outcome is a 403 — the limiter would
+   need to observe the response status, e.g. via a `ResponseWriter` wrapper,
+   and return the token to the bucket. Keeps one bucket and the current
+   ordering.
+2. Charge unauthorized requests against a separate, much smaller
+   per-principal bucket, so abuse costs the abuser rather than the vault.
+   This overlaps with the per-principal rate limiting already on the roadmap
+   (`.claude/roadmap-azure-parity-and-beyond.md`, Phase 3).
+3. Accept and document it, on the grounds that the caller is authenticated
+   and therefore attributable in the audit log.
+
+Whichever is chosen, the behaviour belongs in the docs either way — it is
+currently written down only in `.claude/manual-testing-plan.md` §11.1's worked
+example.
+
+**Found**: manually, while capturing the §11.1 per-vault rate-limit worked
+example. Invisible to the unit tests, which exercise the limiter against
+authorized requests only.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

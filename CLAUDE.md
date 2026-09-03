@@ -498,8 +498,10 @@ npm run typecheck # If available
 - **2026-08-24**: Added the MCP server (`rocketvault mcp`) — a Model Context
   Protocol interface exposing the vault to Claude Code and Claude Desktop over
   stdio. Read-only by default (10 tools), with independently gated tiers for
-  writes, destructive operations, crypto and secret values (27 tools fully
-  enabled). Built on a new `internal/vaultapi` typed REST client, which the
+  writes, destructive operations, crypto and secret values (28 tools fully
+  enabled — verified live via `rocketvault mcp --check` on 2026-09-03; this
+  line and the MCP plan docs previously said 27, which was off by one).
+  Built on a new `internal/vaultapi` typed REST client, which the
   pending CLI remote-mode work is expected to reuse. Design:
   `docs/superpowers/specs/2026-08-21-mcp-server-design.md`; guide:
   `docs/mcp-server.md`.
