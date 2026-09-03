@@ -160,6 +160,37 @@ func TestVaultRepository_SoftDeleteTx_CommitsWithSharedTx(t *testing.T) {
 	require.Error(t, err, "vault must be hidden after commit")
 }
 
+func TestVaultRepository_CountByCreatedBy_IncludesSoftDeleted(t *testing.T) {
+	sqlDB := newVaultTestDB(t)
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
+	repo := repositories.NewVaultRepository(conn, newTestVaultLogger(t))
+	concrete := repo.(*repositories.VaultRepository)
+	ctx := context.Background()
+	owner := uuid.New()
+	other := uuid.New()
+
+	for _, name := range []string{"alpha", "beta"} {
+		require.NoError(t, repo.Create(ctx, &model.Vault{
+			ID: uuid.New(), Name: name, CreatedBy: owner, RetentionDays: 90,
+		}))
+	}
+	require.NoError(t, repo.Create(ctx, &model.Vault{
+		ID: uuid.New(), Name: "not-mine", CreatedBy: other, RetentionDays: 90,
+	}))
+
+	n, err := concrete.CountByCreatedBy(ctx, conn, owner)
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "counts only this principal's vaults")
+
+	_, err = sqlDB.Exec(
+		`UPDATE vaults SET deleted_at = CURRENT_TIMESTAMP WHERE name = 'alpha'`)
+	require.NoError(t, err)
+
+	n, err = concrete.CountByCreatedBy(ctx, conn, owner)
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "a soft-deleted vault still occupies a quota slot")
+}
+
 func TestVaultRepository_SoftDeleteTx_RollsBackWithSharedTx(t *testing.T) {
 	sqlDB := newVaultTestDB(t)
 	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
