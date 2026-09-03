@@ -136,6 +136,24 @@ func (r *VaultRepository) ReadByIDTx(ctx context.Context, ex db.DBTX, id uuid.UU
 	return r.readByID(ctx, ex, id)
 }
 
+// CountByCreatedBy counts vaults created by principalID that still exist,
+// soft-deleted ones included -- a soft-deleted vault still holds its name and
+// can be recovered, so it still occupies a quota slot. Only a purge removes
+// the row and releases the slot.
+//
+// It takes a db.DBTX rather than using r.db because the quota check runs
+// inside the creation transaction; counting on the pooled handle would read
+// outside that transaction and defeat its row lock.
+func (r *VaultRepository) CountByCreatedBy(ctx context.Context, ex db.DBTX, principalID uuid.UUID) (int, error) {
+	var n int
+	err := ex.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM vaults WHERE created_by = ?", principalID.String()).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count vaults by created_by: %w", err)
+	}
+	return n, nil
+}
+
 func (r *VaultRepository) readByID(ctx context.Context, ex db.DBTX, id uuid.UUID) (*model.Vault, error) {
 	row := ex.QueryRowContext(ctx,
 		"SELECT "+vaultCols+" FROM vaults WHERE id = ?", id.String())
