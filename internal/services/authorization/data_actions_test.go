@@ -91,6 +91,20 @@ func TestMapRouteToDataAction(t *testing.T) {
 		{"users", http.MethodGet, "/api/v1/users", "", RouteUnmanaged},
 		{"health", http.MethodGet, "/api/v1/health", "", RouteUnmanaged},
 		{"audit", http.MethodGet, "/api/v1/audit/logs", "", RouteUnmanaged},
+
+		// Vault provisioning grants: admin-only, deliberately non-delegable
+		// (api/vault_provisioning_grants.go's requireGrantAdmin is the only
+		// gate). These routes work at all today because
+		// "vault-provisioning-grants" differs from "vaults" at the 6th
+		// character, so neither this mapper's "vaults/" prefix check nor
+		// mapEndpointToPermission's mirror of it misclassifies them as vault
+		// data. Pinned directly so a future edit to either check can't widen
+		// the match without failing here -- a misclassification here would
+		// 403 admins out of their own admin surface with nothing explaining
+		// why.
+		{"list provisioning grants", http.MethodGet, "/api/v1/vault-provisioning-grants", "", RouteUnmanaged},
+		{"issue provisioning grant", http.MethodPut, "/api/v1/vault-provisioning-grants/abc", "", RouteUnmanaged},
+		{"revoke provisioning grant", http.MethodDelete, "/api/v1/vault-provisioning-grants/abc", "", RouteUnmanaged},
 	}
 
 	for _, c := range cases {

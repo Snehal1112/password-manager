@@ -32,6 +32,7 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/common"
+	"rocketvault/internal/services/provisioning"
 	"rocketvault/model"
 )
 
@@ -90,11 +91,23 @@ func upsertVaultProvisioningGrant(c *Context, w http.ResponseWriter, r *http.Req
 	svc := c.App.ServiceContainer.GetGrantService()
 	// This pre-read exists only to choose the response status (201 created vs
 	// 200 re-quotaed) below; its value is never used, since the response body
-	// comes from IssueGrant's own return.
+	// comes from IssueGrant's own return. ErrGrantNotFound is the only
+	// expected outcome for a genuinely new principal -- any other error means
+	// the lookup itself failed (e.g. a DB outage) and must surface as a 500,
+	// not be silently read as "this is a create".
 	_, existsErr := svc.GetGrant(r.Context(), principalID)
+	if existsErr != nil && !errors.Is(existsErr, provisioning.ErrGrantNotFound) {
+		c.SetInternalError(existsErr)
+		return
+	}
+	existed := existsErr == nil
 
 	g, err := svc.IssueGrant(r.Context(), principalID, req.Quota, issuerID)
-	if errors.Is(err, model.ErrInvalidQuota) || errors.Is(err, model.ErrInvalidPrincipal) {
+	if errors.Is(err, model.ErrInvalidPrincipal) {
+		c.SetInvalidParam("principal_id")
+		return
+	}
+	if errors.Is(err, model.ErrInvalidQuota) {
 		c.SetInvalidParam("quota")
 		return
 	}
@@ -104,7 +117,7 @@ func upsertVaultProvisioningGrant(c *Context, w http.ResponseWriter, r *http.Req
 	}
 
 	status := http.StatusCreated
-	if existsErr == nil {
+	if existed {
 		status = http.StatusOK // an existing grant was re-quotaed, not created
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -127,7 +140,12 @@ func deleteVaultProvisioningGrant(c *Context, w http.ResponseWriter, r *http.Req
 		c.SetInvalidParam("principal_id")
 		return
 	}
-	if err := c.App.ServiceContainer.GetGrantService().RevokeGrant(r.Context(), principalID); err != nil {
+	revokedBy, err := uuid.Parse(c.Claims.UserID)
+	if err != nil {
+		c.SetInvalidParam("caller identity")
+		return
+	}
+	if err := c.App.ServiceContainer.GetGrantService().RevokeGrant(r.Context(), principalID, revokedBy); err != nil {
 		c.SetInternalError(err)
 		return
 	}

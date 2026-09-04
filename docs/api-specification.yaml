@@ -5604,7 +5604,10 @@ components:
         created_by:
           type: string
           format: uuid
-          description: The admin who issued (or most recently re-quotaed) this grant.
+          description: |
+            The admin who first issued this grant. Re-issuing (PUT) only
+            changes quota -- created_by is not updated on a re-quota, and
+            still names the original issuer.
 
     IssueGrantRequest:
       type: object

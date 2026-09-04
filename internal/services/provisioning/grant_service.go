@@ -30,7 +30,7 @@ var ErrGrantNotFound = errors.New("no provisioning grant for principal")
 type GrantService interface {
 	IssueGrant(ctx context.Context, principalID uuid.UUID, quota int, issuedBy uuid.UUID) (*model.VaultProvisioningGrant, error)
 	GetGrant(ctx context.Context, principalID uuid.UUID) (*model.VaultProvisioningGrant, error)
-	RevokeGrant(ctx context.Context, principalID uuid.UUID) error
+	RevokeGrant(ctx context.Context, principalID, revokedBy uuid.UUID) error
 	ListGrants(ctx context.Context) ([]*model.VaultProvisioningGrant, error)
 }
 
@@ -96,12 +96,16 @@ func (s *grantService) GetGrant(ctx context.Context, principalID uuid.UUID) (*mo
 // their rights untouched. Cascading revocation would let one DELETE strip a
 // customer's access to live vaults; removing those is a separate operator
 // action.
-func (s *grantService) RevokeGrant(ctx context.Context, principalID uuid.UUID) error {
+//
+// revokedBy is the acting principal, logged against this security-relevant
+// operation so a revocation is never unattributable -- mirrors issuedBy on
+// IssueGrant.
+func (s *grantService) RevokeGrant(ctx context.Context, principalID, revokedBy uuid.UUID) error {
 	if err := s.repo.Delete(ctx, principalID); err != nil {
 		return fmt.Errorf("revoke provisioning grant: %w", err)
 	}
 	if s.log != nil {
-		s.log.LogAuditInfo("", "revoke_provisioning_grant", "success",
+		s.log.LogAuditInfo(revokedBy.String(), "revoke_provisioning_grant", "success",
 			fmt.Sprintf("Provisioning grant revoked: principal=%s", principalID))
 	}
 	return nil
