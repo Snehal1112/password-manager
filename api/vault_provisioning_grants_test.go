@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,6 +31,10 @@ import (
 
 type fakeGrantRepo struct {
 	grants map[uuid.UUID]*model.VaultProvisioningGrant
+	// getErr, when set, is returned by GetByPrincipal instead of the normal
+	// not-found sentinel -- simulates a genuine lookup failure (e.g. a DB
+	// outage), distinct from "no grant exists yet".
+	getErr error
 }
 
 func newFakeGrantRepo() *fakeGrantRepo {
@@ -49,6 +54,9 @@ func (f *fakeGrantRepo) Upsert(_ context.Context, g *model.VaultProvisioningGran
 }
 
 func (f *fakeGrantRepo) GetByPrincipal(_ context.Context, id uuid.UUID) (*model.VaultProvisioningGrant, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	g, ok := f.grants[id]
 	if !ok {
 		return nil, repositories.ErrNotFound
@@ -61,8 +69,13 @@ func (f *fakeGrantRepo) Delete(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// List mirrors the real repository's zero-value behavior: a nil slice when
+// there are no grants, not an empty-but-non-nil one. Returning a non-nil
+// empty slice here would make TestListGrants_EmptyReturnsEmptyArrayNotNull
+// vacuous -- the handler's nil-guard could be deleted and the fake would
+// still hand it a marshalable value, so the test would never notice.
 func (f *fakeGrantRepo) List(_ context.Context) ([]*model.VaultProvisioningGrant, error) {
-	out := make([]*model.VaultProvisioningGrant, 0, len(f.grants))
+	var out []*model.VaultProvisioningGrant
 	for _, g := range f.grants {
 		out = append(out, g)
 	}
@@ -88,6 +101,20 @@ func newGrantTestAPIWithGrants(t *testing.T, seed ...*model.VaultProvisioningGra
 	for _, g := range seed {
 		repo.grants[g.PrincipalID] = g
 	}
+	svc := provisioning.NewGrantService(repo, nil)
+	cont := &vaultSvcTestContainer{grantSvc: svc, policySvc: &mockAccessPolicyService{}, logger: userTestLog()}
+	return newGrantTestAPI(cont)
+}
+
+// newGrantTestAPIWithGetErr builds a provisioning-grant test API whose
+// repository fails every GetByPrincipal lookup with getErr, a genuine error
+// distinct from "no grant exists yet" -- for proving that upsertVaultProvisioningGrant's
+// pre-read surfaces a real lookup failure as a 500 instead of silently
+// treating it as "this is a create".
+func newGrantTestAPIWithGetErr(t *testing.T, getErr error) *API {
+	t.Helper()
+	repo := newFakeGrantRepo()
+	repo.getErr = getErr
 	svc := provisioning.NewGrantService(repo, nil)
 	cont := &vaultSvcTestContainer{grantSvc: svc, policySvc: &mockAccessPolicyService{}, logger: userTestLog()}
 	return newGrantTestAPI(cont)
@@ -194,6 +221,38 @@ func TestIssueGrant_RejectsMalformedPrincipalID(t *testing.T) {
 		"/api/v1/vault-provisioning-grants/not-a-uuid", []byte(`{"quota":5}`))
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestIssueGrant_NilPrincipalReportsAgainstPrincipalID proves the nil-UUID
+// case -- valid UUID syntax, but model.ErrInvalidPrincipal at the service
+// layer -- is reported against "principal_id", not "quota". The quota in
+// this request is otherwise valid, so a "quota" message here would mislead
+// a caller into looking at the wrong field.
+func TestIssueGrant_NilPrincipalReportsAgainstPrincipalID(t *testing.T) {
+	api := newGrantTestAPIWithGrants(t)
+	admin := uuid.New()
+
+	w := doGrantRequestAs(api, admin, model.RoleAdmin, http.MethodPut,
+		"/api/v1/vault-provisioning-grants/"+uuid.Nil.String(), []byte(`{"quota":5}`))
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "principal_id")
+	require.NotContains(t, w.Body.String(), "quota")
+}
+
+// TestIssueGrant_GetGrantLookupErrorSurfacesAsInternalError proves a genuine
+// GetGrant failure (e.g. a DB outage) during the pre-read is reported as a
+// 500, not silently swallowed and misreported as "this principal has no
+// grant yet, so issue one" (which would still succeed, wrongly reporting 201
+// for what may in fact already be an existing grant).
+func TestIssueGrant_GetGrantLookupErrorSurfacesAsInternalError(t *testing.T) {
+	api := newGrantTestAPIWithGetErr(t, errors.New("connection refused"))
+	admin := uuid.New()
+
+	w := doGrantRequestAs(api, admin, model.RoleAdmin, http.MethodPut,
+		"/api/v1/vault-provisioning-grants/"+uuid.New().String(), []byte(`{"quota":5}`))
+
+	require.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestIssueGrant_ReIssueReturns200(t *testing.T) {

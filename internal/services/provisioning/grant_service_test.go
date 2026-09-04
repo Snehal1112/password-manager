@@ -146,7 +146,7 @@ func TestRevokeGrant(t *testing.T) {
 
 	_, err := svc.IssueGrant(context.Background(), principal, 5, uuid.New())
 	require.NoError(t, err)
-	require.NoError(t, svc.RevokeGrant(context.Background(), principal))
+	require.NoError(t, svc.RevokeGrant(context.Background(), principal, uuid.New()))
 
 	_, err = svc.GetGrant(context.Background(), principal)
 	require.True(t, errors.Is(err, provisioning.ErrGrantNotFound))

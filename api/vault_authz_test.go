@@ -483,7 +483,7 @@ func (f *fakeGrantService) GetGrant(context.Context, uuid.UUID) (*model.VaultPro
 	return f.grant, nil
 }
 
-func (f *fakeGrantService) RevokeGrant(context.Context, uuid.UUID) error { return nil }
+func (f *fakeGrantService) RevokeGrant(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 func (f *fakeGrantService) ListGrants(context.Context) ([]*model.VaultProvisioningGrant, error) {
 	return nil, nil
