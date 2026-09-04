@@ -90,6 +90,22 @@ func newProvisionedTestDB(t *testing.T, dsn string, q, n int) *sql.DB {
 	require.NoError(t, err)
 	t.Cleanup(func() { sqlDB.Close() }) //nolint:errcheck,gosec
 
+	if dsn == ":memory:" {
+		// A plain ":memory:" DSN gives every pooled connection its own
+		// private, throwaway database (see newProvisionedTestServiceRealDB's
+		// doc comment below). Without this, a lookup issued on a second,
+		// freshly-opened connection after a rollback can see "no such
+		// table" instead of a genuine not-found -- vacuously satisfying a
+		// bare require.Error rollback-proof assertion regardless of whether
+		// the rollback actually happened. Force every statement in a
+		// ":memory:"-backed test onto one shared connection so rollback
+		// proofs exercise the real path. newProvisionedTestServiceRealDB's
+		// real-file DSN is untouched by this, since its own concurrency
+		// test deliberately needs two independent, simultaneously-open
+		// connections to exercise the row lock.
+		sqlDB.SetMaxOpenConns(1)
+	}
+
 	_, err = sqlDB.Exec(provisionedSchema)
 	require.NoError(t, err)
 
@@ -231,7 +247,11 @@ func TestCreateVaultProvisioned_RollsBackAllThreeWrites(t *testing.T) {
 	require.Error(t, err)
 
 	_, err = svc.GetVault(context.Background(), "doomed")
-	require.Error(t, err, "a failed grant write must roll back the vault insert too")
+	require.ErrorIs(t, err, vaults.ErrVaultNotFound,
+		"a failed grant write must roll back the vault insert too -- a bare "+
+			"require.Error would also pass on a spurious \"no such table\" from "+
+			"a second, unrelated in-memory connection, without the rollback "+
+			"ever actually running")
 }
 
 func TestCreateVaultProvisioned_RefusesAtQuota(t *testing.T) {
@@ -275,8 +295,11 @@ func TestCreateVaultProvisioned_FailsClosedWhenCreatorGranterUnwired(t *testing.
 		"a quota-bounded create must be refused when creator grants cannot be written")
 
 	_, err = svc.GetVault(context.Background(), "no-granter")
-	require.Error(t, err,
-		"a refused creator-grant write must roll back the vault insert too")
+	require.ErrorIs(t, err, vaults.ErrVaultNotFound,
+		"a refused creator-grant write must roll back the vault insert too -- a "+
+			"bare require.Error would also pass on a spurious \"no such table\" "+
+			"from a second, unrelated in-memory connection, without the "+
+			"rollback ever actually running")
 }
 
 func TestCreateVaultProvisioned_UnboundedIgnoresQuota(t *testing.T) {

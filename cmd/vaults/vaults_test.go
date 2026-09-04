@@ -3,6 +3,7 @@ package vaults
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
 	authzServices "rocketvault/internal/services/authorization"
+	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/model"
 )
 
@@ -52,9 +54,9 @@ func TestVaultsCreate(t *testing.T) {
 		Enabled:       true,
 		RetentionDays: 90,
 	}
-	tc.MockVaultService.On("CreateVault", mock.Anything, mock.MatchedBy(func(r model.CreateVaultRequest) bool {
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.MatchedBy(func(r model.CreateVaultRequest) bool {
 		return r.Name == "my-vault"
-	}), tc.TestUserID).Return(created, nil)
+	}), tc.TestUserID, false).Return(created, nil)
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().Bool("purge-protection", false, "")
@@ -218,5 +220,87 @@ func TestVaultsCreate_ForbiddenWithoutGlobalGrant(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "permission denied")
-	tc.MockVaultService.AssertNotCalled(t, "CreateVault", mock.Anything, mock.Anything, mock.Anything)
+	tc.MockVaultService.AssertNotCalled(t, "CreateVaultProvisioned", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestVaultsCreate_QuotaExceededRefusesGrantHolder proves the CLI actually
+// bounds a provisioning-grant holder's create by their quota. Before this
+// fix, requireCanCreateVault computed the CreateRight and its only caller
+// (createCmd) discarded it, always calling the unbounded CreateVault -- so a
+// grant holder's create never reached the quota-bounded path at all, no
+// matter what the service would have returned. Asserting the mock is called
+// with quotaBounded=true (the 4th argument) is the CLI-side proof that
+// bypass is closed: if createCmd still called CreateVault (or called
+// CreateVaultProvisioned with quotaBounded=false), this mock expectation
+// would go unmatched and testify would panic on the unexpected call,
+// failing the test. The quota-enforcement logic itself (the actual row-lock
+// count check) is proven against a real database in
+// internal/services/vaults/vault_provisioned_create_test.go -- this test is
+// only about the CLI wiring the right through correctly.
+func TestVaultsCreate_QuotaExceededRefusesGrantHolder(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey,
+		&model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
+
+	policySvc := &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockContainer.AccessPolicyService = policySvc
+	tc.MockContainer.GrantService = &fakeGrantService{
+		grant: &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: tc.TestUserID, Quota: 1},
+	}
+
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, true).
+		Return(nil, fmt.Errorf("%w: 1 of 1 used", vaultServices.ErrVaultQuotaExceeded))
+
+	cmd := &cobra.Command{Use: "create", Args: createCmd.Args, RunE: createCmd.RunE}
+	cmd.Flags().Bool("purge-protection", false, "")
+	cmd.Flags().Int("retention-days", 0, "")
+	cmd.SetContext(ctxWithFormatter(nonAdminCtx))
+	cmd.SetArgs([]string{"one-too-many"})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "quota")
+	tc.MockVaultService.AssertExpectations(t)
+}
+
+// TestVaultsCreate_PurgeProtectionRefusedForGrantHolder proves a
+// provisioning-grant holder cannot set --purge-protection via the CLI --
+// mirroring the HTTP handler's ErrPurgeProtectionNotPermitted mapping. A
+// grantee who could pin purge_protection could soft-delete the vault and
+// hold the quota slot forever, since PurgeVault refuses a protected vault.
+// Like the quota test above, the mock only accepts quotaBounded=true, so
+// this also proves createCmd threads the right through rather than
+// discarding it.
+func TestVaultsCreate_PurgeProtectionRefusedForGrantHolder(t *testing.T) {
+	tc := testutils.NewTestContext(t)
+	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey,
+		&model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
+
+	policySvc := &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockContainer.AccessPolicyService = policySvc
+	tc.MockContainer.GrantService = &fakeGrantService{
+		grant: &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: tc.TestUserID, Quota: 5},
+	}
+
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, true).
+		Return(nil, vaultServices.ErrPurgeProtectionNotPermitted)
+
+	cmd := &cobra.Command{Use: "create", Args: createCmd.Args, RunE: createCmd.RunE}
+	cmd.Flags().Bool("purge-protection", false, "")
+	cmd.Flags().Int("retention-days", 0, "")
+	cmd.SetContext(ctxWithFormatter(nonAdminCtx))
+	cmd.SetArgs([]string{"pinned", "--purge-protection=true"})
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "purge protection")
+	tc.MockVaultService.AssertExpectations(t)
 }

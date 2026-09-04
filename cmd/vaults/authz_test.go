@@ -96,8 +96,11 @@ func TestRequireCanCreateVault_AllowsGrantHolder(t *testing.T) {
 	sc := newMockContainerWithGrant(t, testPrincipalID, 5)
 	ctx := ctxWithClaims(t, testPrincipalID, []string{"user"})
 
-	require.NoError(t, requireCanCreateVault(ctx, sc),
+	right, err := requireCanCreateVault(ctx, sc)
+	require.NoError(t, err,
 		"the CLI must reach the same decision as HTTP: both call CanCreateVault")
+	require.Equal(t, authzServices.CreateRightProvisioningGrant, right,
+		"the caller needs the right, not merely a nil error, to know the create is quota-bounded")
 }
 
 // TestRequireCanCreateVault_DeniesWithoutAnyRight proves a caller with none
@@ -107,7 +110,9 @@ func TestRequireCanCreateVault_DeniesWithoutAnyRight(t *testing.T) {
 	sc := newMockContainerNoGrant(t)
 	ctx := ctxWithClaims(t, testPrincipalID, []string{"user"})
 
-	require.Error(t, requireCanCreateVault(ctx, sc))
+	right, err := requireCanCreateVault(ctx, sc)
+	require.Error(t, err)
+	require.Equal(t, authzServices.CreateRightNone, right)
 }
 
 // TestCallerIdentity_MissingClaims proves callerIdentity fails closed with an

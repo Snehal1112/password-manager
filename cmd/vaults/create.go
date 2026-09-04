@@ -4,6 +4,7 @@
 package vaults
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
+	authz "rocketvault/internal/services/authorization"
+	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/model"
 )
 
@@ -54,7 +57,8 @@ creation time.`,
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
-		if err := requireCanCreateVault(ctx, serviceContainer); err != nil {
+		right, err := requireCanCreateVault(ctx, serviceContainer)
+		if err != nil {
 			return err
 		}
 		vaultService := serviceContainer.GetVaultService()
@@ -69,9 +73,20 @@ creation time.`,
 			req.RetentionDays = &rd
 		}
 
-		vault, err := vaultService.CreateVault(ctx, req, userID)
+		// Only a provisioning-grant holder is quota-bounded; admins and
+		// global-policy holders go through CreateVaultProvisioned's
+		// unbounded fallback to the pre-existing CreateVault behaviour.
+		vault, err := vaultService.CreateVaultProvisioned(ctx, req, userID,
+			right == authz.CreateRightProvisioningGrant)
 		if err != nil {
-			return fmt.Errorf("failed to create vault: %w", err)
+			switch {
+			case errors.Is(err, vaultServices.ErrVaultQuotaExceeded):
+				return fmt.Errorf("failed to create vault: %w -- delete or purge an existing vault, or ask an administrator to raise your provisioning quota", err)
+			case errors.Is(err, vaultServices.ErrPurgeProtectionNotPermitted):
+				return fmt.Errorf("failed to create vault: %w -- only an administrator can set --purge-protection", err)
+			default:
+				return fmt.Errorf("failed to create vault: %w", err)
+			}
 		}
 
 		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
