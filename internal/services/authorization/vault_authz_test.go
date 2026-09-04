@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/services/provisioning"
 	"rocketvault/model"
 )
 
@@ -274,5 +276,82 @@ func TestCanManageRoleAssignments_NonAdminDeniedWithNothing(t *testing.T) {
 	policies := &fakeAccessPolicyService{decision: AccessFallback}
 	if CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, nil, uuid.New(), uuid.New(), true) {
 		t.Fatal("no policy allow and no role service must deny")
+	}
+}
+
+// stubGrantReader returns a fixed grant or error for any principal.
+type stubGrantReader struct {
+	grant *model.VaultProvisioningGrant
+	err   error
+}
+
+func (s *stubGrantReader) GetGrant(_ context.Context, _ uuid.UUID) (*model.VaultProvisioningGrant, error) {
+	return s.grant, s.err
+}
+
+func TestCanCreateVault(t *testing.T) {
+	principal := uuid.New()
+	grant := &model.VaultProvisioningGrant{PrincipalID: principal, Quota: 3}
+
+	tests := []struct {
+		name     string
+		roles    []string
+		policies AccessPolicyService
+		grants   GrantReader
+		want     CreateRight
+	}{
+		{
+			name:  "global admin",
+			roles: []string{string(model.RoleAdmin)},
+			want:  CreateRightAdmin,
+		},
+		{
+			name:     "global vaults:manage allow",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessAllowed},
+			want:     CreateRightGlobalPolicy,
+		},
+		{
+			name:     "provisioning grant",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessFallback},
+			grants:   &stubGrantReader{grant: grant},
+			want:     CreateRightProvisioningGrant,
+		},
+		{
+			name:     "no right at all",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessFallback},
+			grants:   &stubGrantReader{err: provisioning.ErrGrantNotFound},
+			want:     CreateRightNone,
+		},
+		{
+			name:     "explicit global deny beats a provisioning grant",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessDenied},
+			grants:   &stubGrantReader{grant: grant},
+			want:     CreateRightNone,
+		},
+		{
+			name:     "grant lookup error denies",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessFallback},
+			grants:   &stubGrantReader{err: errors.New("database down")},
+			want:     CreateRightNone,
+		},
+		{
+			name:     "nil grant reader denies without panicking",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessFallback},
+			grants:   nil,
+			want:     CreateRightNone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CanCreateVault(context.Background(), tt.roles, tt.policies, tt.grants, principal)
+			require.Equal(t, tt.want, got)
+		})
 	}
 }
