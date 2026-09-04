@@ -3242,6 +3242,126 @@ authorized requests only.
 
 ---
 
+### B57 — `secrets create/update/delete/import/export` gate on a legacy global role, contradicting a vault's own role assignments
+
+**Status**: Open, found 2026-09-04
+**Severity**: Medium — this is not an access-control hole; it fails closed,
+never open (see Authorization note below). The defect is that it silently
+overrides a real, vault-scoped role assignment for every CLI user of these
+five commands, including the new self-service vault-provisioning feature's
+headline case: a vault's creator, freshly granted `Key Vault Administrator`
+in that vault, cannot write a secret into it over the CLI. It is also a
+CLI/HTTP behavioural divergence, which this project otherwise treats as a
+defect to fix rather than a variance to document — see CLAUDE.md's "CLI
+Authorization" section.
+**Files**: `cmd/secrets/create.go:95-96`, `cmd/secrets/update.go:95-96`,
+`cmd/secrets/delete.go:83-84`, `cmd/secrets/import.go:111-112`,
+`cmd/secrets/export.go:119-120`
+
+**Symptom**: reproduced live 2026-09-04 while capturing the self-service
+provisioning worked example (`.claude/manual-testing-plan.md`'s "Worked
+example: self-service provisioning, quotas, and what a soft-delete costs
+you"). `msp-bot`, holding only the global account role `user`, created vault
+`acme-prod` under a provisioning grant; vault creation automatically wrote it
+a `Key Vault Administrator` role assignment scoped to `acme-prod`. Writing a
+secret into that vault as the same principal:
+
+```
+$ rocketvault secrets create example-secret hello-acme --vault acme-prod
+Error: forbidden: requires admin or secrets_manager role
+```
+
+The identical write over HTTP, same principal, same vault:
+
+```
+$ curl -s -X POST $BASE/vaults/acme-prod/secrets -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"example-secret","value":"hello-acme"}'
+{"id":"d590bb30-8507-4953-9b8e-697345fd7b1a","name":"example-secret","version":1,"created_at":"2026-09-04T18:28:32+05:30","enabled":true}
+```
+
+`201`. The vault-scoped role assignment is genuinely honored — just not by
+the CLI command.
+
+**Root cause**: each of the five commands runs two authorization checks in
+sequence, as an AND, where only the second is meant to be authoritative.
+First, a legacy check against the caller's global account role:
+
+```go
+if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleSecretsManager) {
+    return fmt.Errorf("forbidden: requires admin or secrets_manager role")
+}
+```
+
+(`create.go:95-96`; the same two lines, same message, appear at
+`update.go:95-96`, `delete.go:83-84`, `import.go:111-112`, and
+`export.go:119-120`). Only after that gate passes does the command reach the
+real, vault-scoped check:
+
+```go
+vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, userID, model.ActionSecretsSet, model.OpCreate)
+```
+
+(`create.go:105`; `update.go:106`, `delete.go:96`, `import.go:131`,
+`export.go:130` for the other four, against their own actions/ops).
+`RequireDataAction` is the check CLAUDE.md's "CLI Authorization" section
+describes as reproducing what HTTP gets for free from `PolicyMiddleware` —
+explicit-deny override, then deny-by-default role-assignment lookup. A
+principal with no global `admin`/`secrets_manager` role but a valid
+vault-scoped grant (exactly what `Key Vault Administrator` from
+self-service provisioning is) satisfies `RequireDataAction` but never reaches
+it, because the first gate already returned.
+
+`secrets get` (`cmd/secrets/get.go`) has no such first gate — only the
+`RequireDataAction` call at `get.go:93`, and its help text at `get.go:53-56`
+says so explicitly ("No global role is checked here"). That makes the family
+asymmetric: reads honor a vault-scoped role assignment on their own; the five
+writes require the caller to *also* hold the legacy global role, which
+self-service-provisioned principals such as `msp-bot` do not have and have no
+way to acquire without an admin separately granting it — defeating the point
+of self-service.
+
+**Cross-reference**: `.claude/known-bugs.md` § B36's "Authorization" note
+describes this same gate on `export.go` and concludes "There was never an
+access-control hole here — the defect was purely the false encryption
+assurance." That conclusion is about permissiveness and is still correct; it
+is not in tension with this entry, which is about over-restriction on a
+different axis. B36 did not fix, and was not about, the gate itself. See also
+`docs/release-notes/v4.5.0-vault-provisioning.md` (the feature whose headline
+promise this defect undercuts) and the worked example in
+`.claude/manual-testing-plan.md` cited above, which is where this was found
+and first written down.
+
+**Fix recipe**: delete the five `HasAnyRole` gates outright, leaving
+`RequireDataAction` as the single enforcement point for these commands — this
+is the recommended fix. It matches `secrets get`'s existing pattern, matches
+HTTP exactly (closing the divergence CLAUDE.md flags as the thing to avoid),
+and needs no new logic: `RequireDataAction` already covers everything the
+legacy gate was trying to express, since the global `admin` role also carries
+data-plane access via role assignments (or the access-policy path), and
+`secrets_manager` was itself the legacy stand-in for what per-vault role
+assignments now do properly. The alternative — turn the AND into an OR, so
+either the global role or the vault-scoped grant suffices — is not
+recommended: it keeps a permanent second code path to maintain, keeps the
+CLI/HTTP divergence alive at half-strength, and adds nothing that
+`RequireDataAction` doesn't already grant an admin.
+
+Either way, this is **not a silent fix**: deleting the gate changes behavior
+for any existing deployment whose operators rely on the global
+`secrets_manager` role rather than per-vault role assignments to authorize
+secret writes over the CLI — those principals keep working (an actual
+`secrets_manager` grant almost always also satisfies `RequireDataAction`
+today, since the two checks have overlapped in practice), but a principal
+that held `secrets_manager` *without* a matching vault-scoped role
+assignment would newly need one. This belongs in a release note alongside
+the fix, not folded quietly into a patch release.
+
+**Found**: manually, while capturing the self-service-provisioning worked
+example for `.claude/manual-testing-plan.md`. Not reachable from the existing
+test suite, which does not exercise a principal holding a vault-scoped role
+assignment without also holding the matching global account role.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
