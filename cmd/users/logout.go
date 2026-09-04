@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/viper"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 )
 
 // logoutCmd represents the logout command.
@@ -47,28 +48,33 @@ without --username/--password).`,
   rocketvault users logout --username <username>`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runLogout(viper.GetString("logout-username"))
+		serverKey := common.LocalServerKey
+		if target, ok := cmd.Context().Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			serverKey = common.SanitizeServerKey(target.Server)
+		}
+		return runLogout(serverKey, viper.GetString("logout-username"))
 	},
 }
 
-// runLogout resolves which cached session to remove — an explicit
-// username, or whichever the current-session pointer references — and
-// deletes it. Extracted from logoutCmd's RunE so it is unit testable
-// without driving cobra/viper flag parsing.
-func runLogout(username string) error {
+// runLogout resolves which cached session to remove -- an explicit username,
+// or whichever the current-session pointer references -- within one server's
+// namespace, and deletes it. serverKey is common.LocalServerKey in local mode
+// and SanitizeServerKey(target.Server) in remote mode: without it, logging out
+// of a remote target would delete the local session instead.
+func runLogout(serverKey, username string) error {
 	if username == "" {
 		current, err := common.LoadCurrentSession()
 		if err != nil {
 			return fmt.Errorf("failed to read current session: %w", err)
 		}
-		if current == nil {
+		if current == nil || current.ServerKey != serverKey {
 			fmt.Println("No cached session to log out of.")
 			return nil
 		}
 		username = current.Username
 	}
 
-	if err := common.DeleteSession(username); err != nil {
+	if err := common.DeleteSessionForServer(serverKey, username); err != nil {
 		return fmt.Errorf("failed to log out: %w", err)
 	}
 

@@ -3035,7 +3035,7 @@ and touching it wasn't part of that fix.
 
 ### B54 — No way to log in to a remote server: `users login` is blocked by the remote-target guard, so a remote session can only be created as a side effect of a `secrets` command
 
-**Status**: Open, found 2026-09-03
+**Status**: Fixed in commit `<COMMIT>` (2026-09-04), found 2026-09-03
 **Severity**: Medium — remote mode is reachable but its front door is not.
 A user with an active context who has no cached session (or whose refresh
 token has aged out) cannot authenticate by the documented command; they must
@@ -3115,6 +3115,33 @@ server-key guard `resolveRemoteAuthentication` already applies
 One partial relief is already planned and does not close this: Task 1 of the
 same plan adds `--client-id`/`--client-secret`, giving CI a remote identity
 with no login step. That helps service accounts, not humans.
+
+**What actually shipped** (2026-09-04, plan `02b`): `remoteCapableCommands`
+replaced the secrets-shaped `remoteCapableSecretsCommands` map and admits
+`users login`/`users logout`; `remotePersistentPreRun` grew an
+unauthenticated branch, selected by `isRemoteUnauthenticatedCommand`, that
+builds a `vaultapi.Client` with `unauthenticatedSource{}` so `login` reaches
+its `RunE` with no session on disk. `runRemoteLogin` (`cmd/users/login.go`)
+calls `vaultapi.Login` with `SaveSession: common.SaveSession`; `Login`
+stamps `ServerKey` from the client's base URL, so a remote login lands in
+`srv_<host>__<user>.json` and never overwrites the local session.
+
+The related `logout` defect is fixed in the same commit: `runLogout` takes a
+`serverKey` first argument, deletes through `DeleteSessionForServer`, and
+its no-username path now refuses a current-session pointer belonging to a
+different server.
+
+Two things done beyond the original entry: `--oidc` follows the remote
+target too and uses the CA-aware HTTP client rather than
+`http.DefaultClient`, and the JWT is no longer printed on successful login
+in either mode — the session is cached, so a bearer token on stdout only
+leaked into shell history and CI logs.
+
+**Not verified end to end.** The fix is covered by unit tests
+(`cmd/users/login_remote_test.go`, `cmd/root_test.go`), but the plan's
+manual walkthrough against a running server — log in, run a bare command,
+log out, confirm the local session survives — was not performed, as it
+needs a live instance and a current TOTP code.
 
 The `users` *resource* commands (CRUD, bootstrap admin) stay deferred to the
 `users` spec named under "Non-goals" in

@@ -97,7 +97,7 @@ func TestExchangeOIDCCode_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	session, err := exchangeOIDCCode(context.Background(), server.URL, "code123")
+	session, err := exchangeOIDCCode(context.Background(), nil, server.URL, "code123")
 
 	require.NoError(t, err)
 	assert.Equal(t, "access-tok", session.Token)
@@ -124,7 +124,7 @@ func TestExchangeOIDCCode_NonOKStatus_ReturnsError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := exchangeOIDCCode(context.Background(), server.URL, "expired-code")
+	_, err := exchangeOIDCCode(context.Background(), nil, server.URL, "expired-code")
 	assert.Error(t, err)
 }
 
@@ -135,6 +135,6 @@ func TestExchangeOIDCCode_InvalidUserID_ReturnsError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := exchangeOIDCCode(context.Background(), server.URL, "code123")
+	_, err := exchangeOIDCCode(context.Background(), nil, server.URL, "code123")
 	assert.Error(t, err)
 }
