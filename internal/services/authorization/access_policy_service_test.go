@@ -55,6 +55,13 @@ func (m *mockPolicyRepo) DeleteByAssignmentID(ctx context.Context, assignmentID 
 func (m *mockPolicyRepo) DeleteByVault(ctx context.Context, vaultID uuid.UUID) error {
 	return m.Called(ctx, vaultID).Error(0)
 }
+func (m *mockPolicyRepo) ListVaultIDsForPrincipal(ctx context.Context, principalID uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(ctx, principalID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
 
 func TestCheckAccess_AllowWhenPolicyExists(t *testing.T) {
 	repo := &mockPolicyRepo{}

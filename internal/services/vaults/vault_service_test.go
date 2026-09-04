@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/db"
 	"rocketvault/internal/repositories"
@@ -509,6 +510,105 @@ func TestDeleteAndRecoverVaultFlushTheSecretCache(t *testing.T) {
 
 // TestVaultCascadeToleratesADisabledCache pins that an unset flusher (caching
 // disabled) is a no-op rather than a nil-pointer panic.
+// testPrincipal is a fixed principal ID shared by the ListVaultsScoped tests below.
+var testPrincipal = uuid.New()
+
+// fakePolicyVaultLister is an in-memory PolicyVaultLister for ListVaultsScoped tests.
+type fakePolicyVaultLister struct {
+	ids map[uuid.UUID][]uuid.UUID
+	err error
+}
+
+func (f *fakePolicyVaultLister) ListVaultIDsForPrincipal(_ context.Context, principalID uuid.UUID) ([]uuid.UUID, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.ids[principalID], nil
+}
+
+// newScopedListTestService builds a vaultService backed by a fake repo seeded
+// with one vault per name in grants (granted to the corresponding principal),
+// plus two extra vaults nobody holds a scoped grant on, so all=false and
+// all=true can diverge. It returns the service and the total vault count, for
+// asserting all=true matches ListVaults exactly.
+func newScopedListTestService(t *testing.T, grants map[uuid.UUID][]string) (VaultService, int) {
+	t.Helper()
+	repo := newFakeRepo()
+	ids := make(map[uuid.UUID][]uuid.UUID, len(grants))
+	for principal, names := range grants {
+		for _, name := range names {
+			id := uuid.New()
+			repo.byName[name] = &model.Vault{ID: id, Name: name, Enabled: true}
+			repo.byID[id.String()] = repo.byName[name]
+			ids[principal] = append(ids[principal], id)
+		}
+	}
+	for _, name := range []string{"unrelated-1", "unrelated-2"} {
+		id := uuid.New()
+		repo.byName[name] = &model.Vault{ID: id, Name: name, Enabled: true}
+		repo.byID[id.String()] = repo.byName[name]
+	}
+
+	svc := NewVaultService(repo, &noopCascade{}, nil)
+	svc.SetPolicyVaultLister(&fakePolicyVaultLister{ids: ids})
+	return svc, len(repo.byName)
+}
+
+func TestListVaultsScoped_FiltersToPrincipalsVaults(t *testing.T) {
+	svc, _ := newScopedListTestService(t, map[uuid.UUID][]string{
+		testPrincipal: {"acme-prod"},
+	})
+
+	got, err := svc.ListVaultsScoped(context.Background(), testPrincipal, false, false)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "acme-prod", got[0].Name)
+}
+
+func TestListVaultsScoped_AllReturnsEverything(t *testing.T) {
+	svc, total := newScopedListTestService(t, map[uuid.UUID][]string{
+		testPrincipal: {"acme-prod"},
+	})
+
+	got, err := svc.ListVaultsScoped(context.Background(), testPrincipal, false, true)
+	require.NoError(t, err)
+	require.Len(t, got, total, "all=true must match ListVaults exactly")
+}
+
+func TestListVaultsScoped_NoPoliciesReturnsEmpty(t *testing.T) {
+	svc, _ := newScopedListTestService(t, nil)
+
+	got, err := svc.ListVaultsScoped(context.Background(), uuid.New(), false, false)
+	require.NoError(t, err)
+	require.Empty(t, got, "a principal with no scoped policy sees nothing, not everything")
+}
+
+// TestListVaultsScoped_UnwiredListerReturnsEmpty pins that an unset
+// policyVaults dependency (mirroring every other optional dependency on this
+// service) yields an empty list, not an error.
+func TestListVaultsScoped_UnwiredListerReturnsEmpty(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+
+	got, err := svc.ListVaultsScoped(context.Background(), uuid.New(), false, false)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+// TestListVaultsScoped_PropagatesPolicyLookupError pins the deliberate
+// deviation from the naive "fail closed to empty" approach: an empty list is
+// a positive claim ("you manage no vaults"), so a policy-lookup failure (e.g.
+// a DB outage) must surface as an error, not be swallowed into an empty list
+// that would misrepresent the caller's vaults as gone.
+func TestListVaultsScoped_PropagatesPolicyLookupError(t *testing.T) {
+	svc := NewVaultService(newFakeRepo(), &noopCascade{}, nil)
+	wantErr := errors.New("db outage")
+	svc.SetPolicyVaultLister(&fakePolicyVaultLister{err: wantErr})
+
+	_, err := svc.ListVaultsScoped(context.Background(), uuid.New(), false, false)
+	require.Error(t, err, "expected the policy-lookup error to propagate, not be swallowed into an empty list")
+	require.ErrorIs(t, err, wantErr)
+}
+
 func TestVaultCascadeToleratesADisabledCache(t *testing.T) {
 	repo := newFakeRepo()
 	id := uuid.New()

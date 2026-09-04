@@ -266,3 +266,36 @@ func TestAccessPolicy_DeleteByAssignmentID(t *testing.T) {
 		t.Fatalf("expected only the hand-written policy to remain, got %d", len(got))
 	}
 }
+
+func TestListVaultIDsForPrincipal_ReturnsOnlyScopedManageAllows(t *testing.T) {
+	t.Parallel()
+	db := setupAccessPolicyTestDB(t)
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(db, rvdb.SQLite))
+	ctx := context.Background()
+	principal := uuid.New()
+	vaultA, vaultB := uuid.New(), uuid.New()
+
+	// A vault-scoped manage allow: must be returned.
+	require.NoError(t, repo.Create(ctx, &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principal, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceVaults, Operation: model.OpManage,
+		Effect: model.PolicyEffectAllow, VaultID: &vaultA,
+	}))
+	// A deny: must NOT be returned.
+	require.NoError(t, repo.Create(ctx, &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principal, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceVaults, Operation: model.OpManage,
+		Effect: model.PolicyEffectDeny, VaultID: &vaultB,
+	}))
+	// Another principal's allow: must NOT be returned.
+	otherVault := uuid.New()
+	require.NoError(t, repo.Create(ctx, &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: uuid.New(), PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceVaults, Operation: model.OpManage,
+		Effect: model.PolicyEffectAllow, VaultID: &otherVault,
+	}))
+
+	ids, err := repo.ListVaultIDsForPrincipal(ctx, principal)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{vaultA}, ids)
+}

@@ -110,6 +110,9 @@ func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, 
 	return s.vault, s.err
 }
 func (s *stubVaultService) ListVaults(context.Context, bool) ([]model.Vault, error) { return nil, nil }
+func (s *stubVaultService) ListVaultsScoped(context.Context, uuid.UUID, bool, bool) ([]model.Vault, error) {
+	return nil, nil
+}
 func (s *stubVaultService) UpdateVault(context.Context, string, model.UpdateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
@@ -125,6 +128,7 @@ func (s *stubVaultService) SetVaultCache(_ vaultServices.VaultCacheInterface)   
 func (s *stubVaultService) SetGlobalPurgeProtection(_ bool)                                {}
 func (s *stubVaultService) SetGrantLocker(_ vaultServices.GrantLocker)                     {}
 func (s *stubVaultService) SetCreatorGranter(_ vaultServices.CreatorGranter)               {}
+func (s *stubVaultService) SetPolicyVaultLister(_ vaultServices.PolicyVaultLister)         {}
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {

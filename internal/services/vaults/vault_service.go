@@ -85,6 +85,11 @@ type RoleAssignmentCleaner interface {
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// PolicyVaultLister lists the vaults a principal holds scoped management over.
+type PolicyVaultLister interface {
+	ListVaultIDsForPrincipal(ctx context.Context, principalID uuid.UUID) ([]uuid.UUID, error)
+}
+
 // WebhookCleaner removes a vault's webhook config (used on purge). Satisfied
 // by repositories.VaultWebhookRepositoryInterface.
 //
@@ -157,6 +162,10 @@ type VaultService interface {
 	CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded bool) (*model.Vault, error)
 	GetVault(ctx context.Context, name string) (*model.Vault, error)
 	ListVaults(ctx context.Context, includeDeleted bool) ([]model.Vault, error)
+	// ListVaultsScoped returns every vault when all is true (the admin and
+	// global-policy path, identical to ListVaults), and otherwise only vaults
+	// where principalID holds a vault-scoped vaults:manage allow.
+	ListVaultsScoped(ctx context.Context, principalID uuid.UUID, includeDeleted, all bool) ([]model.Vault, error)
 	UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest, updatedBy uuid.UUID) (*model.Vault, error)
 	DeleteVault(ctx context.Context, name string) error
 	RecoverVault(ctx context.Context, name string) error
@@ -178,6 +187,9 @@ type VaultService interface {
 	// management rights over a vault it provisions, inside the same
 	// transaction as the vault insert.
 	SetCreatorGranter(g CreatorGranter)
+	// SetPolicyVaultLister attaches the policy-vault lister used by
+	// ListVaultsScoped's non-admin path.
+	SetPolicyVaultLister(l PolicyVaultLister)
 }
 
 type vaultService struct {
@@ -193,6 +205,7 @@ type vaultService struct {
 	globalPurgeProtection bool
 	grantLocker           GrantLocker
 	creatorGranter        CreatorGranter
+	policyVaults          PolicyVaultLister
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
@@ -223,6 +236,10 @@ func (s *vaultService) SetGrantLocker(l GrantLocker) { s.grantLocker = l }
 // management rights over a vault it provisions, inside the same transaction
 // as the vault insert.
 func (s *vaultService) SetCreatorGranter(g CreatorGranter) { s.creatorGranter = g }
+
+// SetPolicyVaultLister attaches the policy-vault lister used by
+// ListVaultsScoped's non-admin path.
+func (s *vaultService) SetPolicyVaultLister(l PolicyVaultLister) { s.policyVaults = l }
 
 // SetTxBeginner attaches an optional transaction beginner. When set,
 // DeleteVault/RecoverVault run their cascade atomically inside one
@@ -476,6 +493,48 @@ func (s *vaultService) ListVaults(ctx context.Context, includeDeleted bool) ([]m
 		vaults = append(vaults, deleted...)
 	}
 	return vaults, nil
+}
+
+// ListVaultsScoped returns every vault when all is true (the admin and
+// global-policy path, identical to ListVaults), and otherwise only vaults
+// where principalID holds a vault-scoped vaults:manage allow.
+//
+// A policy-lookup error is propagated rather than swallowed into an empty
+// list: an empty list is a positive claim ("you manage no vaults"), and a
+// database outage reported that way would tell a caller their vaults are
+// gone. Propagating discloses nothing about vaults the caller cannot see and
+// is equally safe, but truthful. This differs from CanManageVault, which
+// legitimately fails closed to a denial -- a denial carries no false
+// information, but a listing does.
+func (s *vaultService) ListVaultsScoped(ctx context.Context, principalID uuid.UUID, includeDeleted, all bool) ([]model.Vault, error) {
+	if all {
+		return s.ListVaults(ctx, includeDeleted)
+	}
+	if s.policyVaults == nil {
+		return nil, nil
+	}
+	ids, err := s.policyVaults.ListVaultIDsForPrincipal(ctx, principalID)
+	if err != nil {
+		return nil, fmt.Errorf("list manageable vaults: %w", err)
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	allowed := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		allowed[id] = struct{}{}
+	}
+	everything, err := s.ListVaults(ctx, includeDeleted)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.Vault, 0, len(ids))
+	for _, v := range everything {
+		if _, ok := allowed[v.ID]; ok {
+			out = append(out, v)
+		}
+	}
+	return out, nil
 }
 
 // UpdateVault applies the non-nil request overrides to an active vault and persists it.
