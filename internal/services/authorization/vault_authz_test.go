@@ -368,3 +368,23 @@ func TestCanCreateVault(t *testing.T) {
 		})
 	}
 }
+
+// TestCanCreateVault_PolicyServiceErrorDeniesEvenWithValidGrant pins the
+// fail-closed invariant this function's own doc comment promises: "A nil
+// dependency or any service error denies." A principal can hold both a
+// provisioning grant and a global explicit (vaults, manage, deny) policy --
+// the shape an operator uses to suspend a grantee without revoking their
+// grant. If a transient policy-read error (connection reset, statement
+// timeout) were treated like AccessFallback and allowed to fall through to
+// the grant check, that suspension would be silently bypassed. The grant
+// here is valid on its own -- if this case failed to deny, it would prove
+// the fall-through, not a broken grant.
+func TestCanCreateVault_PolicyServiceErrorDeniesEvenWithValidGrant(t *testing.T) {
+	principal := uuid.New()
+	grant := &model.VaultProvisioningGrant{PrincipalID: principal, Quota: 3}
+	policies := &fakeAccessPolicyService{err: errors.New("db down")}
+	grants := &stubGrantReader{grant: grant}
+
+	got := CanCreateVault(context.Background(), []string{"user"}, policies, grants, principal)
+	require.Equal(t, CreateRightNone, got, "a policy-service error must deny outright, not fall through to the provisioning grant")
+}

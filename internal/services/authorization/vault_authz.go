@@ -134,13 +134,14 @@ func CanCreateVault(ctx context.Context, accountRoles []string, policies AccessP
 	}
 	if policies != nil {
 		decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, uuid.Nil)
-		if err == nil {
-			if decision == AccessAllowed {
-				return CreateRightGlobalPolicy
-			}
-			if decision == AccessDenied {
-				return CreateRightNone
-			}
+		if err != nil {
+			return CreateRightNone
+		}
+		if decision == AccessAllowed {
+			return CreateRightGlobalPolicy
+		}
+		if decision == AccessDenied {
+			return CreateRightNone
 		}
 	}
 	if grants == nil {
