@@ -135,19 +135,22 @@ func newProvisionedTestService(t *testing.T, q, n int) vaults.VaultService {
 // by a temp-file SQLite database rather than ":memory:". ":memory:" gives
 // each connection in the pool its own private, throwaway database, so a
 // concurrency test needing two connections to contend for one real row lock
-// requires an actual file on disk.
-func newProvisionedTestServiceRealDB(t *testing.T, q, n int) vaults.VaultService {
+// requires an actual file on disk. Returns the *sql.DB too, so a concurrency
+// test can assert on final database state directly rather than trusting only
+// the returned errors.
+func newProvisionedTestServiceRealDB(t *testing.T, q, n int) (vaults.VaultService, *sql.DB) {
 	t.Helper()
 	// _busy_timeout makes a connection that finds the row locked wait for the
 	// lock to clear (up to 5s) instead of failing immediately with
 	// "database is locked" -- without it, concurrent writers race the OS
 	// file lock itself rather than exercising the quota check.
 	dsn := filepath.Join(t.TempDir(), "provisioned.db") + "?_busy_timeout=5000"
-	return newProvisionedService(t, newProvisionedTestDB(t, dsn, q, n))
+	sqlDB := newProvisionedTestDB(t, dsn, q, n)
+	return newProvisionedService(t, sqlDB), sqlDB
 }
 
 func TestCreateVaultProvisioned_RefusesAtQuota(t *testing.T) {
-	svc := newProvisionedTestService(t, quota(2), existingVaults(2)) // helpers in Step 4
+	svc := newProvisionedTestService(t, quota(2), existingVaults(2))
 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
 		model.CreateVaultRequest{Name: "third"}, testPrincipal, true)
@@ -183,45 +186,209 @@ func TestCreateVaultProvisioned_RejectsPurgeProtectionFromGrantee(t *testing.T) 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
 		model.CreateVaultRequest{Name: "pinned", PurgeProtection: &protect}, testPrincipal, true)
 
-	require.Error(t, err,
+	require.ErrorIs(t, err, vaults.ErrPurgeProtectionNotPermitted,
 		"a grantee setting purge_protection could pin a quota slot permanently")
 }
 
-// TestCreateVaultProvisioned_ConcurrentCreatesRespectQuota demonstrates the
-// row-lock guard (LockAndReadQuotaTx's no-op UPDATE) using SQLite's
-// transaction escalation to RESERVED. It only demonstrates the guard: the
-// race it defends against -- two concurrent creates both reading the same
-// count under READ COMMITTED and both inserting -- is a PostgreSQL failure
-// mode, since SQLite serializes writers regardless. The guard is still
-// required so it also fails safe here rather than merely "by accident."
+// TestCreateVaultProvisioned_RefusesWhenTransactionDepsUnwired guards against
+// a fail-open regression: a quota-bounded caller whose txBeginner or
+// grantLocker is unwired (e.g. a missed wiring line when plan 06 hooks up the
+// HTTP handler) must be refused outright, never silently handed the
+// unchecked CreateVault path -- a guard that degrades to "no guard" on a
+// wiring mistake is worse than no guard, because it looks like it's working.
+func TestCreateVaultProvisioned_RefusesWhenTransactionDepsUnwired(t *testing.T) {
+	sqlDB := newProvisionedTestDB(t, ":memory:", 5, 0)
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
+	vaultRepo := repositories.NewVaultRepository(conn, nil)
+	// Deliberately don't call SetTxBeginner/SetGrantLocker.
+	svc := vaults.NewVaultService(vaultRepo, noopProvisionedCascade{}, nil)
+
+	_, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "unwired"}, testPrincipal, true)
+
+	require.Error(t, err,
+		"a quota-bounded caller must be refused, not silently fall back to the unchecked create path")
+
+	var count int
+	require.NoError(t, sqlDB.QueryRow("SELECT COUNT(*) FROM vaults").Scan(&count))
+	require.Equal(t, 0, count, "no vault may be created when the quota cannot be enforced")
+}
+
+// txCreateCounter is the same capability CreateVaultProvisioned itself
+// asserts for (unexported txCapableCreateRepo in vault_service.go). Declared
+// locally so this external test package can drive the two Tx-scoped methods
+// directly against the concrete *repositories.VaultRepository.
+type txCreateCounter interface {
+	CreateTx(ctx context.Context, ex rvdb.DBTX, v *model.Vault) error
+	CountByCreatedBy(ctx context.Context, ex rvdb.DBTX, principalID uuid.UUID) (int, error)
+}
+
+// TestCreateVaultProvisioned_ConcurrentCreatesRespectQuota proves the row
+// lock (LockAndReadQuotaTx's no-op UPDATE) is what prevents two concurrent
+// creates from both reading the same pre-insert count and both inserting --
+// the READ COMMITTED race this guard defends against on PostgreSQL.
+//
+// Two earlier versions of this test were rejected:
+//
+//   - Driving two goroutines through the public svc.CreateVaultProvisioned,
+//     released together off a shared start channel, PASSED even with the lock
+//     statement deleted: the two transactions' read-then-write sequences are
+//     fast enough, and Go's scheduler coarse enough, that one goroutine's
+//     entire transaction routinely completes before the other's even begins
+//     -- accidental serialization by timing, not the lock.
+//   - A version with an explicit two-party rendezvous (each racer signals
+//     after its read, then both proceed to write together) DEADLOCKED when
+//     the lock was present: LockAndReadQuotaTx's UPDATE is itself part of
+//     the "read", so the second racer's read cannot complete until the
+//     first's transaction ends -- but the first racer was waiting for the
+//     second's read-done signal before ending its transaction. Neither side
+//     could move.
+//
+// This version uses a one-directional handoff instead of a mutual one: racer
+// B waits only for a signal that racer A has finished its OWN read and is
+// about to pause before writing; racer A never waits on B and always
+// proceeds to write+commit unconditionally after a short, generous pause.
+// That pause exists purely to give B's read call time to actually be issued
+// while A's transaction is still open and uncommitted:
+//
+//   - Lock absent: B's SELECT-only read does not block on A's uncommitted
+//     write (SQLite readers aren't blocked by a pending, uncommitted
+//     RESERVED lock), so B completes its read immediately, observes the same
+//     stale pre-insert count A saw, and -- once A commits and releases the
+//     write lock -- commits its own insert too. Both succeed: quota
+//     overrun, reproduced deterministically on every run.
+//   - Lock present: B's own UPDATE blocks until A's transaction ends, so B's
+//     read can only complete after A has already committed, and correctly
+//     observes the post-insert count. Exactly one of the two ever inserts.
 func TestCreateVaultProvisioned_ConcurrentCreatesRespectQuota(t *testing.T) {
 	// Quota 2, one vault already present: exactly one of two concurrent
 	// creates may succeed.
-	svc := newProvisionedTestServiceRealDB(t, quota(2), existingVaults(1))
+	dsn := filepath.Join(t.TempDir(), "provisioned.db") + "?_busy_timeout=5000"
+	sqlDB := newProvisionedTestDB(t, dsn, 2, 1)
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
 
-	var wg sync.WaitGroup
-	errs := make([]error, 2)
-	for i := range errs {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, errs[i] = svc.CreateVaultProvisioned(context.Background(),
-				model.CreateVaultRequest{Name: fmt.Sprintf("race-%d", i)}, testPrincipal, true)
-		}(i)
+	vaultRepo, ok := repositories.NewVaultRepository(conn, nil).(txCreateCounter)
+	require.True(t, ok, "VaultRepository must support the Tx-scoped create/count pair")
+	grantRepo := repositories.NewVaultProvisioningGrantRepository(conn)
+
+	newVault := func(name string) *model.Vault {
+		return &model.Vault{
+			ID: uuid.New(), Name: name, Enabled: true, RetentionDays: 90,
+			CreatedBy: testPrincipal, CreatedAt: time.Now(),
+		}
 	}
+
+	// bMayStart is closed once A's read phase has completed and A is about
+	// to pause before writing -- the only synchronization B waits on. A
+	// itself never waits on B.
+	bMayStart := make(chan struct{})
+	var wg sync.WaitGroup
+	var errA, errB error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ctx := context.Background()
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			errA = err
+			return
+		}
+		quota, err := grantRepo.LockAndReadQuotaTx(ctx, tx, testPrincipal)
+		if err != nil {
+			_ = tx.Rollback()
+			errA = err
+			return
+		}
+		count, err := vaultRepo.CountByCreatedBy(ctx, tx, testPrincipal)
+		if err != nil {
+			_ = tx.Rollback()
+			errA = err
+			return
+		}
+
+		close(bMayStart)
+		// Generous head start for B to at least ISSUE its own read call
+		// while this transaction is still open and uncommitted -- SQLite
+		// operations are microsecond-scale, so this margin is not tight.
+		time.Sleep(50 * time.Millisecond)
+
+		if count >= quota {
+			_ = tx.Rollback()
+			errA = fmt.Errorf("%w: %d of %d used", vaults.ErrVaultQuotaExceeded, count, quota)
+			return
+		}
+		if err := vaultRepo.CreateTx(ctx, tx, newVault("race-a")); err != nil {
+			_ = tx.Rollback()
+			errA = err
+			return
+		}
+		errA = tx.Commit()
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-bMayStart
+		ctx := context.Background()
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			errB = err
+			return
+		}
+		// Blocks here until A's transaction ends, if and only if the lock
+		// statement is present.
+		quota, err := grantRepo.LockAndReadQuotaTx(ctx, tx, testPrincipal)
+		if err != nil {
+			_ = tx.Rollback()
+			errB = err
+			return
+		}
+		count, err := vaultRepo.CountByCreatedBy(ctx, tx, testPrincipal)
+		if err != nil {
+			_ = tx.Rollback()
+			errB = err
+			return
+		}
+		if count >= quota {
+			_ = tx.Rollback()
+			errB = fmt.Errorf("%w: %d of %d used", vaults.ErrVaultQuotaExceeded, count, quota)
+			return
+		}
+		if err := vaultRepo.CreateTx(ctx, tx, newVault("race-b")); err != nil {
+			_ = tx.Rollback()
+			errB = err
+			return
+		}
+		errB = tx.Commit()
+	}()
+
 	wg.Wait()
 
-	var ok, refused int
-	for _, err := range errs {
+	var okCount, refused int
+	for _, err := range []error{errA, errB} {
 		switch {
 		case err == nil:
-			ok++
+			okCount++
 		case errors.Is(err, vaults.ErrVaultQuotaExceeded):
 			refused++
 		default:
-			t.Fatalf("unexpected error: %v", err)
+			// With the lock present this never happens: exactly one racer
+			// succeeds and the other is cleanly refused. Without it, both
+			// racers decide (on the same stale read) to write, and SQLite's
+			// own locking then has both fighting to become the writer with
+			// no coordinating read to arbitrate between them -- a lock
+			// contention error here is itself evidence the guard is gone,
+			// not an unrelated flake.
+			t.Fatalf("unexpected error (a sign the row lock is missing and the racers are contending uncoordinated): %v", err)
 		}
 	}
-	require.Equal(t, 1, ok, "exactly one concurrent create may succeed")
+	require.Equal(t, 1, okCount, "exactly one concurrent create may succeed")
 	require.Equal(t, 1, refused, "the other must be refused for quota")
+
+	var finalCount int
+	require.NoError(t, sqlDB.QueryRow(
+		"SELECT COUNT(*) FROM vaults WHERE created_by = ?", testPrincipal.String()).Scan(&finalCount))
+	require.Equal(t, 2, finalCount,
+		"final vault count must equal the quota exactly, proven against the database, not just the returned errors")
 }

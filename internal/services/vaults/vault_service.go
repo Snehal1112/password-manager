@@ -329,11 +329,18 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		return nil, ErrPurgeProtectionNotPermitted
 	}
 
-	// No transaction wired (unit tests, and any deployment path that never
-	// set a locker): fall back to the pre-existing non-transactional create.
-	// An unbounded caller needs no quota check at all.
-	if !quotaBounded || s.txBeginner == nil || s.grantLocker == nil {
+	// An unbounded caller (admin, global policy) needs no quota check --
+	// fall back to the pre-existing non-transactional create.
+	if !quotaBounded {
 		return s.CreateVault(ctx, req, createdBy)
+	}
+	// A quota-bounded caller MUST be checked. If the transactional deps are
+	// not wired we cannot check, so we refuse rather than silently creating
+	// an unbounded vault -- a guard that degrades to "no guard" on a wiring
+	// mistake is worse than no guard at all, because it looks like it is
+	// working.
+	if s.txBeginner == nil || s.grantLocker == nil {
+		return nil, fmt.Errorf("provisioning quota cannot be enforced: transaction support is not wired")
 	}
 
 	v := s.buildVault(req, createdBy)
@@ -343,12 +350,14 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		return nil, fmt.Errorf("vault repository does not support transactional create")
 	}
 
+	var count, quota int
 	err := s.withTx(ctx, func(tx *db.Tx) error {
-		quota, err := s.grantLocker.LockAndReadQuotaTx(ctx, tx, createdBy)
+		var err error
+		quota, err = s.grantLocker.LockAndReadQuotaTx(ctx, tx, createdBy)
 		if err != nil {
 			return err
 		}
-		count, err := txRepo.CountByCreatedBy(ctx, tx, createdBy)
+		count, err = txRepo.CountByCreatedBy(ctx, tx, createdBy)
 		if err != nil {
 			return err
 		}
@@ -358,6 +367,12 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		return txRepo.CreateTx(ctx, tx, v)
 	})
 	if err != nil {
+		if errors.Is(err, ErrVaultQuotaExceeded) && s.log != nil {
+			// A quota refusal is a security-relevant event -- record it the
+			// same way a successful create is recorded below, not silently.
+			s.log.LogAuditInfo(createdBy.String(), "create_vault", "denied",
+				fmt.Sprintf("Vault creation refused: provisioning quota exceeded (%d of %d used)", count, quota))
+		}
 		return nil, err
 	}
 	if s.log != nil {
