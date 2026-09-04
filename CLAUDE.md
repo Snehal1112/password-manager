@@ -227,6 +227,7 @@ HTTP requests get their authorization check for free from middleware. CLI comman
 
 - **Per-vault data-plane operations** (`secrets`, `keys`, `certificates`): call `cmd/vaultcli.RequireDataAction` (which re-runs the identical two-stage check HTTP gets — `AccessPolicyService`'s explicit-deny override, then the deny-by-default role-assignment check) after resolving the target vault via `vaultcli.ResolveVaultID`.
 - **Vault-management operations** (`vaults` lifecycle: create/update/delete/recover/purge; `vault-access` role-assignment grant/revoke): call their own package-local helpers (`cmd/vaults/authz.go`, `cmd/vault-access/authz.go`), built on the shared `CanManageVault`/`CanPurgeVault`/`CanManageRoleAssignments` checks in `internal/services/authorization`.
+- **Provisioning-grant management** (`vault-provisioning grant`/`revoke`/`list`): calls its own package-local helper, `cmd/vault-provisioning/authz.go`'s `requireGrantAdmin`. Unlike the `vaults` and `vault-access` helpers above, this one has no access-policy or role-assignment path at all — it checks only the global `admin` account role. This tier is admin-only and deliberately non-delegable: a principal able to amend its own provisioning grant could raise its own quota, and the bound the grant exists to impose would be decorative. See `docs/release-notes/v4.5.0-vault-provisioning.md`.
 
 A new CLI command that skips its tier's check bypasses authorization entirely — there is no other enforcement point on the CLI path.
 

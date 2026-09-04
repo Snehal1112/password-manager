@@ -66,6 +66,43 @@ request volume, storage, billing) is still absent and belongs with the items bel
   belongs in this item rather than a separate one — a delegated manager who could
   create a vault still could not enumerate their own.
 
+  ***Release 1 shipped 2026-09-04:*** provisioning grants
+  (`vault_provisioning_grants`) now exist. `CanCreateVault` (`internal/services/
+  authorization/vault_authz.go`) decides admin / global-policy / bounded-grant;
+  quota enforcement runs inside `VaultService.CreateVaultProvisioned`'s creation
+  transaction (soft-deleted vaults count, only a purge frees a slot; a grantee
+  cannot set `purge_protection`); `ListVaults` gained a scoped path so a grantee
+  can see what it created; the admin API
+  (`PUT`/`DELETE`/`GET /vault-provisioning-grants[/{principal_id}]`) and the CLI
+  (`rocketvault vault-provisioning grant/revoke/list`) are both admin-only and
+  deliberately non-delegable. Full detail:
+  `docs/release-notes/v4.5.0-vault-provisioning.md`; design:
+  `docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`.
+
+  **What remains open after release 1:**
+  1. **The narrowing (release 2, not yet shipped).** A global `vaults:manage`
+     grant still confers get/update/delete on every existing vault (via
+     `CanManageVault`) and role-assignment management everywhere (via
+     `CanManageRoleAssignments`), exactly as described above — that has not
+     changed. `CheckVaultScopedAccess` and the narrowing of both checks to
+     create-and-list-only are deferred to release 2, gated on the startup
+     diagnostic (`warnGlobalVaultManageGrants`, `internal/db/db.go`, added in
+     release 1) reporting from a real deployment first. There is also an open
+     question release 2's planning still has to resolve: a global
+     `vaults:manage` holder receives no creator grants when it creates a
+     vault today (`VaultService.CreateVault`, the unbounded path) — harmless
+     now, since that policy already confers authority over every vault, but
+     it means such a holder would create a vault it then cannot manage once
+     the narrowing lands, unless that is addressed at the same time.
+  2. **Name prefixes / namespacing.** Still deliberately deferred (design
+     doc's Non-goals) — one MSP automation principal creates every vault
+     today, so a grantee's vault names still share one flat namespace with
+     admin-created ones and can collide.
+  3. **The tenant entity.** Still absent — see the next bullet below. `quota`
+     lives on the grant row itself for now; when tenants land, `quota` and the
+     future `name_prefix` move to the tenant row and the enforcement code does
+     not change (design doc §"Non-goals").
+
 - **No tenant entity — vaults are flat, not hierarchical** — there is no object
   grouping several vaults under one customer or organisation; the vault is the
   only isolation unit. Confirmed still true 2026-09-03: `tenant` appears nowhere
