@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"rocketvault/internal/db"
 	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/provisioning"
 	"rocketvault/model"
@@ -54,6 +55,14 @@ func (f *fakeGrantRepo) List(_ context.Context) ([]*model.VaultProvisioningGrant
 		out = append(out, g)
 	}
 	return out, nil
+}
+
+// LockAndReadQuotaTx satisfies the widened
+// VaultProvisioningGrantRepositoryInterface (plan 04, task 2). Never
+// exercised here -- this package's tests operate purely on the
+// non-transactional grant-service surface.
+func (f *fakeGrantRepo) LockAndReadQuotaTx(_ context.Context, _ db.DBTX, _ uuid.UUID) (int, error) {
+	return 0, nil
 }
 
 func TestIssueGrant_StoresAndReturns(t *testing.T) {

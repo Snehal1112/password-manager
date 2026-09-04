@@ -63,6 +63,13 @@ type PolicyCleaner interface {
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// GrantLocker locks a principal's provisioning grant inside a transaction and
+// returns its quota. Satisfied by the concrete
+// repositories.vaultProvisioningGrantRepository.
+type GrantLocker interface {
+	LockAndReadQuotaTx(ctx context.Context, ex db.DBTX, principalID uuid.UUID) (int, error)
+}
+
 // RoleAssignmentCleaner removes role assignments scoped to a vault (used on
 // purge). Separate from PolicyCleaner because the two are different tables
 // with different repositories, and either may be absent in a unit test.
@@ -123,9 +130,23 @@ type txCapableVaultRepo interface {
 	RecoverTx(ctx context.Context, ex db.DBTX, id uuid.UUID) error
 }
 
+// txCapableCreateRepo is the provisioned-create half of the concrete
+// VaultRepository's Tx surface. Kept off VaultRepositoryInterface for the
+// same reason as txCapableVaultRepo: adding it there would ripple to every
+// test double implementing that interface.
+type txCapableCreateRepo interface {
+	CreateTx(ctx context.Context, ex db.DBTX, v *model.Vault) error
+	CountByCreatedBy(ctx context.Context, ex db.DBTX, principalID uuid.UUID) (int, error)
+}
+
 // VaultService orchestrates the vault lifecycle.
 type VaultService interface {
 	CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error)
+	// CreateVaultProvisioned creates a vault, enforcing the caller's
+	// provisioning quota when quotaBounded is true. quotaBounded is passed in
+	// by the caller, derived from authz.CreateRight -- this method does not
+	// re-derive the authorization decision.
+	CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded bool) (*model.Vault, error)
 	GetVault(ctx context.Context, name string) (*model.Vault, error)
 	ListVaults(ctx context.Context, includeDeleted bool) ([]model.Vault, error)
 	UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest, updatedBy uuid.UUID) (*model.Vault, error)
@@ -142,6 +163,9 @@ type VaultService interface {
 	// true, PurgeVault refuses every purge instance-wide, regardless of this
 	// vault's or its contents' own purge_protection flag.
 	SetGlobalPurgeProtection(protected bool)
+	// SetGrantLocker attaches the provisioning-grant locker used by the
+	// quota-bounded create path.
+	SetGrantLocker(l GrantLocker)
 }
 
 type vaultService struct {
@@ -155,6 +179,7 @@ type vaultService struct {
 	vaultCache            VaultCacheInterface
 	log                   *logging.Logger
 	globalPurgeProtection bool
+	grantLocker           GrantLocker
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
@@ -176,6 +201,10 @@ func (s *vaultService) SetWebhookCleaner(c WebhookCleaner) { s.webhooks = c }
 // SetGlobalPurgeProtection sets the instance-wide purge safety switch. See
 // vaultService.globalPurgeProtection.
 func (s *vaultService) SetGlobalPurgeProtection(protected bool) { s.globalPurgeProtection = protected }
+
+// SetGrantLocker attaches the provisioning-grant locker used by the
+// quota-bounded create path.
+func (s *vaultService) SetGrantLocker(l GrantLocker) { s.grantLocker = l }
 
 // SetTxBeginner attaches an optional transaction beginner. When set,
 // DeleteVault/RecoverVault run their cascade atomically inside one
@@ -226,15 +255,11 @@ func (s *vaultService) withTx(ctx context.Context, fn func(tx *db.Tx) error) err
 	return tx.Commit()
 }
 
-// CreateVault validates the request, applies defaults and overrides, and persists a new vault.
-func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error) {
-	if err := model.ValidateVaultName(req.Name); err != nil {
-		return nil, err
-	}
-	if err := model.ValidateVaultTags(req.Tags); err != nil {
-		return nil, err
-	}
-
+// buildVault applies request defaults and overrides to a new, unpersisted
+// vault. Shared by CreateVault and CreateVaultProvisioned so the two paths'
+// defaults cannot drift apart -- callers still validate req before calling
+// this, buildVault itself doesn't.
+func (s *vaultService) buildVault(req model.CreateVaultRequest, createdBy uuid.UUID) *model.Vault {
 	v := &model.Vault{
 		ID:            uuid.New(),
 		Name:          req.Name,
@@ -253,12 +278,91 @@ func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultReq
 	if req.RetentionDays != nil {
 		v.RetentionDays = *req.RetentionDays
 	}
+	return v
+}
+
+// CreateVault validates the request, applies defaults and overrides, and persists a new vault.
+func (s *vaultService) CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error) {
+	if err := model.ValidateVaultName(req.Name); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateVaultTags(req.Tags); err != nil {
+		return nil, err
+	}
+
+	v := s.buildVault(req, createdBy)
 
 	if err := s.repo.Create(ctx, v); err != nil {
 		return nil, fmt.Errorf("create vault: %w", err)
 	}
 	if s.log != nil {
 		s.log.LogAuditInfo(createdBy.String(), "create_vault", "success", fmt.Sprintf("Vault created: %s", v.Name))
+	}
+	return v, nil
+}
+
+// ErrVaultQuotaExceeded means the principal has reached the vault count its
+// provisioning grant allows. Soft-deleted vaults still count -- only a purge
+// releases a slot.
+var ErrVaultQuotaExceeded = errors.New("vault provisioning quota exceeded")
+
+// ErrPurgeProtectionNotPermitted means a quota-bounded caller tried to set
+// purge_protection. Allowing it would let a grantee protect a vault,
+// soft-delete it, and hold the quota slot forever, since PurgeVault refuses a
+// protected vault and the purge scheduler honours the same flag.
+var ErrPurgeProtectionNotPermitted = errors.New("purge protection may only be set by an administrator")
+
+// CreateVaultProvisioned creates a vault, enforcing the caller's provisioning
+// quota when quotaBounded is true. quotaBounded comes from the caller's
+// authz.CreateRight: admins and global-policy holders pass false.
+//
+// Quota enforcement runs INSIDE the transaction that inserts the vault. A
+// check outside it races the insert and the bound becomes advisory.
+func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded bool) (*model.Vault, error) {
+	if err := model.ValidateVaultName(req.Name); err != nil {
+		return nil, err
+	}
+	if err := model.ValidateVaultTags(req.Tags); err != nil {
+		return nil, err
+	}
+	if quotaBounded && req.PurgeProtection != nil && *req.PurgeProtection {
+		return nil, ErrPurgeProtectionNotPermitted
+	}
+
+	// No transaction wired (unit tests, and any deployment path that never
+	// set a locker): fall back to the pre-existing non-transactional create.
+	// An unbounded caller needs no quota check at all.
+	if !quotaBounded || s.txBeginner == nil || s.grantLocker == nil {
+		return s.CreateVault(ctx, req, createdBy)
+	}
+
+	v := s.buildVault(req, createdBy)
+
+	txRepo, ok := s.repo.(txCapableCreateRepo)
+	if !ok {
+		return nil, fmt.Errorf("vault repository does not support transactional create")
+	}
+
+	err := s.withTx(ctx, func(tx *db.Tx) error {
+		quota, err := s.grantLocker.LockAndReadQuotaTx(ctx, tx, createdBy)
+		if err != nil {
+			return err
+		}
+		count, err := txRepo.CountByCreatedBy(ctx, tx, createdBy)
+		if err != nil {
+			return err
+		}
+		if count >= quota {
+			return fmt.Errorf("%w: %d of %d used", ErrVaultQuotaExceeded, count, quota)
+		}
+		return txRepo.CreateTx(ctx, tx, v)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if s.log != nil {
+		s.log.LogAuditInfo(createdBy.String(), "create_vault", "success",
+			fmt.Sprintf("Vault created under provisioning grant: %s", v.Name))
 	}
 	return v, nil
 }
