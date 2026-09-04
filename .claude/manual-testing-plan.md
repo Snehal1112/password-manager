@@ -9,7 +9,7 @@ Each section: **Setup** (if any) → **Steps** → **Expected** → **Watch for*
 (known gotchas pulled from `.claude/known-bugs.md` and prior test sessions).
 Check items off as `[x]` while you go.
 
-**Last reconciled 2026-09-03** against `.claude/azure-keyvault-parity.md` and the
+**Last reconciled 2026-09-04** against `.claude/azure-keyvault-parity.md` and the
 code. Added since the previous pass: key import (JWK) and key-version
 addressability in §8.1; per-vault webhook configuration in §5; per-vault rate
 limiting as §11.1; the MCP server as §19 (Configuration Reference moved to §20).
@@ -18,6 +18,14 @@ gained `rate_limit.per_vault`, the `rotation:` scheduler section, and the whole
 `mcp:` section. Deliberately **not** added: certificate import, CSR merge and
 passphrase-sealed certificate export — all three are specified but not built, so
 there is nothing to exercise (see the parity doc §4 and the Phase 3 roadmap).
+This pass added two §5 worked examples for self-service provisioning —
+quotas and what a soft-delete costs you, and what a provisioning grantee
+cannot do — both captured live, in sequence, against one shared scratch
+instance. The run surfaced two previously unrecorded bugs, now filed as
+`.claude/known-bugs.md` § B57 (the `secrets` CLI's legacy global-role gate,
+which contradicts a vault's own role assignments) and § B58 (four
+service-layer call sites writing audit rows with an empty actor, including
+`delete_vault` and `purge_vault`).
 
 ---
 
