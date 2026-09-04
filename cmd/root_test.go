@@ -849,3 +849,46 @@ func TestRemotePersistentPreRun_StashesVaultapiClient(t *testing.T) {
 	require.True(t, ok, "remote pre-run must stash a *vaultapi.Client")
 	require.NotNil(t, client)
 }
+
+func TestRemoteGuard_AllowsUsersLoginAndLogout(t *testing.T) {
+	for _, name := range []string{"login", "logout"} {
+		users := &cobra.Command{Use: "users"}
+		sub := &cobra.Command{Use: name}
+		users.AddCommand(sub)
+		assert.True(t, isRemoteCapableCommand(sub), "%q must reach its remote adapter", name)
+		assert.True(t, isRemoteUnauthenticatedCommand(sub), "%q must not be pre-authenticated", name)
+	}
+}
+
+func TestRemoteGuard_StillBlocksUnmigratedGroups(t *testing.T) {
+	keys := &cobra.Command{Use: "keys"}
+	sub := &cobra.Command{Use: "list"}
+	keys.AddCommand(sub)
+	assert.False(t, isRemoteCapableCommand(sub))
+}
+
+// B54: with no session cached and no credentials passed, the pre-run must
+// still hand `users login` a client -- that is the exact situation where the
+// old pre-run failed before the command body ever ran.
+func TestRemotePersistentPreRun_UnauthenticatedCommand_StashesClientWithNoSession(t *testing.T) {
+	common.SessionBaseDir = t.TempDir() // nothing cached
+
+	users := &cobra.Command{Use: "users"}
+	c := newAuthTestCmd("", "", "")
+	c.Use = "login"
+	users.AddCommand(c)
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+	c.Flags().String("ca-cert", "", "")
+	c.Flags().Bool("insecure-skip-verify", false, "")
+	c.Flags().String("output", "table", "")
+	c.SetContext(context.Background())
+
+	target := &cliclient.Target{Server: "https://vault.example.com"}
+	require.NoError(t, remotePersistentPreRun(c, target),
+		"users login must not require a session to reach its RunE")
+
+	client, ok := c.Context().Value(common.RemoteClientKey).(*vaultapi.Client)
+	require.True(t, ok, "the unauthenticated branch must still stash a *vaultapi.Client")
+	require.NotNil(t, client)
+}

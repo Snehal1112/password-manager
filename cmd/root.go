@@ -223,27 +223,42 @@ func isLocalOnlyCommand(cmd *cobra.Command) bool {
 	return cmd.Name() == "generate-password" && cmd.Parent() != nil && cmd.Parent().Name() == "secrets"
 }
 
-// remoteCapableSecretsCommands are the "secrets" subcommands with their own
-// remote-mode adapter in internal/cliclient/secrets.go — see
+// remoteCapableCommands maps a command group to the subcommands within it
+// that have their own remote-mode adapter. Everything else still goes
+// through the remote-target guard until its group's adapter plan lands, so
+// adding a group here without writing its adapter exposes a command that
+// will fail at the first API call.
+//
+// The "secrets" adapters live in internal/cliclient/secrets.go — see
 // docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md's
-// Command Support Matrix. Other resource groups (keys, certificates,
-// vaults, vault-access, users, audit) still go through the remote-target
-// guard until each gets its own adapter.
-var remoteCapableSecretsCommands = map[string]bool{
-	"list":   true,
-	"get":    true,
-	"create": true,
-	"update": true,
-	"delete": true,
-	"export": true,
-	"import": true,
+// Command Support Matrix. Groups still guarded: keys, certificates, vaults,
+// vault-access, audit, and the users resource commands.
+var remoteCapableCommands = map[string]map[string]bool{
+	"secrets": {"list": true, "get": true, "create": true, "update": true,
+		"delete": true, "export": true, "import": true},
+	"users": {"login": true, "logout": true},
 }
 
 // isRemoteCapableCommand reports whether cmd has its own remote-mode
 // adapter and should be let through the remote-target guard instead of
 // being rejected by it.
 func isRemoteCapableCommand(cmd *cobra.Command) bool {
-	return cmd.Parent() != nil && cmd.Parent().Name() == "secrets" && remoteCapableSecretsCommands[cmd.Name()]
+	if cmd.Parent() == nil {
+		return false
+	}
+	return remoteCapableCommands[cmd.Parent().Name()][cmd.Name()]
+}
+
+// isRemoteUnauthenticatedCommand reports whether cmd is remote-capable but
+// must not be authenticated by the pre-run. "login" is what creates the
+// session, so requiring one first is circular -- that circularity is B54.
+// "logout" only deletes a cached session file and must keep working even
+// when that session is expired or broken.
+func isRemoteUnauthenticatedCommand(cmd *cobra.Command) bool {
+	if cmd.Parent() == nil || cmd.Parent().Name() != "users" {
+		return false
+	}
+	return cmd.Name() == "login" || cmd.Name() == "logout"
 }
 
 // isSystemCommand reports whether cmd is exempt from persistentPreRun's
@@ -550,6 +565,34 @@ func remotePersistentPreRun(cmd *cobra.Command, target *cliclient.Target) error 
 	httpClient, err := cliclient.NewHTTPClient(opts)
 	if err != nil {
 		return fmt.Errorf("failed to configure remote TLS trust: %w", err)
+	}
+
+	// login is what produces a session, so requiring one first is circular;
+	// logout only deletes a cached one. Both get a client with no usable
+	// token source rather than being pre-authenticated.
+	//
+	// Tokens is not optional -- vaultapi.New rejects a nil token source --
+	// and unauthenticatedSource is the right value: Client.Login never
+	// consults it, so login works while any other call on this client fails
+	// loudly instead of sending an empty Authorization header.
+	//
+	// RemoteHTTPClientKey is set here because the OIDC exchange needs this
+	// CA-aware transport. That use must outlive plan 08's removal of the
+	// key, or be converted to a vaultapi method at that point.
+	if isRemoteUnauthenticatedCommand(cmd) {
+		client, err := vaultapi.New(vaultapi.Config{
+			BaseURL:    target.Server,
+			HTTPClient: httpClient,
+			Tokens:     unauthenticatedSource{},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to build remote API client: %w", err)
+		}
+		ctx := context.WithValue(cmd.Context(), common.RemoteTargetKey, target)
+		ctx = context.WithValue(ctx, common.RemoteClientKey, client)
+		ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+		cmd.SetContext(ctx)
+		return nil
 	}
 
 	tokens, err := resolveRemoteTokenSource(cmd, target, httpClient)
