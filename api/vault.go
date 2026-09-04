@@ -59,11 +59,14 @@ func (c *Context) vaultSvc() vaultServices.VaultService {
 }
 
 // createVault handles the creation of a new vault. Vault creation has no
-// single target vault to check against, so the authorization check uses
-// uuid.Nil, matching only a GLOBAL (vault_id: null) vaults:manage allow
-// policy — a vault-scoped grant on some other existing vault does not confer
-// the ability to create a new one. See the design doc §2 for why this is a
-// deliberately narrower interpretation than "any vault-scoped grant".
+// single target vault to check against, so authorization is a three-way
+// decision rather than a scoped check: the global admin role, a GLOBAL
+// (vault_id: null) vaults:manage allow policy — a vault-scoped grant on some
+// other existing vault does not confer the ability to create a new one, see
+// the design doc §2 for why this is deliberately narrower than "any
+// vault-scoped grant" — or a bounded provisioning grant. Which one applied
+// matters: only the grant path is quota-bounded, and the quota is enforced
+// inside CreateVault's transaction, where it cannot race the insert.
 func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	roles, userID, ok := callerIdentity(c)
 	if !ok {
@@ -74,8 +77,11 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
-		c.SetPermissionError("admin or vaults/manage required")
+	right := authzServices.CanCreateVault(r.Context(), roles,
+		c.App.ServiceContainer.GetAccessPolicyService(),
+		c.App.ServiceContainer.GetGrantService(), userID)
+	if right == authzServices.CreateRightNone {
+		c.SetPermissionError("admin, vaults/manage, or a vault provisioning grant required")
 		return
 	}
 

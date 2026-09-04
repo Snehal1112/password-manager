@@ -12,11 +12,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	"rocketvault/common"
 	"rocketvault/internal/middleware"
 	authzServices "rocketvault/internal/services/authorization"
+	"rocketvault/internal/services/provisioning"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/model"
 )
@@ -446,4 +448,102 @@ func TestListVaults_ForbiddenWithoutGlobalGrant(t *testing.T) {
 
 	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodGet, "/api/v1/vaults", nil)
 	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// --- CanCreateVault three-way decision: provisioning-grant path ---
+
+// fakeGrantService is a minimal test double for provisioning.GrantService,
+// returning a fixed grant (or ErrGrantNotFound) for any principal. Only
+// GetGrant is exercised by CanCreateVault; the remaining methods are unused
+// here and are no-ops.
+type fakeGrantService struct {
+	grant *model.VaultProvisioningGrant
+}
+
+func (f *fakeGrantService) IssueGrant(context.Context, uuid.UUID, int, uuid.UUID) (*model.VaultProvisioningGrant, error) {
+	return nil, nil
+}
+
+func (f *fakeGrantService) GetGrant(context.Context, uuid.UUID) (*model.VaultProvisioningGrant, error) {
+	if f.grant == nil {
+		return nil, provisioning.ErrGrantNotFound
+	}
+	return f.grant, nil
+}
+
+func (f *fakeGrantService) RevokeGrant(context.Context, uuid.UUID) error { return nil }
+
+func (f *fakeGrantService) ListGrants(context.Context) ([]*model.VaultProvisioningGrant, error) {
+	return nil, nil
+}
+
+// newTestAPIWithGrant builds a vault API whose caller holds a provisioning
+// grant but neither the admin role nor a global vaults:manage policy --
+// exercising createVault's CreateRightProvisioningGrant path. The caller in
+// every doVaultRequestAs request carries the fixed vaultTestUserID, so
+// principalID is not used to key the fake -- it mirrors
+// internal/services/authorization/vault_authz_test.go's stubGrantReader,
+// which returns its fixed grant/error for any principal.
+func newTestAPIWithGrant(t *testing.T, principalID uuid.UUID, quota int) *API {
+	t.Helper()
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessFallback, nil)
+	repo := newVaultFakeRepo()
+	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+	grant := &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: principalID, Quota: quota}
+	cont := &vaultSvcTestContainer{
+		vaultSvc:  svc,
+		policySvc: policySvc,
+		rbacSvc:   permissiveRBAC{},
+		grantSvc:  &fakeGrantService{grant: grant},
+	}
+	return newVaultTestAPIWithContainer(cont)
+}
+
+// newTestAPINoGrant builds a vault API whose caller holds none of the three
+// creation rights: no admin role, no global vaults:manage policy, and no
+// provisioning grant.
+func newTestAPINoGrant(t *testing.T) *API {
+	t.Helper()
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessFallback, nil)
+	repo := newVaultFakeRepo()
+	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+	cont := &vaultSvcTestContainer{
+		vaultSvc:  svc,
+		policySvc: policySvc,
+		rbacSvc:   permissiveRBAC{},
+		grantSvc:  &fakeGrantService{},
+	}
+	return newVaultTestAPIWithContainer(cont)
+}
+
+// TestCreateVault_ProvisioningGrantHolderAllowed proves a non-admin caller
+// with no global policy but a provisioning grant can still create a vault --
+// the new CreateRightProvisioningGrant path.
+func TestCreateVault_ProvisioningGrantHolderAllowed(t *testing.T) {
+	api := newTestAPIWithGrant(t, uuid.New(), 5)
+
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPost, "/api/v1/vaults",
+		[]byte(`{"name":"acme-prod"}`))
+
+	require.Equal(t, http.StatusCreated, w.Code,
+		"a provisioning-grant holder must be able to create a vault")
+}
+
+// TestCreateVault_NoRightStillForbidden proves a caller with none of the
+// three rights -- admin, global policy, or provisioning grant -- is still
+// refused.
+func TestCreateVault_NoRightStillForbidden(t *testing.T) {
+	api := newTestAPINoGrant(t)
+
+	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodPost, "/api/v1/vaults",
+		[]byte(`{"name":"acme-prod"}`))
+
+	require.Equal(t, http.StatusForbidden, w.Code,
+		"a principal with neither admin, a global policy, nor a grant is still refused")
 }
