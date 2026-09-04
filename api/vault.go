@@ -118,8 +118,13 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // listVaults handles the request to list vaults, optionally including
-// soft-deleted ones. Like createVault, there is no single target vault, so
-// the check uses uuid.Nil (global grant only — see createVault's comment).
+// soft-deleted ones. Unlike createVault, listing is not gated on a single
+// global-or-nothing check: a global vaults:manage grant (or the admin role)
+// lists every vault, but any other principal lists only the vaults it holds
+// scoped management over. Listing is no longer refused outright for a
+// principal with no reachable vault — it gets an empty list rather than a
+// 403, which leaks the same information a denial would, minus the
+// confirmation that vaults exist elsewhere.
 func listVaults(c *Context, w http.ResponseWriter, r *http.Request) {
 	roles, userID, ok := callerIdentity(c)
 	if !ok {
@@ -130,10 +135,6 @@ func listVaults(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetInternalError(nil)
 		return
 	}
-	if !authzServices.CanManageVault(r.Context(), roles, c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil) {
-		c.SetPermissionError("admin or vaults/manage required")
-		return
-	}
 
 	svc := c.vaultSvc()
 	if svc == nil {
@@ -142,7 +143,14 @@ func listVaults(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	includeDeleted := r.URL.Query().Get("include_deleted") == "true"
 
-	vaults, err := svc.ListVaults(r.Context(), includeDeleted)
+	// A global grant (or admin) lists every vault; any other principal lists
+	// only the vaults it holds scoped management over. Listing is no longer
+	// gated on a global grant, because a provisioning grantee holds none and
+	// would otherwise be unable to see the vaults it just created.
+	all := authzServices.CanManageVault(r.Context(), roles,
+		c.App.ServiceContainer.GetAccessPolicyService(), userID, uuid.Nil)
+
+	vaults, err := svc.ListVaultsScoped(r.Context(), userID, includeDeleted, all)
 	if err != nil {
 		c.SetInternalError(err)
 		return

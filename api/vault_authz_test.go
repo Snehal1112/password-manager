@@ -204,10 +204,11 @@ func TestVaultManage_ScopedToDefault_CannotReachOtherVault(t *testing.T) {
 // proves that, through the REAL production middleware chain (VaultResolution
 // -> Policy -> Authorization, with a real RBACService, not permissiveRBAC), a
 // non-admin caller holding no vaults:manage grant at all is denied on every
-// {name}-scoped vault-management route. createVault and listVaults are
-// covered separately by TestCreateVault_ForbiddenWithoutGlobalGrant and
-// TestListVaults_ForbiddenWithoutGlobalGrant, which exercise their
-// handler-level global (uuid.Nil) CanManageVault check.
+// {name}-scoped vault-management route. createVault is covered separately by
+// TestCreateVault_ForbiddenWithoutGlobalGrant, which exercises its
+// handler-level global (uuid.Nil) CanManageVault check; listVaults no longer
+// has an equivalent 403 case -- see
+// TestListVaults_EmptyWithoutGlobalGrantOrScopedPolicy.
 func TestVaultManage_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -441,9 +442,13 @@ func TestCreateVault_AllowedWithGlobalGrant(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
-// TestListVaults_ForbiddenWithoutGlobalGrant mirrors TestCreateVault's case
-// for the list endpoint.
-func TestListVaults_ForbiddenWithoutGlobalGrant(t *testing.T) {
+// TestListVaults_EmptyWithoutGlobalGrantOrScopedPolicy proves list is no
+// longer a global-grant-or-403 decision like createVault's: a caller with
+// neither the admin role nor a global vaults:manage grant, and no scoped
+// policy lister wired (buildAuthzVaultAPI does not set one), gets 200 with
+// an empty list rather than a 403 -- an empty list leaks the same
+// information a denial would, minus the confirmation that vaults exist.
+func TestListVaults_EmptyWithoutGlobalGrantOrScopedPolicy(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
@@ -451,7 +456,10 @@ func TestListVaults_ForbiddenWithoutGlobalGrant(t *testing.T) {
 	api, _ := buildAuthzVaultAPI(policySvc)
 
 	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodGet, "/api/v1/vaults", nil)
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var got model.ListVaultsResponse
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Empty(t, got.Vaults)
 }
 
 // --- CanCreateVault three-way decision: provisioning-grant path ---
