@@ -244,6 +244,65 @@ func TestWarnGlobalVaultManageGrants_LogsEachHolder(t *testing.T) {
 		"only the global grant is reported; vault-scoped grants are unaffected by release 2")
 }
 
+// TestWarnGlobalVaultManageGrants_ContinuesAfterBadRow proves a row that
+// fails to scan does not truncate the rest of the list. This diagnostic's
+// entire purpose is to give an operator the COMPLETE set of principals
+// affected by the coming narrowing; a `return` on the first bad row would
+// silently drop everyone after it.
+//
+// The first row's principal_id is stored as SQL NULL against a schema that
+// (unlike the real access_policies table) does not forbid it here, so
+// Scan into the non-nullable `string` destination genuinely fails with
+// "converting NULL to string is unsupported" -- a real database/sql Scan
+// error, not a simulated one. The second row is an ordinary valid global
+// grant and must still be reported.
+func TestWarnGlobalVaultManageGrants_ContinuesAfterBadRow(t *testing.T) {
+	database, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer database.Close()
+
+	// principal_id intentionally has no NOT NULL constraint here (unlike the
+	// real access_policies schema) so the first row below can carry a NULL
+	// that triggers a genuine Scan error.
+	_, err = database.Exec(`
+		CREATE TABLE access_policies (
+			id TEXT PRIMARY KEY, principal_id TEXT, principal_type TEXT NOT NULL,
+			resource_type TEXT NOT NULL, operation TEXT NOT NULL, effect TEXT NOT NULL,
+			vault_id TEXT NULL, assignment_id TEXT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)
+	require.NoError(t, err)
+
+	// Row 1: a global allow whose principal_id is NULL -- Scan into `string`
+	// fails on this row.
+	_, err = database.Exec(
+		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id)
+		 VALUES (?, NULL, 'user', 'vaults', 'manage', 'allow', NULL)`, uuid.New().String())
+	require.NoError(t, err)
+
+	// Row 2: an ordinary valid global allow. Must still be reported even
+	// though it is scanned after the bad row.
+	secondHolder := uuid.New().String()
+	_, err = database.Exec(
+		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id)
+		 VALUES (?, ?, 'user', 'vaults', 'manage', 'allow', NULL)`, uuid.New().String(), secondHolder)
+	require.NoError(t, err)
+
+	hook, repo := newLogCapturingDBRepository(t, database)
+	repo.warnGlobalVaultManageGrants(database)
+
+	var messages []string
+	for _, e := range hook.AllEntries() {
+		messages = append(messages, e.Message+fmt.Sprint(e.Data))
+	}
+	joined := strings.Join(messages, "\n")
+	require.Contains(t, joined, secondHolder,
+		"the row after the bad one must still be reported -- enumeration must not stop on a scan error")
+	require.Equal(t, 1, strings.Count(joined, "Principal holds a global vaults:manage grant"),
+		"exactly the one valid row is reported")
+	require.Contains(t, joined, "Failed to scan a global vaults:manage grant",
+		"the bad row is still logged, just not fatal to the scan")
+}
+
 // TestWarnGlobalVaultManageGrants_MissingTableDoesNotPanic pins the
 // never-fail-startup posture: a query error against a partially-built
 // schema (e.g. a migrateSchema-only test fixture with no access_policies

@@ -1217,8 +1217,11 @@ func (d *DBRepository) warnGlobalVaultManageGrants(db *sql.DB) {
 	for rows.Next() {
 		var principalID, principalType string
 		if err := rows.Scan(&principalID, &principalType); err != nil {
-			d.log.WithError(err).Warn("Failed to scan global vaults:manage grant")
-			return
+			d.log.WithError(err).Warn("Failed to scan a global vaults:manage grant; continuing")
+			// This diagnostic must report EVERY affected principal, so a single
+			// unreadable row must not truncate the list -- stopping here would
+			// silently under-report who is affected by the coming narrowing.
+			continue
 		}
 		d.log.WithFields(map[string]interface{}{
 			"principal_id":   principalID,
