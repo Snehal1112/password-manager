@@ -127,9 +127,11 @@ Replace it with a sentence that states the rule — commands with a remote adapt
 
 - [ ] **Step 3: Fix the usage guide**
 
-In `docs/usage-guide.md`, the paragraph beginning "A remote-target guard now blocks nearly every command" states "no resource command (`secrets`, `keys`, `certificate`, `users`, etc.) actually talks to a remote server yet". That has been false since the secrets adapter landed on 2026-08-24, and `02b` made it false for `users login`/`logout` too.
+`docs/usage-guide.md` §1's remote-target-guard bullet was corrected on 2026-09-04 (usage-guide refresh, commit after `f95d06a`) and now names `secrets` as the one remote-capable group, with `keys`/`certificate`/`vaults`/`vault-access`/`users`/`audit` still guarded. `02b` makes the `users` half of that wrong: `login` and `logout` become remote-capable.
 
-Replace it with a statement that points at `remoteCapableCommands` in `cmd/root.go` as the authority on which groups are remote-capable, rather than restating the list. The list grows with every adapter phase; prose that enumerates it goes stale the moment plan `03b` lands `vault-access`. Name `secrets` and `users login`/`logout` as examples if a concrete anchor helps the reader, but make the code the source of truth.
+Do not rewrite the bullet again from scratch. Amend it so it points at `remoteCapableCommands` in `cmd/root.go` as the authority on which groups are remote-capable, rather than enumerating them. The list grows with every adapter phase — it has now gone stale twice — and prose that restates it will go stale a third time the moment plan `03b` lands `vault-access`. Name `secrets` and `users login`/`logout` as concrete examples if that helps the reader, but make the code the source of truth.
+
+The same bullet carries a caveat that the CLI's "bypasses HTTP entirely, so no rate limits" property holds only in local mode. That caveat is correct and must survive the edit.
 
 - [ ] **Step 4: Verify**
 
