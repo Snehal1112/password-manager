@@ -80,19 +80,26 @@ func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInt
 	return right, nil
 }
 
-// requireCanListVaults checks that the caller may list vaults instance-wide.
-// Like create, list has no single target vault, so authorization is checked
-// against uuid.Nil — matching HTTP listVaults (api/vault.go's
-// authzServices.CanManageVault(..., uuid.Nil)).
-func requireCanListVaults(ctx context.Context, sc container.ServiceContainerInterface) error {
+// requireCanListVaults reports whether the caller may list vaults, and
+// whether it may list them all. A global grant or the admin role lists
+// everything; any other principal lists only vaults it holds scoped
+// management over. Mirrors HTTP listVaults.
+//
+// The CLI bypasses PolicyMiddleware entirely, so this is the only
+// authorization enforcement point on this path.
+//
+// Listing is no longer refused outright: a principal with no reachable vault
+// gets an empty list, which is the same information a 403 would leak minus
+// the confirmation that vaults exist.
+func requireCanListVaults(ctx context.Context, sc container.ServiceContainerInterface) (bool, error) {
 	roles, principalID, err := callerIdentity(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if !authz.CanManageVault(ctx, roles, sc.GetAccessPolicyService(), principalID, uuid.Nil) {
-		return fmt.Errorf("permission denied: admin or vaults/manage required")
+	if authz.CanManageVault(ctx, roles, sc.GetAccessPolicyService(), principalID, uuid.Nil) {
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 // requireCanManageVault resolves vaultName to an ID and checks CanManageVault

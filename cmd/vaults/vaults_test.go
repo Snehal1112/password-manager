@@ -82,7 +82,7 @@ func TestVaultsList(t *testing.T) {
 		{ID: uuid.New(), Name: "default", Enabled: true, RetentionDays: 90},
 		{ID: uuid.New(), Name: "my-vault", Enabled: true, RetentionDays: 30},
 	}
-	tc.MockVaultService.On("ListVaults", mock.Anything, false).Return(seeded, nil)
+	tc.MockVaultService.On("ListVaultsScoped", mock.Anything, tc.TestUserID, false, true).Return(seeded, nil)
 
 	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
 	cmd.Flags().Bool("include-deleted", false, "")

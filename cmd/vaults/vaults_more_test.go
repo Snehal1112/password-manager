@@ -256,7 +256,7 @@ func TestVaultsGet_NoFormatter(t *testing.T) {
 
 func TestVaultsList_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockVaultService.On("ListVaults", mock.Anything, false).
+	tc.MockVaultService.On("ListVaultsScoped", mock.Anything, tc.TestUserID, false, true).
 		Return(nil, fmt.Errorf("db error"))
 
 	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
@@ -271,7 +271,7 @@ func TestVaultsList_ServiceError(t *testing.T) {
 
 func TestVaultsList_NoFormatter(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockVaultService.On("ListVaults", mock.Anything, false).
+	tc.MockVaultService.On("ListVaultsScoped", mock.Anything, tc.TestUserID, false, true).
 		Return([]model.Vault{}, nil)
 
 	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
@@ -287,7 +287,7 @@ func TestVaultsList_NoFormatter(t *testing.T) {
 
 func TestVaultsList_IncludeDeleted(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockVaultService.On("ListVaults", mock.Anything, true).
+	tc.MockVaultService.On("ListVaultsScoped", mock.Anything, tc.TestUserID, true, true).
 		Return([]model.Vault{
 			{ID: uuid.New(), Name: "active-vault", Enabled: true},
 			{ID: uuid.New(), Name: "deleted-vault", Enabled: false},
@@ -518,16 +518,21 @@ func TestVaultsGet_ForbiddenWithoutGrant(t *testing.T) {
 	tc.MockVaultService.AssertNotCalled(t, "GetVault", mock.Anything, mock.Anything)
 }
 
-func TestVaultsList_ForbiddenWithoutGlobalGrant(t *testing.T) {
+// TestVaultsList_ScopedWithoutGlobalGrant proves list is no longer a
+// global-grant-or-denial decision for the CLI either: a non-admin caller
+// with no global vaults:manage grant still succeeds, requesting the
+// non-instance-wide (all=false) listing rather than being refused outright.
+func TestVaultsList_ScopedWithoutGlobalGrant(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	nonAdminCtx := context.WithValue(tc.Ctx, common.ClaimsKey, &model.Claims{UserID: tc.TestUserID, Roles: []string{model.RoleUser}})
 	tc.MockContainer.AccessPolicyService = &mockAccessPolicyService{decision: authzServices.AccessFallback}
+	tc.MockVaultService.On("ListVaultsScoped", mock.Anything, tc.TestUserID, false, false).
+		Return([]model.Vault{{ID: uuid.New(), Name: "own-vault"}}, nil)
 
 	cmd := &cobra.Command{Use: "list", RunE: listCmd.RunE}
 	cmd.SetContext(ctxWithFormatter(nonAdminCtx))
 
 	err := cmd.Execute()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "permission denied")
-	tc.MockVaultService.AssertNotCalled(t, "ListVaults", mock.Anything, mock.Anything)
+	require.NoError(t, err)
+	tc.MockVaultService.AssertExpectations(t)
 }

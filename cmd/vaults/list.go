@@ -16,15 +16,16 @@ import (
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List vaults",
-	Long: `List every vault, optionally including soft-deleted ones still inside
-their retention window.
+	Long: `List vaults, optionally including soft-deleted ones still inside their
+retention window.
 
-Requires the admin account role, or an access-policy allow on (vaults,
-manage) granted globally — list has no single target vault to scope the
-check to.
+The admin account role, or an access-policy allow on (vaults, manage)
+granted globally, lists every vault. Any other caller lists only the vaults
+where it holds that allow scoped to the vault itself -- not a 403, an empty
+list if it holds none.
 
-Not vault scoped by --vault: this command lists every vault the caller may
-manage, not the contents of one.`,
+Not vault scoped by --vault: this command lists vaults, not the contents of
+one.`,
 	Example: `  # List vaults
   rocketvault vaults list
 
@@ -38,12 +39,17 @@ manage, not the contents of one.`,
 		if !ok || serviceContainer == nil {
 			return fmt.Errorf("service container not available in context")
 		}
-		if err := requireCanListVaults(ctx, serviceContainer); err != nil {
+		all, err := requireCanListVaults(ctx, serviceContainer)
+		if err != nil {
+			return err
+		}
+		_, principalID, err := callerIdentity(ctx)
+		if err != nil {
 			return err
 		}
 		vaultService := serviceContainer.GetVaultService()
 
-		vaults, err := vaultService.ListVaults(ctx, includeDeleted)
+		vaults, err := vaultService.ListVaultsScoped(ctx, principalID, includeDeleted, all)
 		if err != nil {
 			return fmt.Errorf("failed to list vaults: %w", err)
 		}
