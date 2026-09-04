@@ -2,6 +2,7 @@ package contextcli
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/spf13/cobra"
 
@@ -41,6 +42,21 @@ remote connection and are not part of the saved context.`,
 			vault, _ := cmd.Flags().GetString("default-vault")
 			if server == "" {
 				return fmt.Errorf("--server is required")
+			}
+			// Validate here rather than at request time: a context saved as
+			// "vault.example.com" fails later with an opaque transport
+			// error, which is confusing exactly when someone is first
+			// configuring remote mode.
+			parsed, err := url.Parse(server)
+			if err != nil {
+				return fmt.Errorf("--server %q is not a valid URL: %w", server, err)
+			}
+			if parsed.Scheme != "http" && parsed.Scheme != "https" {
+				return fmt.Errorf(
+					"--server %q needs an http:// or https:// scheme (got %q)", server, parsed.Scheme)
+			}
+			if parsed.Host == "" {
+				return fmt.Errorf("--server %q has no host", server)
 			}
 			return common.AddContext(args[0], common.Context{Server: server, Username: username, Vault: vault})
 		},

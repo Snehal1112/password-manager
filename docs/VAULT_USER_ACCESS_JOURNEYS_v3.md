@@ -1491,7 +1491,12 @@ prod     https://vault.prod.internal          ops-oncall        prod
 staging  https://vault.staging.internal:8443                    staging
 ```
 
-`context add` only ever writes to `~/.rocketvault/contexts.json` — it never dials the server, so a typo'd URL or an environment that's down still saves cleanly. It also stores no credentials.
+`context add` only ever writes to `~/.rocketvault/contexts.json` — it never dials the server, so an environment that's down still saves cleanly. It also stores no credentials. It does check the URL's *shape* before saving, though, so a missing scheme is caught here rather than surfacing later as an opaque transport error:
+
+```bash
+rocketvault context add prod --server vault.prod.internal
+# Error: --server "vault.prod.internal" needs an http:// or https:// scheme (got "")
+```
 
 ```bash
 rocketvault context use prod
@@ -1514,15 +1519,15 @@ rocketvault keys list --vault dev
 Error: remote mode (--server/ROCKETVAULT_ADDR/context "https://vault.prod.internal") is not yet supported for "rocketvault keys list"; unset it to run against the local instance
 ```
 
-`keys`, `certificate`, `vaults`, `vault-access`, `users`, and `audit` have no remote adapter yet (`isRemoteCapableCommand` in `cmd/root.go` only recognizes `secrets` subcommands — see the command-support matrix in `docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md`, which lays out the eventual full-coverage plan; today only `secrets` actually has a working adapter). With any context active, `persistentPreRun`'s remote-target guard refuses to run them at all rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.
+`keys`, `certificate`, `vaults`, `vault-access`, `audit`, and the `users` *resource* commands have no remote adapter yet. The authority on what does is the `remoteCapableCommands` map in `cmd/root.go` — read that rather than this list, which has gone stale before. As of 2026-09-04 it holds `secrets` (all seven subcommands) and `users` (`login`, `logout`). With any context active, `persistentPreRun`'s remote-target guard refuses everything else rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.
 
-**For `secrets`, there is no such guard — it has its own remote adapter, and the danger it creates is real, even if not literally silent:**
+**For the groups that do have an adapter, there is no such guard — and the danger that creates is real, even if not literally silent:**
 
 ```bash
 rocketvault secrets delete <secret-id>
 ```
 ```
-Error: remote authentication failed - no credentials provided and no cached session found for server https://vault.prod.internal; pass --username/--password/--totp-code
+Error: remote authentication failed - no cached session for server https://vault.prod.internal; run 'rocketvault users login' or pass --username/--password/--totp-code or --client-id/--client-secret
 ```
 
 `secrets` commands authenticate per server: `common.SanitizeServerKey(target.Server)` (e.g. `srv_https_vault.prod.internal`) is baked into the session's filename inside the **same** `~/.rocketvault/sessions/` directory local sessions already use — there's no separate cache location. Critically, the "current session" pointer is a single global file shared between local and remote mode, so authenticating against a remote server can silently become the session a later bare command reuses.
@@ -1530,14 +1535,17 @@ Error: remote authentication failed - no credentials provided and no cached sess
 That's exactly what happens next. Priya authenticates once to unblock the on-call task:
 
 ```bash
-rocketvault secrets create db-password 'CorrectHorseBatteryStaple' \
-  --username ops-oncall --password '<prod-password>' --totp-code 482913
+rocketvault users login --username ops-oncall --password '<prod-password>' --totp-code 482913
 ```
 ```
-Secret created successfully.
+Login successful as ops-oncall.
 ```
 
 This caches a session keyed to `srv_https_vault.prod.internal` and marks it "current." Nothing about that command's success mentions it also just became the default session for *any* future bare command, regardless of vault.
+
+> **This front door is new (2026-09-04, § B54).** Until then `users login` was itself blocked by the guard, so the only way to create a remote session was as a *side effect* of an unrelated `secrets` command — `rocketvault secrets create ... --username ... --password ... --totp-code ...`. Asking for a secret write was how you logged in. That still works (credential flags on any remote-capable command re-authenticate), but it is no longer the only way in. Older notes describing the `secrets`-as-login workaround are describing the bug, not the design.
+
+The session is written per server, so this does **not** disturb a local session for the same username: `srv_https_vault.prod.internal__ops-oncall.json` and `local__ops-oncall.json` are separate files.
 
 **The trap.** The next morning, back at her desk:
 
@@ -1554,7 +1562,39 @@ The cached session is reused with **no server-side revalidation** — the CLI on
 
 If `--vault` is omitted, the command falls back to the context's `--default-vault` (`prod`) rather than erroring — `cmd/secrets/delete.go` reads `target.Vault` only when the `--vault` flag was left empty.
 
-> **Practical rule**: run `rocketvault context current` before any `secrets create/update/delete/import` you intend to be local, and actually read stderr rather than discarding it — it's the one command group where a stale `context use` has a real blast radius. For every other resource group, forgetting to switch back just produces the loud `remote mode ... is not yet supported` error above, which is annoying but safe.
+> **Practical rule**: run `rocketvault context current` before any `secrets create/update/delete/import` you intend to be local, and actually read stderr rather than discarding it — it's the command group where a stale `context use` has a real blast radius. For every group still behind the guard, forgetting to switch back just produces the loud `remote mode ... is not yet supported` error above, which is annoying but safe.
+
+### Logging out clears one server, not all of them
+
+```bash
+rocketvault users logout
+```
+```
+Logged out ops-oncall.
+```
+
+`logout` is scoped to the active target: with the `prod` context current it deletes `srv_https_vault.prod.internal__ops-oncall.json` and leaves any local session for the same username alone. Run it with no context active and the reverse holds — it clears the local session and leaves the remote ones. With no `--username` it follows the current-session pointer, but only if that pointer belongs to *this* server; otherwise it reports `No cached session to log out of.` rather than deleting a file it was not asked to touch.
+
+Logout is client-side only. It removes the cached file; it does not revoke anything server-side, so the underlying JWT stays valid until it expires on its own.
+
+### Unattended auth: no session file at all
+
+CI has no browser and no place to keep a TOTP secret. Service-account credentials skip the session cache entirely:
+
+```bash
+export ROCKETVAULT_CLIENT_ID=<client-id>
+export ROCKETVAULT_CLIENT_SECRET=<client-secret>
+rocketvault secrets list --vault prod
+```
+
+These take precedence over every other tier — over `--username/--password` and over any cached session — and authenticate through the OAuth2 client-credentials grant, writing nothing to `~/.rocketvault/sessions/`. `--client-id`/`--client-secret` work as flags too, but on a shared runner the environment keeps the secret out of the process list.
+
+Half a pair is a usage error rather than a silent fallback to an interactive session:
+
+```bash
+ROCKETVAULT_CLIENT_ID=<client-id> rocketvault secrets list
+# Error: remote authentication failed - --client-id given without --client-secret (or ROCKETVAULT_CLIENT_SECRET)
+```
 
 ### `localhost` doesn't get you out of this
 

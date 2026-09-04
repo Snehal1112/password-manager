@@ -191,8 +191,11 @@ see <code>Error: Authentication failed</code>.</p>
   --totp-code &lt;code&gt;
 </pre></div>
 <p>Output:</p>
-<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Login successful, JWT token: eyJhbGci...
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Login successful as admin.
 </pre></div>
+<p>The JWT is not printed: the session is cached under <code>~/.rocketvault/sessions</code>
+and reused automatically, so a bearer token on stdout would only leak into
+shell history and CI logs.</p>
 <hr>
 <h2 id="step-6--create-additional-users">Step 6 — Create Additional Users</h2>
 <p>Once authenticated as admin you can create other users. Role must be <code>admin</code>

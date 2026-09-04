@@ -71,9 +71,9 @@ X.509 certificates. This single binary is both the server that stores them
 
 Commands run in local mode against the instance described by
 .rocketvault.yaml; --config selects a different file. Remote mode (--server,
-ROCKETVAULT_ADDR, or an active context) is implemented only for the context
-group — every other command refuses to run while a remote target is set,
-rather than silently falling back to the local instance.
+ROCKETVAULT_ADDR, or an active context) is supported by the commands that
+have a remote adapter; every other command refuses to run while a remote
+target is set, rather than silently falling back to the local instance.
 
 Log in once with 'rocketvault users login'. The session is cached under
 ~/.rocketvault/sessions and refreshed automatically, so everyday commands need

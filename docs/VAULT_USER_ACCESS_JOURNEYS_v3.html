@@ -1341,7 +1341,10 @@ dev      http://localhost:8774                                  dev
 prod     https://vault.prod.internal          ops-oncall        prod
 staging  https://vault.staging.internal:8443                    staging
 </pre></div>
-<p><code>context add</code> only ever writes to <code>~/.rocketvault/contexts.json</code> — it never dials the server, so a typo'd URL or an environment that's down still saves cleanly. It also stores no credentials.</p>
+<p><code>context add</code> only ever writes to <code>~/.rocketvault/contexts.json</code> — it never dials the server, so an environment that's down still saves cleanly. It also stores no credentials. It does check the URL's <em>shape</em> before saving, though, so a missing scheme is caught here rather than surfacing later as an opaque transport error:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context add prod --server vault.prod.internal
+# Error: --server &quot;vault.prod.internal&quot; needs an http:// or https:// scheme (got &quot;&quot;)
+</pre></div>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use prod
 rocketvault context current
 # prod -&gt; https://vault.prod.internal
@@ -1355,20 +1358,23 @@ rocketvault context list --output json | jq '.[] | select(.current)'
 </pre></div>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: remote mode (--server/ROCKETVAULT_ADDR/context &quot;https://vault.prod.internal&quot;) is not yet supported for &quot;rocketvault keys list&quot;; unset it to run against the local instance
 </pre></div>
-<p><code>keys</code>, <code>certificate</code>, <code>vaults</code>, <code>vault-access</code>, <code>users</code>, and <code>audit</code> have no remote adapter yet (<code>isRemoteCapableCommand</code> in <code>cmd/root.go</code> only recognizes <code>secrets</code> subcommands — see the command-support matrix in <code>docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md</code>, which lays out the eventual full-coverage plan; today only <code>secrets</code> actually has a working adapter). With any context active, <code>persistentPreRun</code>'s remote-target guard refuses to run them at all rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.</p>
-<p><strong>For <code>secrets</code>, there is no such guard — it has its own remote adapter, and the danger it creates is real, even if not literally silent:</strong></p>
+<p><code>keys</code>, <code>certificate</code>, <code>vaults</code>, <code>vault-access</code>, <code>audit</code>, and the <code>users</code> <em>resource</em> commands have no remote adapter yet. The authority on what does is the <code>remoteCapableCommands</code> map in <code>cmd/root.go</code> — read that rather than this list, which has gone stale before. As of 2026-09-04 it holds <code>secrets</code> (all seven subcommands) and <code>users</code> (<code>login</code>, <code>logout</code>). With any context active, <code>persistentPreRun</code>'s remote-target guard refuses everything else rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.</p>
+<p><strong>For the groups that do have an adapter, there is no such guard — and the danger that creates is real, even if not literally silent:</strong></p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets delete &lt;secret-id&gt;
 </pre></div>
-<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: remote authentication failed - no credentials provided and no cached session found for server https://vault.prod.internal; pass --username/--password/--totp-code
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: remote authentication failed - no cached session for server https://vault.prod.internal; run 'rocketvault users login' or pass --username/--password/--totp-code or --client-id/--client-secret
 </pre></div>
 <p><code>secrets</code> commands authenticate per server: <code>common.SanitizeServerKey(target.Server)</code> (e.g. <code>srv_https_vault.prod.internal</code>) is baked into the session's filename inside the <strong>same</strong> <code>~/.rocketvault/sessions/</code> directory local sessions already use — there's no separate cache location. Critically, the &quot;current session&quot; pointer is a single global file shared between local and remote mode, so authenticating against a remote server can silently become the session a later bare command reuses.</p>
 <p>That's exactly what happens next. Priya authenticates once to unblock the on-call task:</p>
-<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets create db-password 'CorrectHorseBatteryStaple' \
-  --username ops-oncall --password '&lt;prod-password&gt;' --totp-code 482913
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users login --username ops-oncall --password '&lt;prod-password&gt;' --totp-code 482913
 </pre></div>
-<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Secret created successfully.
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Login successful as ops-oncall.
 </pre></div>
 <p>This caches a session keyed to <code>srv_https_vault.prod.internal</code> and marks it &quot;current.&quot; Nothing about that command's success mentions it also just became the default session for <em>any</em> future bare command, regardless of vault.</p>
+<blockquote>
+<p><strong>This front door is new (2026-09-04, § B54).</strong> Until then <code>users login</code> was itself blocked by the guard, so the only way to create a remote session was as a <em>side effect</em> of an unrelated <code>secrets</code> command — <code>rocketvault secrets create ... --username ... --password ... --totp-code ...</code>. Asking for a secret write was how you logged in. That still works (credential flags on any remote-capable command re-authenticate), but it is no longer the only way in. Older notes describing the <code>secrets</code>-as-login workaround are describing the bug, not the design.</p>
+</blockquote>
+<p>The session is written per server, so this does <strong>not</strong> disturb a local session for the same username: <code>srv_https_vault.prod.internal__ops-oncall.json</code> and <code>local__ops-oncall.json</code> are separate files.</p>
 <p><strong>The trap.</strong> The next morning, back at her desk:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># No --server, no --username, no confirmation prompt.
 rocketvault secrets delete &lt;secret-id&gt;
@@ -1379,8 +1385,26 @@ Secret deleted successfully.
 <p>The cached session is reused with <strong>no server-side revalidation</strong> — the CLI only checks the session's local <code>expires_at</code>, it never re-checks the token against the server before firing the request. There is no interactive confirmation and no highlighted warning box, but it is not entirely silent either: both lines above are real <code>logrus</code> INFO-level output on stderr (default RocketVault CLI logging is unconfigured — stderr, Info level, text formatter), and both name the target server. An operator watching their terminal, rather than piping stdout elsewhere and ignoring stderr, would see <code>server=https://vault.prod.internal</code> printed twice. The danger is real but is &quot;easy to miss,&quot; not &quot;silent.&quot;</p>
 <p>If <code>--vault</code> is omitted, the command falls back to the context's <code>--default-vault</code> (<code>prod</code>) rather than erroring — <code>cmd/secrets/delete.go</code> reads <code>target.Vault</code> only when the <code>--vault</code> flag was left empty.</p>
 <blockquote>
-<p><strong>Practical rule</strong>: run <code>rocketvault context current</code> before any <code>secrets create/update/delete/import</code> you intend to be local, and actually read stderr rather than discarding it — it's the one command group where a stale <code>context use</code> has a real blast radius. For every other resource group, forgetting to switch back just produces the loud <code>remote mode ... is not yet supported</code> error above, which is annoying but safe.</p>
+<p><strong>Practical rule</strong>: run <code>rocketvault context current</code> before any <code>secrets create/update/delete/import</code> you intend to be local, and actually read stderr rather than discarding it — it's the command group where a stale <code>context use</code> has a real blast radius. For every group still behind the guard, forgetting to switch back just produces the loud <code>remote mode ... is not yet supported</code> error above, which is annoying but safe.</p>
 </blockquote>
+<h3 id="logging-out-clears-one-server-not-all-of-them">Logging out clears one server, not all of them</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users logout
+</pre></div>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Logged out ops-oncall.
+</pre></div>
+<p><code>logout</code> is scoped to the active target: with the <code>prod</code> context current it deletes <code>srv_https_vault.prod.internal__ops-oncall.json</code> and leaves any local session for the same username alone. Run it with no context active and the reverse holds — it clears the local session and leaves the remote ones. With no <code>--username</code> it follows the current-session pointer, but only if that pointer belongs to <em>this</em> server; otherwise it reports <code>No cached session to log out of.</code> rather than deleting a file it was not asked to touch.</p>
+<p>Logout is client-side only. It removes the cached file; it does not revoke anything server-side, so the underlying JWT stays valid until it expires on its own.</p>
+<h3 id="unattended-auth-no-session-file-at-all">Unattended auth: no session file at all</h3>
+<p>CI has no browser and no place to keep a TOTP secret. Service-account credentials skip the session cache entirely:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">export ROCKETVAULT_CLIENT_ID=&lt;client-id&gt;
+export ROCKETVAULT_CLIENT_SECRET=&lt;client-secret&gt;
+rocketvault secrets list --vault prod
+</pre></div>
+<p>These take precedence over every other tier — over <code>--username/--password</code> and over any cached session — and authenticate through the OAuth2 client-credentials grant, writing nothing to <code>~/.rocketvault/sessions/</code>. <code>--client-id</code>/<code>--client-secret</code> work as flags too, but on a shared runner the environment keeps the secret out of the process list.</p>
+<p>Half a pair is a usage error rather than a silent fallback to an interactive session:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">ROCKETVAULT_CLIENT_ID=&lt;client-id&gt; rocketvault secrets list
+# Error: remote authentication failed - --client-id given without --client-secret (or ROCKETVAULT_CLIENT_SECRET)
+</pre></div>
 <h3 id="localhost-doesnt-get-you-out-of-this"><code>localhost</code> doesn't get you out of this</h3>
 <p>Pointing the <code>dev</code> context at <code>http://localhost:8774</code> does <strong>not</strong> put non-<code>secrets</code> commands back in local mode — it's still &quot;a context is active,&quot; and the guard doesn't special-case loopback addresses:</p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use dev
