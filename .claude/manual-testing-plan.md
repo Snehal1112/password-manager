@@ -3305,8 +3305,12 @@ rocketvault --config /tmp/rv-prov/rv.yaml vault-provisioning grant msp-bot --quo
 ```
 Provisioning grant issued: principal=a10eee1d-f25f-432c-9b20-bd9abf416e5a quota=2
 ```
-Then, with `$TOKEN` the admin JWT from Prerequisites and `$BOT_ID` msp-bot's
-user ID:
+The CLI's own output above already names msp-bot's user ID as `principal=`
+— assign it from there rather than looking it up separately:
+```bash
+BOT_ID=a10eee1d-f25f-432c-9b20-bd9abf416e5a   # from "principal=" above
+```
+Then, with `$TOKEN` the admin JWT from Prerequisites and `$BOT_ID` now set:
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X PUT $BASE/vault-provisioning-grants/$BOT_ID \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"quota":2}'
@@ -3461,7 +3465,7 @@ curl -s -X POST $BASE/vaults -H "Authorization: Bearer $BOT_TOKEN" \
 {"detailed_error":"","id":"Insufficient permissions: vault provisioning quota exceeded: 2 of 2 used","message":"Insufficient permissions: vault provisioning quota exceeded: 2 of 2 used","request_id":"req-4bf30dcc","status_code":403}
 ```
 `403`. Same underlying error (`ErrVaultQuotaExceeded`,
-`internal/services/vaults/vault_service.go:342,398`) reaches both surfaces,
+`internal/services/vaults/vault_service.go:342,399-400`) reaches both surfaces,
 but only the CLI appends the "delete or purge... or ask an administrator"
 remediation — that text is `cmd/vaults/create.go:84`'s own `%w`-wrapping,
 added on top of `err.Error()`. The HTTP handler
