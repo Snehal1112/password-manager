@@ -232,11 +232,17 @@ func isLocalOnlyCommand(cmd *cobra.Command) bool {
 // The "secrets" adapters live in internal/cliclient/secrets.go — see
 // docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md's
 // Command Support Matrix. Groups still guarded: keys, certificates, vaults,
-// vault-access, audit, and the users resource commands.
+// audit, and the users resource commands.
+//
+// "vault-access roles" is deliberately absent: it reads compiled-in role
+// definitions and never contacts a server, so isLocalOnlyCommand handles it.
 var remoteCapableCommands = map[string]map[string]bool{
 	"secrets": {"list": true, "get": true, "create": true, "update": true,
 		"delete": true, "export": true, "import": true},
 	"users": {"login": true, "logout": true},
+	"vault-access": {
+		"grant": true, "list": true, "revoke": true,
+	},
 }
 
 // isRemoteCapableCommand reports whether cmd has its own remote-mode

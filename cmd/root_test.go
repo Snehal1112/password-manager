@@ -892,3 +892,21 @@ func TestRemotePersistentPreRun_UnauthenticatedCommand_StashesClientWithNoSessio
 	require.True(t, ok, "the unauthenticated branch must still stash a *vaultapi.Client")
 	require.NotNil(t, client)
 }
+
+func TestIsRemoteCapableCommand_VaultAccess(t *testing.T) {
+	parent := &cobra.Command{Use: "vault-access"}
+	for _, name := range []string{"grant", "list", "revoke"} {
+		child := &cobra.Command{Use: name}
+		parent.AddCommand(child)
+		assert.Truef(t, isRemoteCapableCommand(child), "vault-access %s must be remote-capable", name)
+	}
+}
+
+// roles is local-only: it reads compiled-in definitions and never calls a
+// server, so it must not be routed through the remote pre-run.
+func TestIsRemoteCapableCommand_VaultAccessRolesIsNot(t *testing.T) {
+	parent := &cobra.Command{Use: "vault-access"}
+	child := &cobra.Command{Use: "roles"}
+	parent.AddCommand(child)
+	assert.False(t, isRemoteCapableCommand(child))
+}
