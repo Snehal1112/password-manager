@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>v4.5.0 — Self-service vault provisioning — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">v4.5.0 — Self-service vault provisioning</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/release-notes/v4.5.0-vault-provisioning.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#the-problem-this-solves">The problem this solves</a></li><li><a href="#what-a-provisioning-grant-is">What a provisioning grant is</a></li><li><a href="#admin-api-and-cli">Admin API and CLI</a></li><li><a href="#quota-counts-soft-deleted-vaults--only-a-purge-frees-a-slot">Quota counts soft-deleted vaults — only a purge frees a slot</a></li><li><a href="#grantees-cannot-set-purge_protection">Grantees cannot set purge_protection</a></li><li><a href="#revocation-is-not-a-cascade">Revocation is not a cascade</a></li><li><a href="#fixed-en-route-purgevault-orphaned-role_assignments">Fixed en route: PurgeVault orphaned role_assignments</a></li><li><a href="#forward-notice-a-following-release-narrows-global-vaultsmanage">Forward notice: a following release narrows global vaults:manage</a></li><li><a href="#upgrade-steps">Upgrade steps</a></li></ol></nav>
+<main class="doc">
+<p>A non-admin principal can now create vaults, bounded by an explicit quota,
+without holding any authority over vaults it did not create. This is release
+1 of a two-release plan; full design:
+<code>docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md</code>.</p>
+<h2 id="the-problem-this-solves">The problem this solves</h2>
+<p>Creating a vault (<code>POST /vaults</code>) or listing vaults (<code>GET /vaults</code>) has always
+required a <em>global</em> <code>vaults:manage</code> grant — the <code>admin</code> account role, or an
+access-policy allow with <code>vault_id: NULL</code>. That grant is far wider than &quot;may
+create vaults&quot;: because a <code>NULL</code>-scoped allow matches every vault-scoped
+check, it also confers get/update/delete on <strong>every existing vault</strong> via
+<code>CanManageVault</code>, and role-assignment management <strong>everywhere</strong> via
+<code>CanManageRoleAssignments</code> — enough for its holder to award itself <code>Key Vault Administrator</code> in any vault on the instance. Handing an MSP's automation the
+only permission that let it create vaults also handed it the entire
+instance. There was no safe middle ground.</p>
+<h2 id="what-a-provisioning-grant-is">What a provisioning grant is</h2>
+<p>A provisioning grant (<code>vault_provisioning_grants</code>) is a bounded right: create
+up to <code>quota</code> vaults, and become full manager of what you create — vault-
+scoped <code>vaults:manage</code> plus a <code>Key Vault Administrator</code> role assignment on
+each vault, applied at creation time — and nothing else. It confers no
+authority over any vault the grantee did not create.</p>
+<p><code>principal_id</code> carries no foreign key to <code>users</code> and is not resolved by
+username alone: the grantee may be an OAuth2 service account (an
+<code>oauth2_clients</code> row, not a <code>users</code> row), which is how an MSP's automation
+typically authenticates.</p>
+<h2 id="admin-api-and-cli">Admin API and CLI</h2>
+<p>Instance-level routes, since a grant belongs to no vault:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">PUT    /api/v1/vault-provisioning-grants/{principal_id}   issue, or re-quota an existing grant
+DELETE /api/v1/vault-provisioning-grants/{principal_id}   revoke
+GET    /api/v1/vault-provisioning-grants                  list every grant
+</pre></div>
+<p><code>PUT</code> upserts: <code>principal_id</code> is <code>UNIQUE</code>, so a second <code>PUT</code> for the same
+principal changes its quota rather than creating a second grant (<code>200</code> on a
+re-quota, <code>201</code> on a genuinely new grant).</p>
+<p>CLI, under <code>rocketvault vault-provisioning</code>:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># Issue a grant (a raw UUID is accepted and takes precedence over a
+# username lookup -- needed for service-account principals)
+rocketvault vault-provisioning grant alice --quota 5
+rocketvault vault-provisioning grant 3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a --quota 20
+
+# List every grant
+rocketvault vault-provisioning list
+
+# Revoke a grant
+rocketvault vault-provisioning revoke alice
+</pre></div>
+<p>Both the API and the CLI gate every operation on the global <code>admin</code> account
+role. <strong>This tier is admin-only and deliberately non-delegable</strong> — unlike
+role assignments, where <code>Key Vault Data Access Administrator</code> may delegate
+within an allow-list, there is no access-policy or role-assignment path here
+at all. A principal able to amend grants could raise its own quota, and the
+bound the grant exists to impose would be decorative. Every issue and revoke
+is audit-logged, as is every quota-denied create attempt.</p>
+<h2 id="quota-counts-soft-deleted-vaults--only-a-purge-frees-a-slot">Quota counts soft-deleted vaults — only a purge frees a slot</h2>
+<p>The quota check counts every row still present in <code>vaults</code> with
+<code>created_by = &lt;principal&gt;</code>, including soft-deleted ones. A soft-deleted vault
+still holds its name and is recoverable, so excluding it would let a grantee
+cycle delete-and-create past its bound indefinitely. A slot is freed only
+when the vault is purged — which happens automatically once it passes
+<code>retention_days</code> (the existing soft-delete purge scheduler), or immediately
+if an operator purges it by hand. Pre-existing vaults a principal already
+created count retroactively, since the count is by <code>created_by</code>, not by grant
+issue date — size quotas accordingly.</p>
+<p>The check itself runs <em>inside</em> the vault-creation transaction, not the HTTP
+handler and not the repository: a check outside the transaction would race
+concurrent creates and let two requests both pass a quota of <code>N-1</code> remaining
+and both succeed.</p>
+<h2 id="grantees-cannot-set-purge_protection">Grantees cannot set <code>purge_protection</code></h2>
+<p><code>purge_protection</code> is refused outright on a quota-bounded create
+(<code>ErrPurgeProtectionNotPermitted</code>). Allowing it would let a grantee protect a
+vault, soft-delete it, and pin its quota slot permanently — <code>PurgeVault</code>
+refuses to purge a protected vault, so an operator would have to intervene to
+unstick it. Grantees keep every other management capability over vaults they
+created; this restriction is the one exception, and it is admin-only on the
+provisioned path specifically.</p>
+<p>One related, non-obvious consequence: the creator's automatic <code>Key Vault Administrator</code> role assignment does <strong>not</strong> include the purge data action
+(<code>Microsoft.KeyVault/vaults/purge/action</code> — only <code>Key Vault Purge Operator</code>
+carries that, plus the global admin role). A grantee can soft-delete and
+recover its own vault, but freeing a quota slot by purging it requires an
+admin, or a separate <code>Key Vault Purge Operator</code> grant in that vault.</p>
+<h2 id="revocation-is-not-a-cascade">Revocation is not a cascade</h2>
+<p>Revoking a grant (<code>DELETE /vault-provisioning-grants/{principal_id}</code> or
+<code>rocketvault vault-provisioning revoke</code>) stops the principal from creating
+any further vaults under that grant. It does <strong>not</strong> touch the vaults the
+principal already created, or that principal's <code>vaults:manage</code>/<code>Key Vault Administrator</code> rights over them. Cascading revocation would let one <code>DELETE</code>
+strip a customer's access to vaults it already has and depends on; removing
+that access, if ever wanted, is a deliberately separate operator action.</p>
+<h2 id="fixed-en-route-purgevault-orphaned-role_assignments">Fixed en route: <code>PurgeVault</code> orphaned <code>role_assignments</code></h2>
+<p>Purging a vault already cleaned up its <code>access_policies</code> and
+<code>vault_webhook_configs</code> rows explicitly, but not <code>role_assignments</code> — the
+declared <code>ON DELETE CASCADE</code> on <code>role_assignments.vault_id</code> is inert on
+SQLite, where <code>foreign_keys</code> is off by default. This leaked occasionally
+before; now that every provisioned vault carries a creator role assignment,
+it would have leaked on every purge of a provisioned vault. <code>PurgeVault</code> now
+calls the new <code>roleAssignmentRepository.DeleteByVault</code> alongside the existing
+two cleanups, so no orphan row survives a purge.</p>
+<h2 id="forward-notice-a-following-release-narrows-global-vaultsmanage">Forward notice: a following release narrows global <code>vaults:manage</code></h2>
+<p>Nothing in this release changes what a global <code>vaults:manage</code> grant does
+today — that grant still confers get/update/delete on every vault and
+role-assignment management everywhere, exactly as before. A <strong>following
+release</strong> (release 2 of this design, not part of this one) will narrow it to
+<strong>create-and-list only</strong>, removing both of those behaviours from its
+holders. <code>CheckVaultScopedAccess</code> (a NULL-scoped deny still matches; a
+NULL-scoped allow no longer does) and the corresponding changes to
+<code>CanManageVault</code> and <code>CanManageRoleAssignments</code> are the mechanism, but they
+are not shipped here.</p>
+<p>Before upgrading to that release, find every principal who will be affected:
+a startup diagnostic added in this release, <code>warnGlobalVaultManageGrants</code>
+(<code>internal/db/db.go</code>), logs a warning naming every principal holding a
+<code>NULL</code>-scoped <code>(vaults, manage, allow)</code> policy on every server start. Run
+your instance at least once on this release and check its logs before
+upgrading further — the affected population should be small, since such
+policies are only ever created by hand through the admin-only
+<code>createAccessPolicy</code> endpoint.</p>
+<p><strong>Open question, not resolved by this release:</strong> a global <code>vaults:manage</code>
+holder who creates a vault today receives none of the per-vault creator
+grants a provisioning-grant holder gets (<code>VaultService.CreateVault</code>, the
+unbounded path, writes no <code>access_policies</code> or <code>role_assignments</code> row for
+the creator). That is harmless right now, because a global grant already
+confers authority over every vault including the one just created. It stops
+being harmless once the narrowing above ships: such a holder would create a
+vault it can no longer manage afterward. Whether and how to address this is
+left to release 2's planning — it is not decided here.</p>
+<h2 id="upgrade-steps">Upgrade steps</h2>
+<ol>
+<li>No manual database migration step is required. <code>migrateSchema</code> creates
+<code>vault_provisioning_grants</code> idempotently on first startup after
+upgrading, in both the <code>CREATE TABLE</code> block and the migration path.</li>
+<li>Nothing existing changes behavior: this release is purely additive. A
+global <code>vaults:manage</code> holder keeps working exactly as before.</li>
+<li>If you operate as an MSP or hosting provider provisioning vaults on
+customers' behalf today, consider replacing that global grant with a
+bounded provisioning grant per customer principal —
+<code>rocketvault vault-provisioning grant &lt;principal&gt; --quota &lt;n&gt;</code>.</li>
+<li>Watch your startup logs for <code>warnGlobalVaultManageGrants</code> warnings ahead
+of the narrowing release, and start planning the migration of any
+principal it names.</li>
+</ol>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>

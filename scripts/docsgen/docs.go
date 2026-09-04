@@ -41,6 +41,7 @@ var docsList = []docEntry{
 	{"docs/release-notes/v4.1.0-role-parity-and-authz-fix.md", "docs/release-notes/v4.1.0-role-parity-and-authz-fix.html"},
 	{"docs/release-notes/v4.2.0-ca-certificates.md", "docs/release-notes/v4.2.0-ca-certificates.html"},
 	{"docs/release-notes/v4.3.0-api-secrets-passphrase.md", "docs/release-notes/v4.3.0-api-secrets-passphrase.html"},
+	{"docs/release-notes/v4.5.0-vault-provisioning.md", "docs/release-notes/v4.5.0-vault-provisioning.html"},
 	{"docs/runbooks/hsm-pin-rotation.md", "docs/runbooks/hsm-pin-rotation.html"},
 	{"docs/runbooks/master-key-rotation.md", "docs/runbooks/master-key-rotation.html"},
 	{"docs/usage-guide.md", "docs/usage-guide.html"},

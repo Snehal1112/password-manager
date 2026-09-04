@@ -2796,6 +2796,60 @@ curl -s $BASE/vaults/default/webhook -H "Authorization: Bearer $TOKEN"
 
 Nothing to clean beyond the config itself, which step 6 deleted.
 
+#### Self-service vault provisioning (bounded creation right)
+
+Landed 2026-09-04. A provisioning grant lets a non-admin principal create
+vaults up to a quota, becoming full manager (vault-scoped `vaults:manage`
+plus `Key Vault Administrator`) of what it creates and nothing else — the
+safe alternative to a global `vaults:manage` access policy, which today also
+confers management of every existing vault and role-assignment management
+everywhere (release 2, not yet shipped, narrows that). Design:
+`docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`.
+
+- [ ] As admin: `rocketvault vault-provisioning grant <principal> --quota 2`
+      → grant issued. Re-run with `--quota 5` → quota changes, `list` still
+      shows exactly one grant for that principal (`principal_id` is UNIQUE).
+- [ ] `--quota 0` and `--quota -1` → both refused. A zero-quota grant and no
+      grant at all are the same permission.
+- [ ] Issue a grant to an OAuth2 **service account** by UUID (§3.5) → works.
+      A service account is not a `users` row, so a username-only path would
+      fail here; this is the MSP automation's actual identity.
+- [ ] As the grantee (not an admin): create a vault → succeeds, and
+      `rocketvault vaults list` now shows it. Before this feature the grantee
+      got 403 on both.
+- [ ] Create up to the quota, then one more → the last is refused with a
+      quota error naming the count and the limit (`vault provisioning quota
+      exceeded: N of N used`).
+- [ ] Soft-delete one of the grantee's vaults, then create again → **still
+      refused**. A soft-deleted vault holds its name and is recoverable, so it
+      keeps its quota slot. **As admin**, purge it (`rocketvault vaults purge`
+      or `DELETE .../purge`), then create again as the grantee → now
+      succeeds. The grantee cannot purge its own vault to free the slot: the
+      creator's automatic `Key Vault Administrator` role assignment does not
+      include `ActionVaultPurge` (only `Key Vault Purge Operator` does, or
+      the global admin role), so this step genuinely requires an admin, or a
+      separate `Key Vault Purge Operator` grant in that vault.
+- [ ] Grantee tries `--purge-protection` on create → refused. Allowing it
+      would let the grantee pin a quota slot permanently, since `PurgeVault`
+      refuses a protected vault.
+- [ ] Grantee has full rights over its own vault (read/write secrets, manage
+      role assignments) but **403 on a vault it did not create** — check both
+      CLI and HTTP.
+- [ ] Grantee tries to raise its own quota via
+      `PUT /api/v1/vault-provisioning-grants/{own_id}` → `403`. This tier is
+      admin-only and deliberately non-delegable — there is no access-policy
+      or role-assignment path at all, unlike `vaults`/`vault-access`.
+- [ ] Revoke the grant (`rocketvault vault-provisioning revoke <principal>`)
+      → grantee can no longer create, but **keeps** its existing vaults and
+      its rights over them. Revocation is not a cascade.
+- [ ] Purge a provisioned vault (as admin), then check the DB: no orphan row
+      remains in `role_assignments` for it (the FK cascade is inert on
+      SQLite — `roleAssignmentRepository.DeleteByVault` is what actually
+      cleans it up).
+- [ ] Start the server against a DB where some principal holds a global
+      `vaults:manage` policy → a warn line names that principal at startup
+      (`warnGlobalVaultManageGrants`, `internal/db/db.go`).
+
 ### Worked example: vault lifecycle, cascade delete, and the CLI-vs-HTTP purge divergence
 
 > **Concept: soft-delete and recovery are symmetric and timestamp-scoped;
