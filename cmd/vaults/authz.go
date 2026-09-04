@@ -49,16 +49,22 @@ func resolveTargetVaultID(ctx context.Context, svc vaultServices.VaultService, n
 	return uuid.Nil, vaultServices.ErrVaultNotFound
 }
 
-// requireCanCreateVault checks CanManageVault against a global (not
-// vault-specific) grant, since there is no target vault to resolve yet when
-// creating one — mirrors the HTTP createVault handler's use of uuid.Nil.
+// requireCanCreateVault checks the three-way create decision: the global
+// admin role, a global (not vault-specific) vaults:manage grant, or a bounded
+// provisioning grant. There is no target vault to resolve yet when creating
+// one, so this mirrors the HTTP createVault handler's use of CanCreateVault
+// rather than a scoped check.
+//
+// The CLI bypasses PolicyMiddleware entirely, so this is the only
+// authorization enforcement point on this path.
 func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInterface) error {
 	roles, principalID, err := callerIdentity(ctx)
 	if err != nil {
 		return err
 	}
-	if !authz.CanManageVault(ctx, roles, sc.GetAccessPolicyService(), principalID, uuid.Nil) {
-		return fmt.Errorf("permission denied: admin or a global vaults/manage grant required to create a vault")
+	right := authz.CanCreateVault(ctx, roles, sc.GetAccessPolicyService(), sc.GetGrantService(), principalID)
+	if right == authz.CreateRightNone {
+		return fmt.Errorf("permission denied: admin, a global vaults/manage grant, or a vault provisioning grant required to create a vault")
 	}
 	return nil
 }
