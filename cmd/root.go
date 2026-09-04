@@ -533,102 +533,11 @@ func resolveRemoteTokenSource(
 	return src, nil
 }
 
-// resolveRemoteAuthentication is resolveAuthentication's remote-mode
-// counterpart: same three-tier precedence (fresh login > cached session for
-// an explicit --username > whichever session is "current"), but every call
-// goes to target.Server over HTTP instead of the local service container.
-//
-// The "current" session pointer is global across servers (see
-// common/session.go), so when no --username is given, a cached current
-// session is only used if it actually belongs to this target -- otherwise a
-// different server's token could leak into a request against this one.
-func resolveRemoteAuthentication(cmd *cobra.Command, target *cliclient.Target, httpClient *http.Client) (*authServices.AuthenticationResult, error) {
-	username, _ := cmd.Flags().GetString("username")
-	password, _ := cmd.Flags().GetString("password")
-	totpCode, _ := cmd.Flags().GetString("totp-code")
-	if username == "" {
-		username = target.Username // context's default username, if any
-	}
-
-	serverKey := common.SanitizeServerKey(target.Server)
-
-	if username != "" && password != "" {
-		result, err := cliclient.LoginRemote(cmd.Context(), httpClient, target.Server, username, password, totpCode)
-		if err != nil {
-			return nil, err
-		}
-		if saveErr := common.SaveSession(&common.SessionCache{
-			Token:        result.Token,
-			RefreshToken: result.RefreshToken,
-			UserID:       result.UserID,
-			Username:     result.Username,
-			Roles:        result.Roles,
-			ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
-			ServerKey:    serverKey,
-		}); saveErr != nil {
-			logrus.WithError(saveErr).Warn("failed to cache remote CLI session")
-		}
-		return result, nil
-	}
-
-	var cached *common.SessionCache
-	var err error
-	if username != "" {
-		cached, err = common.LoadSessionForServer(serverKey, username)
-	} else {
-		cached, err = common.LoadCurrentSession()
-		if cached != nil && cached.ServerKey != serverKey {
-			cached = nil
-		}
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to read cached session: %w", err)
-	}
-	if cached == nil {
-		return nil, fmt.Errorf("no credentials provided and no cached session found for server %s; pass --username/--password/--totp-code", target.Server)
-	}
-
-	if time.Now().Before(cached.ExpiresAt) {
-		return &authServices.AuthenticationResult{
-			Token:        cached.Token,
-			RefreshToken: cached.RefreshToken,
-			UserID:       cached.UserID,
-			Username:     cached.Username,
-			Roles:        cached.Roles,
-		}, nil
-	}
-
-	refreshed, err := cliclient.RefreshRemote(cmd.Context(), httpClient, target.Server, cached.RefreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("cached session expired and refresh failed: %w", err)
-	}
-
-	if saveErr := common.SaveSession(&common.SessionCache{
-		Token:        refreshed.Token,
-		RefreshToken: refreshed.RefreshToken,
-		UserID:       refreshed.UserID,
-		Username:     refreshed.Username,
-		Roles:        refreshed.Roles,
-		ExpiresAt:    refreshed.ExpiresAt,
-		ServerKey:    serverKey,
-	}); saveErr != nil {
-		logrus.WithError(saveErr).Warn("failed to cache refreshed remote CLI session")
-	}
-
-	return &authServices.AuthenticationResult{
-		Token:        refreshed.Token,
-		RefreshToken: refreshed.RefreshToken,
-		UserID:       refreshed.UserID,
-		Username:     refreshed.Username,
-		Roles:        refreshed.Roles,
-	}, nil
-}
-
 // remotePersistentPreRun is the remote-mode counterpart of persistentPreRun
 // for commands with their own remote adapter (see isRemoteCapableCommand).
 // It never boots the local DB or service container: it configures a TLS
-// trust-aware HTTP client, authenticates against target.Server, and stashes
-// the token/target/client in the command's context for the adapter to use.
+// trust-aware HTTP client, picks a token source, and stashes a vaultapi
+// client in the command's context for the adapter to use.
 func remotePersistentPreRun(cmd *cobra.Command, target *cliclient.Target) error {
 	caCertPath, _ := cmd.Flags().GetString("ca-cert")
 	if caCertPath == "" {
@@ -643,29 +552,52 @@ func remotePersistentPreRun(cmd *cobra.Command, target *cliclient.Target) error 
 		return fmt.Errorf("failed to configure remote TLS trust: %w", err)
 	}
 
-	authResult, err := resolveRemoteAuthentication(cmd, target, httpClient)
+	tokens, err := resolveRemoteTokenSource(cmd, target, httpClient)
 	if err != nil {
 		cmd.PrintErrln("Error: remote authentication failed -", err.Error())
 		return errors.New("remote authentication failed")
 	}
 
-	ctx := context.WithValue(cmd.Context(), common.TokenKey, authResult.Token)
-	ctx = context.WithValue(ctx, common.UserIDKey, authResult.UserID)
-	ctx = context.WithValue(ctx, common.RemoteTargetKey, target)
-	ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+	client, err := vaultapi.New(vaultapi.Config{
+		BaseURL:    target.Server,
+		HTTPClient: httpClient,
+		Tokens:     tokens,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to build remote API client: %w", err)
+	}
 
 	outputFlag, _ := cmd.Flags().GetString("output")
 	fmtr, fmtrErr := formatter.New(formatter.Format(outputFlag))
 	if fmtrErr != nil {
 		return fmt.Errorf("invalid --output value %q: must be table, json, or yaml", outputFlag)
 	}
+
+	ctx := context.WithValue(cmd.Context(), common.RemoteTargetKey, target)
+	ctx = context.WithValue(ctx, common.RemoteClientKey, client)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, fmtr)
+
+	// Transitional: cmd/secrets/*.go still call cliclient.*SecretsRemote,
+	// which needs a bearer token and a bare http.Client rather than the
+	// vaultapi client above. Plan 08 migrates those adapters and removes
+	// both keys from this function.
+	//
+	// For the service-account tier this Token call performs the
+	// client-credentials POST here in the pre-run. That is the same network
+	// call the first API request would otherwise make, not an extra one.
+	ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+	token, tokErr := tokens.Token(cmd.Context())
+	if tokErr != nil {
+		cmd.PrintErrln("Error: remote authentication failed -", tokErr.Error())
+		return errors.New("remote authentication failed")
+	}
+	ctx = context.WithValue(ctx, common.TokenKey, token)
+
 	cmd.SetContext(ctx)
 
 	logrus.WithFields(logrus.Fields{
 		"command": cmd.Short,
 		"server":  target.Server,
-		"user":    authResult.Username,
 	}).Info("Authenticated against remote server")
 	return nil
 }

@@ -38,6 +38,12 @@ var (
 	// invocation's TLS trust options, for remote-capable commands to reuse
 	// rather than building their own. Absent in local mode.
 	RemoteHTTPClientKey = &contextKey{"remote_http_client"}
+	// RemoteClientKey carries the *vaultapi.Client a remote-mode command uses
+	// for every API call. It replaces reading TokenKey and RemoteHTTPClientKey
+	// separately: the client owns the token source and the transport. Typed as
+	// `any` here (common must not import internal/vaultapi) -- callers assert
+	// to *vaultapi.Client.
+	RemoteClientKey = &contextKey{"remote_client"}
 )
 
 // contextsFilePath sits alongside the sessions/ directory, at
