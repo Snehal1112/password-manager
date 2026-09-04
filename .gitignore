@@ -133,3 +133,6 @@ totp_gen
 graphify-out
 
 *.db.*
+
+*/node_modules/
+*/dist/
