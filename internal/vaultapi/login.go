@@ -14,8 +14,13 @@ import (
 )
 
 // defaultLoginExpiry is the access-token lifetime assumed when the caller
-// supplies none. It matches the jwt.expiry the shipped .rocketvault.yaml.example
-// configures.
+// supplies none -- typically a caller with no config file loaded, which is
+// normal in remote mode.
+//
+// It is deliberately shorter than the 1h both shipped configs set for
+// jwt.expiry. Assuming too short a lifetime only triggers an early refresh;
+// assuming too long a one lets a caller send a token the server has already
+// rejected. So this is a conservative floor, not a mirror of the config.
 const defaultLoginExpiry = 15 * time.Minute
 
 // LoginIdentity describes who Login authenticated as. It never carries the

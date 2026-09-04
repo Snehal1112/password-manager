@@ -60,9 +60,9 @@ var serveCmd = &cobra.Command{
 service container (JWT signing-key provider, key provider, and OIDC when
 enabled), and begin serving the HTTP API on the configured listen address.
 
-.rocketvault.yaml is the only config file loaded at runtime. jwt.expiry must
-be set there; startup aborts if it is missing, if master_key is not usable,
-or if the configured JWT signing-key provider cannot be constructed.
+.rocketvault.yaml is the only config file loaded at runtime. Startup aborts if
+master_key is not usable or if the configured JWT signing-key provider cannot
+be constructed. jwt.expiry is optional and defaults to 1h.
 
 --listen overrides server.listen_addr from the config file, which in turn
 overrides the PASSWORD_MANAGER_LISTEN environment variable and the built-in
