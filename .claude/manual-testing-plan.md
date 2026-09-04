@@ -3669,6 +3669,420 @@ remain, owned by `msp-bot`, at quota (2 of 2 used) — that state is
 intentional, not leftover mess, since the next worked example needs a
 principal already sitting at its limit.
 
+This example showed what the grant *lets* `msp-bot` do. The next one, "Worked
+example: what a provisioning grantee cannot do" below, picks up this same
+instance and shows where that grant stops.
+
+### Worked example: what a provisioning grantee cannot do
+
+> **Continues from the example above.** That one showed what a provisioning
+> grant lets a principal do; this one shows where it stops. Read both —
+> neither is the whole story alone.
+
+> **Concept: the grant is bounded on three independent axes, enforced in three
+> different places.** **Scope** — a grantee's authority never reaches a vault
+> it did not create, checked by `CanManageVault`
+> (`internal/services/authorization/vault_authz.go`) for vault-management
+> operations and by `HasDataAction`
+> (`internal/services/authorization/role_assignment_service.go`) for
+> data-plane operations. **Count** — a grantee cannot create past its quota,
+> checked inside `CreateVaultProvisioned`'s own transaction
+> (`internal/services/vaults/vault_service.go`). **Authority** — a grantee
+> cannot amend its own grant, checked by `requireGrantAdmin`
+> (`cmd/vault-provisioning/authz.go`), which per this repo's CLAUDE.md "CLI
+> Authorization" section has no access-policy or role-assignment path at all
+> — it is admin-only and deliberately non-delegable, because a principal able
+> to amend its own grant could raise its own quota, and the bound the grant
+> exists to impose would be decorative. A reader who understands only "there's
+> a quota" will not know to test the other two — this example tests all
+> three, plus what survives when the grant itself is taken away.
+
+All output below was captured live on 2026-09-04 against the same scratch
+instance as the example above (`/tmp/rv-prov/rv.yaml`, port `18774`), reusing
+its already-bootstrapped `admin` and `msp-bot` principals and cached CLI
+sessions — not inferred from the code, and not a fresh instance.
+
+#### Walkthrough
+
+**1. Cross-vault denial: `msp-bot` against `default`, a vault it did not
+create.** Four HTTP attempts, then the same four probes over the CLI. The
+CLI's cross-vault read probe deliberately uses `secrets list` (a read), not
+one of the five `secrets` write commands — those carry an unrelated legacy
+global-role gate (`.claude/known-bugs.md` § B57) that refuses `msp-bot` for a
+reason having nothing to do with the vault boundary being tested here; using
+one would have made the refusal ambiguous. `1d` and `1d-cli`, a grantee
+attempting to grant *itself* a role in a vault it does not own, is the single
+most important attempt in this whole example.
+
+```bash
+curl -s -X GET $BASE/vaults/default/secrets -H "Authorization: Bearer $BOT_TOKEN"
+```
+```
+Forbidden: no role assignment grants this operation in this vault
+```
+`[403]`
+
+```bash
+curl -s -X PATCH $BASE/vaults/default -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}'
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin or vaults/manage required","message":"Insufficient permissions: admin or vaults/manage required","request_id":"req-e684a213","status_code":403}
+```
+
+```bash
+curl -s -X DELETE $BASE/vaults/default -H "Authorization: Bearer $BOT_TOKEN"
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin or vaults/manage required","message":"Insufficient permissions: admin or vaults/manage required","request_id":"req-ffc876ff","status_code":403}
+```
+
+```bash
+curl -s -X POST $BASE/vaults/default/role-assignments -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"principal_id":"'$BOT_ID'","role":"Key Vault Administrator"}'
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin, vaults/manage, or Key Vault Data Access Administrator required","message":"Insufficient permissions: admin, vaults/manage, or Key Vault Data Access Administrator required","request_id":"req-e8707f30","status_code":403}
+```
+All four `[403]`. Now the same four, over the CLI, as `msp-bot` (cached
+session):
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml secrets list --vault default
+```
+```
+Error: forbidden: no role grants Microsoft.KeyVault/vaults/secrets/readMetadata/action in this vault
+```
+Exit code `1`.
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults update default --enabled=false
+```
+```
+Error: permission denied: admin or vaults/manage required for vault "default"
+```
+Exit code `1`.
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults delete default
+```
+```
+Error: permission denied: admin or vaults/manage required for vault "default"
+```
+Exit code `1`.
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-access grant msp-bot --role "Key Vault Administrator" --vault default
+```
+```
+Error: permission denied: admin, vaults/manage, or Key Vault Data Access Administrator required for this vault
+```
+Exit code `1`. All 8 of step 1's attempts refused — the self-escalation
+attempt held on both the HTTP and the CLI path.
+
+**2. Self-quota escalation: `msp-bot` attempts to raise its own quota,
+revoke its own grant, and list every grant — over HTTP, then the CLI.**
+
+```bash
+curl -s -X PUT $BASE/vault-provisioning-grants/$BOT_ID -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"quota":99}'
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin role required to manage vault provisioning grants","message":"Insufficient permissions: admin role required to manage vault provisioning grants","request_id":"req-da245d41","status_code":403}
+```
+
+```bash
+curl -s -X DELETE $BASE/vault-provisioning-grants/$BOT_ID -H "Authorization: Bearer $BOT_TOKEN"
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin role required to manage vault provisioning grants","message":"Insufficient permissions: admin role required to manage vault provisioning grants","request_id":"req-94eb3961","status_code":403}
+```
+
+```bash
+curl -s -X GET $BASE/vault-provisioning-grants -H "Authorization: Bearer $BOT_TOKEN"
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin role required to manage vault provisioning grants","message":"Insufficient permissions: admin role required to manage vault provisioning grants","request_id":"req-6cd46f37","status_code":403}
+```
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-provisioning grant msp-bot --quota 99
+```
+```
+Error: permission denied: managing vault provisioning grants requires the admin role
+```
+Exit code `1`. All 4 refused, all with the identical message — this tier has
+exactly one check, and it is the same check regardless of surface.
+
+**3. Does holding a vault role help? `msp-bot` already holds `Key Vault
+Administrator` in `acme-prod` (granted automatically at creation).**
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-access list --vault acme-prod
+```
+```
+ASSIGNMENT-ID                          ROLE                     PRINCIPAL-ID
+83fc20ac-7172-4ae1-8c95-61573ae0da21   Key Vault Administrator  a10eee1d-f25f-432c-9b20-bd9abf416e5a
+```
+Retrying step 2's probes changes nothing:
+
+```bash
+curl -s -X PUT $BASE/vault-provisioning-grants/$BOT_ID -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"quota":99}'
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin role required to manage vault provisioning grants","message":"Insufficient permissions: admin role required to manage vault provisioning grants","request_id":"req-d2d28427","status_code":403}
+```
+
+```bash
+curl -s -X DELETE $BASE/vault-provisioning-grants/$BOT_ID -H "Authorization: Bearer $BOT_TOKEN"
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin role required to manage vault provisioning grants","message":"Insufficient permissions: admin role required to manage vault provisioning grants","request_id":"req-6e01ef5f","status_code":403}
+```
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-provisioning grant msp-bot --quota 99
+```
+```
+Error: permission denied: managing vault provisioning grants requires the admin role
+```
+Exit code `1`. The provisioning-grant tier is non-delegable regardless of
+data-plane authority — holding "administrator of the vault you made" buys
+nothing here, exactly as `requireGrantAdmin`'s admin-only, non-delegable
+design predicts.
+
+**4. Revocation is not a cascade — but proving that needs a quota slot freed
+first, or the test proves nothing.**
+
+`msp-bot` was at quota 2 of 2 (`acme-prod`, `acme-third`) at this point. A
+create attempted straight after revoking the grant would fail on *quota*
+regardless of whether the grant itself still existed, so the revocation
+boundary would never actually be exercised. As admin, free a slot first by
+purging `acme-third` (kept `acme-prod`, since the previous example refers to
+it by name):
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults delete acme-third   # as admin
+rocketvault --config /tmp/rv-prov/rv.yaml vaults purge acme-third    # as admin
+```
+```
+Vault "acme-third" deleted successfully
+```
+```
+Vault "acme-third" purged successfully
+```
+Confirmed via direct DB query that `msp-bot`'s grant quota (2) now exceeds
+its owned-vault count (1, `acme-prod` only) — quota is no longer the
+blocker. Now, as admin, revoke the grant itself:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-provisioning revoke msp-bot
+```
+```
+Provisioning grant revoked: principal=a10eee1d-f25f-432c-9b20-bd9abf416e5a
+```
+As `msp-bot`, with the grant gone and a free slot:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create post-revocation-test
+```
+```
+Error: permission denied: admin, a global vaults/manage grant, or a vault provisioning grant required to create a vault
+```
+Exit code `1`. This is a **distinct error text** from step 6's earlier
+quota-exceeded message in the previous example (`"vault provisioning quota
+exceeded: 2 of 2 used"`) — proof this run genuinely exercised the no-grant
+path, not the quota path. Pre-existing rights, by contrast, survive
+revocation untouched:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml secrets list --vault acme-prod
+```
+```
+ID                                    Name            Version  Enabled  Tags  Created
+------------------------------------  --------------  -------  -------  ----  -------------------------
+d590bb30-8507-4953-9b8e-697345fd7b1a  example-secret  1        true           2026-09-04T18:28:32+05:30
+```
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults list
+```
+```
+ID                                    Name       Enabled  RetentionDays  Created
+------------------------------------  ---------  -------  -------------  -------------------------
+056c2416-16bc-49cd-8559-e4822a68f375  acme-prod  true     90             2026-09-04T18:27:24+05:30
+```
+Both succeed — revoking the *right to create more* does not touch what the
+grant already produced.
+
+**5. The audit trail names somebody — mostly.**
+
+The brief's own check queries `audit_logs` for `action LIKE
+'%provisioning_grant%' OR action='create_vault'`. Every row it returns
+(`revoke_provisioning_grant`, `create_vault` ×7, `issue_provisioning_grant`
+×2) carries a real, non-empty, non-zero `user_id` matching the actual admin
+or `msp-bot` principal. That check passes as specified.
+
+Broadening the same query to `delete_vault`/`purge_vault` around the same
+window (step 4's admin-run purge of `acme-third`) does not pass:
+
+```sql
+sqlite3 /tmp/rv-prov/rv.db "select rowid, action, user_id from audit_logs
+  where action in ('delete_vault','purge_vault') order by rowid desc limit 2;"
+```
+```
+139|purge_vault|
+134|delete_vault|
+```
+Both rows carry an **empty `user_id`**, even though the CLI session that ran
+them was `admin`, fully authenticated, in the same run that stamped
+`create_vault` and `issue_provisioning_grant` correctly. This is the finding
+now recorded as `.claude/known-bugs.md` § B58: `DeleteVault`, `RecoverVault`,
+and `PurgeVault` (`internal/services/vaults/vault_service.go:638`, `:690`,
+`:770`) and `RevokeRoleAssignment`
+(`internal/services/authorization/role_assignment_service.go:203`) all
+hardcode an empty actor in their audit call, while their siblings
+(`create_vault`, `update_vault`, `AssignRole`) pass the real principal
+correctly. The four most destructive operations in the system are exactly
+the ones the audit log cannot attribute — for every actor, including a
+global admin, on both the CLI and HTTP paths. See § B58 for the full root
+cause; this step is what found it, which is the best argument for why this
+check belongs in the plan at all.
+
+**6. The startup diagnostic for a global `vaults:manage` grant fires
+correctly.**
+
+As admin, hand-create a global (`vault_id: null`) `vaults:manage` allow
+policy for `msp-bot` — deliberate test input on a scratch instance, not a
+real production grant:
+
+```bash
+curl -s -X POST $BASE/access-policies -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"principal_id":"'$BOT_ID'","principal_type":"user","resource_type":"vaults","operation":"manage","effect":"allow"}'
+```
+```json
+{"id":"afe3b3a1-3324-4160-b7c6-01b01014bd02","principal_id":"a10eee1d-f25f-432c-9b20-bd9abf416e5a","principal_type":"user","resource_type":"vaults","operation":"manage","effect":"allow","created_at":"2026-09-04T13:31:16.550176763Z"}
+```
+Restart the server (same config, same port). `GET /health/live` → `200`
+confirms a clean boot, then the startup log carries:
+
+```
+level=warning msg="Principal holds a global vaults:manage grant, which
+confers management of EVERY vault and role-assignment management
+everywhere; a future release narrows this to create-and-list only.
+Consider replacing it with a bounded vault provisioning grant."
+principal_id=a10eee1d-f25f-432c-9b20-bd9abf416e5a principal_type=user
+```
+The diagnostic named `msp-bot`'s own principal ID, not a generic message.
+Then, to confirm what that policy actually buys in release 1 — the same
+probe as step 1, against the same vault `msp-bot` does not own:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults update default --enabled=false   # as msp-bot
+```
+```
+ID                                    Name     Enabled  PurgeProtection  RetentionDays  Created
+------------------------------------  -------  -------  ---------------  -------------  --------------------
+00000000-0000-0000-0000-00000000efa1  default  false    false            90             2026-09-04T12:44:47Z
+```
+Exit code `0` — it **succeeds**. The identical operation that step 1 refused
+under a provisioning grant succeeds here, under a global `vaults:manage`
+policy, against a vault `msp-bot` never created — exactly the behavior
+release 2 removes (see below). Reverted immediately:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults update default --enabled=true   # as admin
+```
+```
+ID                                    Name     Enabled  PurgeProtection  RetentionDays  Created
+------------------------------------  -------  -------  ---------------  -------------  --------------------
+00000000-0000-0000-0000-00000000efa1  default  true     false            90             2026-09-04T12:44:47Z
+```
+
+#### Gotchas this example surfaces
+
+1. **Every boundary held.** All 16 refusal attempts across steps 1-3, on both
+   the HTTP and CLI paths — including the step-1 self-escalation probe, the
+   single most important attempt in this plan — were refused. A boundary
+   example whose conclusion is "it all worked" is a valid and valuable
+   result, not an anticlimax.
+2. **Revocation is not a cascade.** Revoking a provisioning grant removes
+   only the right to create *more* vaults; it does not touch what the grant
+   already produced — `msp-bot` keeps `acme-prod`, its `Key Vault
+   Administrator` role there, and everything in it. Confirmed live in step 4.
+3. **An HTTP `403` does not imply a CLI `403` — they are separate
+   enforcement points.** HTTP requests get authorization for free from
+   `PolicyMiddleware`; every CLI command reproduces the equivalent check
+   itself (this repo's CLAUDE.md, "CLI Authorization"). Both paths held for
+   every probe in this example, but that is a result to confirm, not an
+   assumption to skip — a new CLI command that omits its tier's check
+   bypasses authorization entirely, with no other enforcement point behind
+   it.
+4. **The revocation test in step 4 needed a quota slot freed first.**
+   `msp-bot` was sitting at quota (2 of 2) going in; reversing the grant
+   without freeing a slot would have produced the same quota-exceeded
+   refusal regardless of revocation, proving nothing about the revocation
+   boundary itself. Freeing the slot first (purging `acme-third`) let the
+   post-revocation create attempt fail on a genuinely different error —
+   `"admin, a global vaults/manage grant, or a vault provisioning grant
+   required to create a vault"` versus the earlier `"vault provisioning
+   quota exceeded: 2 of 2 used"` — which is how step 4 can tell the two
+   boundaries apart at all.
+5. **The CLI cross-vault probes in step 1 deliberately used a `secrets`
+   *read* command, not a write.** `secrets create/update/delete/import/export`
+   carry an unrelated legacy global-role gate (`.claude/known-bugs.md` §
+   B57) that refuses `msp-bot` regardless of the vault boundary being
+   tested, since its global account role is plain `user`. `secrets get`
+   (`cmd/secrets/get.go`) carries no such gate, so it isolates the vault
+   check the way the probe needs — a write command here would have made the
+   refusal ambiguous between "the vault boundary held" and "the unrelated
+   B57 gate fired first."
+6. **A global `vaults:manage` access policy still confers management of
+   every vault, in release 1, exactly as the startup diagnostic warns.**
+   Confirmed live in step 6: with only that policy (no vault-specific role
+   assignment), `msp-bot` disabled the `default` vault — one it neither
+   created nor holds any role in. This is expected, by-design release-1
+   behavior, not a violated boundary; it is precisely what release 2
+   removes.
+
+#### Release 2 has not shipped — this escalation path is still open
+
+The narrowing that closes gotcha #6 is designed but **not implemented on
+this branch**. Today, a global `vaults:manage` allow policy is exactly as
+powerful as step 6 showed: full management of every vault and every
+role-assignment, everywhere, for as long as that policy exists. The startup
+diagnostic that fired in step 6 is the way to find affected principals
+*before* upgrading to the release that narrows this — it names the
+`principal_id` holding the policy, on every boot, so an operator can migrate
+each one onto a bounded provisioning grant ahead of time rather than
+discovering the change by having something break.
+
+For the design of the narrowing itself, see
+`docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`
+§2 ("Narrowing the global grant — without breaking global denies," the
+`CheckVaultScopedAccess` asymmetry: a global deny still blocks every vault, a
+global allow no longer reaches one the principal doesn't own) and §9
+("Sequencing — two releases," which spells out why release 1 is additive and
+non-breaking, and what release 2 changes). Note that §9 only specifies the
+narrowing of `CanManageVault` and `CanManageRoleAssignments` — what release 2
+does with the `create`-and-`list` carve-out a global policy currently confers
+(`CreateRightGlobalPolicy`,
+`internal/services/authorization/vault_authz.go:106-108`) is not spelled out
+beyond the diagnostic's own wording ("narrows this to create-and-list only").
+Treat that as open, not decided — do not read step 6 above as evidence of
+what release 2 will do, only of what release 1 currently does.
+
+#### Teardown
+
+This example leaves the shared scratch instance running, per the previous
+example's Teardown note — Task 3 of this plan owns tearing it down. State
+left behind, for the record: `msp-bot`'s provisioning grant is revoked; it
+still owns `acme-prod` with `Key Vault Administrator` there; `acme-third` is
+purged; the global `vaults:manage` access policy created for `msp-bot` in
+step 6 is left in place, since it's harmless scratch state and is the live
+evidence the diagnostic warning is tied to.
+
 ## 6. Vault Access (RBAC) — Azure Role Assignments
 
 - [ ] `rocketvault vault-access roles` (no auth) → lists all built-in Azure roles
