@@ -38,7 +38,11 @@ disabled, or expired, the request is rejected immediately.
 **Remaining limitation (by design)**: `RotateSecret` does not invalidate live tokens —
 tokens remain valid until their JWT TTL expires after a secret rotation. This is standard
 OAuth2 behavior: rotating a secret prevents *new* token issuance but not existing tokens.
-The default 15m JWT expiry bounds the exposure window.
+The `jwt.expiry` lifetime bounds the exposure window — **up to 1 hour**, since the key is
+optional and `internal/container/service_container.go:366-369` falls back to `time.Hour`,
+which is also what both committed configs set. (Corrected 2026-09-04: this line said 15m,
+understating the post-rotation exposure window fourfold. An operator who needs a tighter
+bound after rotating a service-account secret must lower `jwt.expiry` explicitly.)
 
 ---
 
@@ -92,7 +96,10 @@ root's DB-initializing pre-run.
 
 **Status**: Expected operational behavior — documented in
 `docs/release-notes/v4.0.0-azure-rbac.md` § "Breaking changes" item 5
-**Severity**: Low — self-resolving within one JWT lifetime (default 15m)
+**Severity**: Low — self-resolving within one JWT lifetime (up to 1h; `jwt.expiry`
+defaults to `time.Hour`, corrected 2026-09-04 from a stated 15m). Still Low: it
+resolves without intervention and exposes no data, but the window is four times
+what this entry claimed, so plan the upgrade accordingly.
 **File**: `internal/services/auth/authentication_service.go`,
 `internal/services/oauth2/oauth2_service.go`
 
