@@ -3165,7 +3165,7 @@ everywhere (release 2, not yet shipped, narrows that). Design:
       refuses a protected vault.
 - [ ] Grantee has full rights over its own vault (read/write secrets, manage
       role assignments) but **403 on a vault it did not create** — check both
-      CLI and HTTP.
+      CLI and HTTP. CLI secret writes blocked per `.claude/known-bugs.md` § B57.
 - [ ] Grantee tries to raise its own quota via
       `PUT /api/v1/vault-provisioning-grants/{own_id}` → `403`. This tier is
       admin-only and deliberately non-delegable — there is no access-policy
