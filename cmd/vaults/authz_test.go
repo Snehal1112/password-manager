@@ -88,6 +88,50 @@ func newMockContainerNoGrant(t *testing.T) *testutils.MockServiceContainer {
 	return tc.MockContainer
 }
 
+// newMockContainerWithScopedPolicy mirrors newMockContainerNoGrant's global
+// (uuid.Nil) policy wiring -- no global vaults:manage allow -- for a
+// principal who is assumed to hold a vault-scoped (not global) allow
+// elsewhere. requireCanListVaults itself only ever checks the global
+// decision, so this helper's global-denial wiring is what actually drives
+// the test; the "scoped" framing documents why the caller is nonetheless
+// expected to be admitted to some listing (an empty one is never in play
+// here since this is a permission test, not a service one).
+func newMockContainerWithScopedPolicy(t *testing.T, principalID uuid.UUID) *testutils.MockServiceContainer {
+	t.Helper()
+	tc := testutils.NewTestContext(t)
+	policySvc := &testutils.MockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessFallback, nil)
+	tc.MockContainer.AccessPolicyService = policySvc
+	return tc.MockContainer
+}
+
+// TestRequireCanListVaults_GranteeAllowedButNotAll proves a non-admin caller
+// with no global vaults:manage grant is still allowed to list -- listing is
+// no longer refused outright -- but does not receive the all=true,
+// instance-wide listing.
+func TestRequireCanListVaults_GranteeAllowedButNotAll(t *testing.T) {
+	sc := newMockContainerWithScopedPolicy(t, testPrincipalID)
+	ctx := ctxWithClaims(t, testPrincipalID, []string{"user"})
+
+	all, err := requireCanListVaults(ctx, sc)
+	require.NoError(t, err, "a scoped manager must be allowed to list")
+	require.False(t, all, "but must not receive the instance-wide listing")
+}
+
+// TestRequireCanListVaults_AdminGetsAll proves the admin role still resolves
+// to the instance-wide listing -- the widening in
+// TestRequireCanListVaults_GranteeAllowedButNotAll must not narrow this.
+func TestRequireCanListVaults_AdminGetsAll(t *testing.T) {
+	sc := newMockContainerNoGrant(t)
+	ctx := ctxWithClaims(t, testPrincipalID, []string{string(model.RoleAdmin)})
+
+	all, err := requireCanListVaults(ctx, sc)
+	require.NoError(t, err)
+	require.True(t, all)
+}
+
 // TestRequireCanCreateVault_AllowsGrantHolder proves a non-admin caller with
 // no global policy but a provisioning grant is admitted by
 // requireCanCreateVault -- the CLI must reach the same decision as HTTP:
