@@ -3428,6 +3428,243 @@ that same grant, not this access policy directly — see the Concept note
 above). Before this feature, `msp-bot` held no policy anywhere and would
 have seen an empty list or a `403`, never `default`.
 
+**6. Exhaust the quota — msp-bot's grant was issued at quota 2, and step 4
+already spent one slot on `acme-prod`.**
+
+Spend the second slot:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create acme-staging
+```
+```
+ID                                    Name          Enabled  PurgeProtection  RetentionDays  Created
+------------------------------------  ------------  -------  ---------------  -------------  -------------------------
+1b6487d6-5384-4d2f-946b-87a1cd17a3f0  acme-staging  true     false            90             2026-09-04T18:37:34+05:30
+```
+Now at 2 of 2. A third create is refused, and the message names both the
+count and the limit, exactly as predicted:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create acme-third
+```
+```
+Error: failed to create vault: vault provisioning quota exceeded: 2 of 2 used -- delete or purge an existing vault, or ask an administrator to raise your provisioning quota
+```
+Exit code `1`. The identical refusal over HTTP is worded differently — a
+divergence this plan did not predict:
+
+```bash
+curl -s -X POST $BASE/vaults -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"acme-third-http"}'
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: vault provisioning quota exceeded: 2 of 2 used","message":"Insufficient permissions: vault provisioning quota exceeded: 2 of 2 used","request_id":"req-4bf30dcc","status_code":403}
+```
+`403`. Same underlying error (`ErrVaultQuotaExceeded`,
+`internal/services/vaults/vault_service.go:342,398`) reaches both surfaces,
+but only the CLI appends the "delete or purge... or ask an administrator"
+remediation — that text is `cmd/vaults/create.go:84`'s own `%w`-wrapping,
+added on top of `err.Error()`. The HTTP handler
+(`api/vault.go:104`, `c.SetPermissionError(err.Error())`) passes the bare
+`err.Error()` straight through `SetPermissionError`, which itself prepends
+a fixed `"Insufficient permissions: "` prefix (`api/context.go:100-102`) —
+so the HTTP caller sees the count and the limit, but not the CLI's
+human-facing hint about what to do next.
+
+**7. Soft-delete `acme-staging` — the slot is *not* released.**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE $BASE/vaults/acme-staging \
+  -H "Authorization: Bearer $BOT_TOKEN"
+```
+```
+204
+```
+Retry the create — still refused, byte-identical message to step 6:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create acme-third
+```
+```
+Error: failed to create vault: vault provisioning quota exceeded: 2 of 2 used -- delete or purge an existing vault, or ask an administrator to raise your provisioning quota
+```
+The database confirms why: the row is still there, merely flagged deleted.
+`CountByCreatedBy` (`internal/services/vaults/vault_service.go:397`) counts
+every row this principal created regardless of `deleted_at` — a soft-delete
+changes nothing it looks at.
+
+```bash
+sqlite3 /tmp/rv-prov/rv.db \
+  "SELECT name, deleted_at IS NOT NULL AS soft_deleted FROM vaults WHERE created_by='$BOT_ID';"
+```
+```
+acme-prod|0
+acme-staging|1
+```
+
+**8. Purge frees the slot — but the grantee cannot do it itself. This is
+the counter-intuitive half of this whole example.**
+
+`msp-bot`'s automatic grant from creating `acme-staging` is `Key Vault
+Administrator`, scoped to that one vault (step 4). That role's data-action
+bundle does not include `ActionVaultPurge` — the *only* built-in role that
+carries it is `Key Vault Purge Operator`
+(`model/azure_roles.go:201-203`):
+```go
+RoleKeyVaultPurgeOperator: {
+    ActionVaultPurge,
+},
+```
+Confirmed live — `msp-bot` attempts the purge on the vault it created and
+soft-deleted itself, and is refused:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults purge acme-staging
+```
+```
+Error: permission denied: admin or Key Vault Purge Operator required for vault "acme-staging"
+```
+Exit code `1`. This is `requireCanPurgeVault`
+(`cmd/vaults/authz.go:124-134`) calling `CanPurgeVault`
+(`internal/services/authorization/vault_authz.go:41-53`), which
+short-circuits only for the global `admin` account role, then falls back to
+a real `HasDataAction(ActionVaultPurge)` lookup that `msp-bot`'s `Key Vault
+Administrator` assignment does not satisfy. Being the vault's creator and
+sole manager is not enough — purge is carved out on purpose, and nothing
+about the provisioning grant hands it over.
+
+Only an admin (via the account-role bypass) or an explicit `Key Vault Purge
+Operator` grant in that vault can free the slot. Log in as admin and purge:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml users login --username admin --password <admin-password> --totp-code <admin-code>
+rocketvault --config /tmp/rv-prov/rv.yaml vaults purge acme-staging
+```
+```
+Vault "acme-staging" purged successfully
+```
+Switch the cached session back to `msp-bot` and retry the create that has
+failed twice already — it now succeeds:
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml users login --username msp-bot --password <msp-bot-password> --totp-code <msp-bot-code>
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create acme-third
+```
+```
+ID                                    Name        Enabled  PurgeProtection  RetentionDays  Created
+------------------------------------  ----------  -------  ---------------  -------------  -------------------------
+2d1fff01-a352-48de-8c1d-942a8911101a  acme-third  true     false            90             2026-09-04T18:39:12+05:30
+```
+Only a purge frees a slot — not a delete, not time, not the creator asking
+nicely. And the purge cleaned up after itself correctly: `acme-staging`'s
+role assignment is gone, not orphaned.
+
+```bash
+sqlite3 /tmp/rv-prov/rv.db \
+  "SELECT COUNT(*) FROM role_assignments WHERE vault_id NOT IN (SELECT id FROM vaults);"
+```
+```
+0
+```
+This check is load-bearing, not decoration: SQLite's FK cascade is inert
+here, so `roleAssignmentRepository.DeleteByVault` is the only thing that
+cleans up a purged vault's role assignments, and nothing in the automated
+test suite would catch a regression in it. `0` confirms it is still doing
+its job.
+
+**9. Confirm `purge_protection` is refused for a quota-bounded caller — and
+why that restriction has to exist for step 8 to have worked at all.**
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create acme-pp-test --purge-protection
+```
+```
+Error: failed to create vault: purge protection may only be set by an administrator -- only an administrator can set --purge-protection
+```
+`CreateVaultProvisioned` refuses this before ever reaching the database
+(`internal/services/vaults/vault_service.go:361-364`), returning
+`ErrPurgeProtectionNotPermitted`
+(`internal/services/vaults/vault_service.go:344-348`) whenever the caller is
+quota-bounded and asked for `purge_protection: true`. The doc comment on
+that error spells out exactly why, and step 8 above is a live demonstration
+of the failure mode it prevents: "Allowing it would let a grantee protect a
+vault, soft-delete it, and hold the quota slot forever, since PurgeVault
+refuses a protected vault and the purge scheduler honours the same flag." A
+grantee that could set purge protection on its own vault could turn step
+8's temporary, admin-recoverable stuck slot into a permanent one — the
+purge that freed `acme-staging`'s slot would itself have been refused.
+
+#### The 5 gotchas this example surfaces
+
+1. **A provisioning-grant creator cannot write secrets into the vault it
+   just created — over the CLI, though the identical write succeeds over
+   HTTP.** `cmd/secrets/create.go:95-97` gates on the caller's global
+   account role (`admin` or `secrets_manager`) *before* it reaches the
+   vault-scoped `RequireDataAction` check at `cmd/secrets/create.go:105`
+   that would honor the creator's brand-new, vault-scoped `Key Vault
+   Administrator` assignment. `msp-bot`'s global role is plain `user`, so it
+   never gets that far. `secrets get` and the HTTP write path
+   (`api/secrets.go`) carry no such gate — see walkthrough step 4 above for
+   the live confirmation (CLI refused with `forbidden: requires admin or
+   secrets_manager role`, HTTP succeeded with `201`).
+2. **Quota counts every vault this principal ever created, soft-deleted or
+   not — only a purge releases a slot.** `CountByCreatedBy`
+   (`internal/services/vaults/vault_service.go:397`) has no `deleted_at`
+   filter, so a soft-delete is invisible to it. Confirmed live in steps 6-7:
+   the same `2 of 2 used` refusal, byte-identical, both before and after
+   soft-deleting `acme-staging`.
+3. **A grantee sitting at quota cannot free a slot by itself.** Vault
+   creation only ever grants the creator `Key Vault Administrator`
+   (`internal/services/vaults/vault_service.go:405-436`), and that role's
+   data-action bundle does not include `ActionVaultPurge` — the only
+   built-in role that carries it is `Key Vault Purge Operator`
+   (`model/azure_roles.go:201-203`). Confirmed live in step 8: `msp-bot`
+   purging the vault it created and soft-deleted itself was refused with
+   `permission denied: admin or Key Vault Purge Operator required`. A
+   grantee genuinely stuck at quota has exactly two ways out, neither of
+   which it can trigger itself: wait for the background retention scheduler
+   to auto-purge the soft-deleted vault once its retention window elapses
+   (`internal/services/softdelete/purge_scheduler.go:16-22,99-105`), or ask
+   an administrator to purge it now (or grant `Key Vault Purge Operator` in
+   that vault). This is the counter-intuitive half of the whole feature —
+   deleting a vault feels like it should give the slot back, and it
+   deliberately does not.
+4. **`purge_protection` is refused for a quota-bounded caller, and that
+   restriction is what keeps gotcha #3's stuck slot temporary instead of
+   permanent.** `ErrPurgeProtectionNotPermitted`
+   (`internal/services/vaults/vault_service.go:344-348`) is returned before
+   the vault is even inserted
+   (`internal/services/vaults/vault_service.go:361-364`) whenever the caller
+   is quota-bounded. Its own doc comment says why: with purge protection
+   allowed, the exact sequence step 8 just walked through — soft-delete,
+   then purge to reclaim the slot — would itself fail, and the slot would
+   be pinned forever. Confirmed live in step 9.
+5. **The CLI and HTTP quota-exceeded refusals share the same underlying
+   error but not the same wording.** Both report the count and the limit
+   (`2 of 2 used`), but only the CLI appends a "delete or purge... or ask an
+   administrator" remediation hint
+   (`cmd/vaults/create.go:84`) — the HTTP handler passes the bare
+   `err.Error()` through `SetPermissionError`
+   (`api/vault.go:104`, `api/context.go:100-102`), which prepends only a
+   fixed `"Insufficient permissions: "` prefix. Don't parse either message
+   expecting it to match the other verbatim.
+
+#### Teardown
+
+This scratch instance is shared with a follow-on worked example (self-service
+provisioning boundaries) and is **left running** at the end of this example —
+do not stop it or delete its data as part of this walkthrough. For a reader
+running this example in true isolation and finished with it for good:
+
+```bash
+pkill -f "rocketvault --config /tmp/rv-prov/rv.yaml"
+rm -rf /tmp/rv-prov
+```
+`acme-staging` is already purged (step 8); `acme-prod` and `acme-third`
+remain, owned by `msp-bot`, at quota (2 of 2 used) — that state is
+intentional, not leftover mess, since the next worked example needs a
+principal already sitting at its limit.
+
 ## 6. Vault Access (RBAC) — Azure Role Assignments
 
 - [ ] `rocketvault vault-access roles` (no auth) → lists all built-in Azure roles
