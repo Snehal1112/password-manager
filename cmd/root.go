@@ -43,6 +43,7 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
 
@@ -157,6 +158,12 @@ func init() {
 	rootCmd.PersistentFlags().String("server", "", "Remote RocketVault server URL (default: local mode against .rocketvault.yaml)")
 	rootCmd.PersistentFlags().String("ca-cert", "", "Path to an additional CA certificate to trust for remote server connections (or set ROCKETVAULT_CA_CERT)")
 	rootCmd.PersistentFlags().Bool("insecure-skip-verify", false, "Disable TLS certificate verification for remote server connections (unsafe — dev/test only)")
+
+	// Persistent flags for unattended remote authentication.
+	rootCmd.PersistentFlags().String("client-id", "",
+		"Service-account client ID for unattended remote auth (or set ROCKETVAULT_CLIENT_ID)")
+	rootCmd.PersistentFlags().String("client-secret", "",
+		"Service-account client secret for unattended remote auth (or set ROCKETVAULT_CLIENT_SECRET)")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -397,6 +404,133 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 		Username:     refreshed.Username,
 		Roles:        refreshed.Roles,
 	}, nil
+}
+
+// clientCredentials returns the service-account credentials for remote mode,
+// preferring flags over the environment. Both values must be present for the
+// service-account path to be selected; a half-configured pair is treated as
+// unset so the caller can report it as a usage error rather than silently
+// falling back to an interactive session.
+func clientCredentials(cmd *cobra.Command) (string, string) {
+	id, _ := cmd.Flags().GetString("client-id")
+	if id == "" {
+		id = os.Getenv("ROCKETVAULT_CLIENT_ID")
+	}
+	secret, _ := cmd.Flags().GetString("client-secret")
+	if secret == "" {
+		secret = os.Getenv("ROCKETVAULT_CLIENT_SECRET")
+	}
+	return id, secret
+}
+
+// unauthenticatedSource is the token source for a client that must not send
+// a bearer token: the credential-login bootstrap below, and the users
+// login/logout pre-run branch in 02b. vaultapi.Config requires a non-nil
+// Tokens (internal/vaultapi/client.go:82-84), and Client.Login is the one
+// method that never consults it (login.go:53-66, pinned by
+// TestClientLogin_SendsNoAuthorizationHeader). Any other call on such a
+// client fails here loudly rather than sending an empty Authorization
+// header.
+type unauthenticatedSource struct{}
+
+func (unauthenticatedSource) Token(context.Context) (string, error) {
+	return "", errors.New("this command runs unauthenticated; run 'rocketvault users login' first")
+}
+
+// resolveRemoteTokenSource picks how the CLI authenticates against target.
+//
+// Three tiers, in precedence order:
+//
+//  1. Service-account credentials -- the unattended CI path. Writes nothing
+//     to disk.
+//  2. An explicit --username/--password -- the user asking to re-authenticate.
+//     Caches the resulting session, exactly as the pre-vaultapi code did.
+//  3. The cached CLI session, which refreshes itself through
+//     vaultapi.SessionSource.
+//
+// The "current" session pointer is global across servers (see
+// common/session.go), so a cached current session is only accepted when it
+// belongs to this target -- otherwise a different server's token could leak
+// into a request against this one.
+func resolveRemoteTokenSource(
+	cmd *cobra.Command,
+	target *cliclient.Target,
+	httpClient *http.Client,
+) (vaultapi.TokenSource, error) {
+	clientID, clientSecret := clientCredentials(cmd)
+	switch {
+	case clientID != "" && clientSecret != "":
+		return vaultapi.NewServiceAccountSource(vaultapi.ServiceAccountConfig{
+			BaseURL:      target.Server,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			HTTPClient:   httpClient,
+		})
+	case clientID != "":
+		return nil, fmt.Errorf("--client-id given without --client-secret (or ROCKETVAULT_CLIENT_SECRET)")
+	case clientSecret != "":
+		return nil, fmt.Errorf("--client-secret given without --client-id (or ROCKETVAULT_CLIENT_ID)")
+	}
+
+	serverKey := common.SanitizeServerKey(target.Server)
+	username, _ := cmd.Flags().GetString("username")
+	if username == "" {
+		username = target.Username // context's default username, if any
+	}
+
+	if password, _ := cmd.Flags().GetString("password"); username != "" && password != "" {
+		totpCode, _ := cmd.Flags().GetString("totp-code")
+		client, err := vaultapi.New(vaultapi.Config{
+			BaseURL:    target.Server,
+			HTTPClient: httpClient,
+			Tokens:     unauthenticatedSource{},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to build login client: %w", err)
+		}
+		// viper.GetDuration is 0 when no config file is loaded, which is
+		// normal in remote mode; LoginOptions falls back to its own default
+		// for exactly that case, so the session is not born expired.
+		src, _, err := client.Login(cmd.Context(), username, password, totpCode, vaultapi.LoginOptions{
+			Expiry:      viper.GetDuration("jwt.expiry"),
+			SaveSession: common.SaveSession,
+		})
+		return src, err
+	}
+
+	load := func() (*common.SessionCache, error) {
+		if username != "" {
+			return common.LoadSessionForServer(serverKey, username)
+		}
+		cached, err := common.LoadCurrentSession()
+		if err != nil {
+			return nil, err
+		}
+		if cached != nil && cached.ServerKey != serverKey {
+			return nil, fmt.Errorf(
+				"the current session belongs to a different server; run 'rocketvault users login' against %s or pass --username",
+				target.Server)
+		}
+		return cached, nil
+	}
+
+	// SessionConfig.SaveSession is left nil deliberately: its default is
+	// common.SaveSession, which is what the pre-vaultapi code called after a
+	// refresh.
+	src, err := vaultapi.NewSessionSource(vaultapi.SessionConfig{
+		BaseURL:     target.Server,
+		HTTPClient:  httpClient,
+		LoadSession: load,
+	})
+	if err != nil {
+		if errors.Is(err, vaultapi.ErrNoSession) {
+			return nil, fmt.Errorf(
+				"no cached session for server %s; run 'rocketvault users login' or pass --username/--password/--totp-code or --client-id/--client-secret",
+				target.Server)
+		}
+		return nil, err
+	}
+	return src, nil
 }
 
 // resolveRemoteAuthentication is resolveAuthentication's remote-mode

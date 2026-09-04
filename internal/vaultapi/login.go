@@ -32,18 +32,37 @@ type LoginIdentity struct {
 	ExpiresAt time.Time
 }
 
+// LoginOptions carries the caller-specific parts of a login: how long the
+// access token lives, and whether the resulting session is persisted.
+//
+// SaveSession is nil for an in-memory login (the MCP server's in-chat
+// login tool) and common.SaveSession for the CLI, which caches the session
+// so later commands run without credentials. It is called once with the
+// session Login creates, and again by the SessionSource on every refresh,
+// so the two paths cannot drift.
+type LoginOptions struct {
+	// Expiry is the access-token lifetime (jwt.expiry). Zero or negative
+	// uses defaultLoginExpiry -- which is what a caller with no config
+	// file loaded passes, so the session is not born already expired.
+	Expiry time.Duration
+	// SaveSession persists the session. Nil means this login is
+	// memory-only and writes nothing.
+	SaveSession func(*common.SessionCache) error
+}
+
 // Login exchanges a username, password and TOTP code for a session, and
 // returns a TokenSource seeded with it plus display information.
 //
 // Unlike every other Client method, it sends no bearer token: the endpoint
 // is unauthenticated by design, the same way the refresh endpoint
-// SessionSource.refresh calls is. expiry is the access-token lifetime
+// SessionSource.refresh calls is. opts.Expiry is the access-token lifetime
 // (jwt.expiry), used to compute ExpiresAt the same way the CLI's own login
 // command does in cmd/root.go -- the login response itself carries no
 // expiry.
-func (c *Client) Login(ctx context.Context, username, password, totpCode string, expiry time.Duration) (TokenSource, LoginIdentity, error) {
+func (c *Client) Login(ctx context.Context, username, password, totpCode string, opts LoginOptions) (TokenSource, LoginIdentity, error) {
 	// A caller with no config file loaded passes viper's zero duration, which
 	// would make the session born already expired.
+	expiry := opts.Expiry
 	if expiry <= 0 {
 		expiry = defaultLoginExpiry
 	}
@@ -110,9 +129,18 @@ func (c *Client) Login(ctx context.Context, username, password, totpCode string,
 		ServerKey: common.SanitizeServerKey(c.baseURL),
 	}
 
+	// The explicit save matters: SessionSource only writes on refresh, so
+	// without it nothing reaches disk until the first token expiry.
+	if opts.SaveSession != nil {
+		if err := opts.SaveSession(session); err != nil {
+			return nil, LoginIdentity{}, fmt.Errorf("vaultapi: authenticated but failed to cache session: %w", err)
+		}
+	}
+
 	source, err := NewSessionSourceFromCache(SessionConfig{
-		BaseURL:    c.baseURL,
-		HTTPClient: c.http,
+		BaseURL:     c.baseURL,
+		HTTPClient:  c.http,
+		SaveSession: opts.SaveSession, // nil keeps the no-op default
 	}, session)
 	if err != nil {
 		return nil, LoginIdentity{}, fmt.Errorf("vaultapi: seed session from login: %w", err)

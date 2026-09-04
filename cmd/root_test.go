@@ -24,6 +24,7 @@ import (
 	"rocketvault/internal/cliclient"
 	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
 
@@ -786,4 +787,146 @@ func TestPersistentPreRun_RemoteTarget_SecretsList_UsesRemoteAdapter(t *testing.
 	assert.True(t, loginHit, "expected the remote server's login endpoint to be called")
 	assert.True(t, listHit, "expected the remote server's secrets list endpoint to be called")
 	assert.Contains(t, out.String(), "api-key")
+}
+
+func TestClientCredentials_FlagsWinOverEnv(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "env-id")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "env-secret")
+
+	c := &cobra.Command{}
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+	require.NoError(t, c.Flags().Set("client-id", "flag-id"))
+	require.NoError(t, c.Flags().Set("client-secret", "flag-secret"))
+
+	id, secret := clientCredentials(c)
+	assert.Equal(t, "flag-id", id)
+	assert.Equal(t, "flag-secret", secret)
+}
+
+func TestClientCredentials_FallsBackToEnv(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "env-id")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "env-secret")
+
+	c := &cobra.Command{}
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	id, secret := clientCredentials(c)
+	assert.Equal(t, "env-id", id)
+	assert.Equal(t, "env-secret", secret)
+}
+
+func TestClientCredentials_UnsetIsEmpty(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "")
+
+	c := &cobra.Command{}
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	id, secret := clientCredentials(c)
+	assert.Empty(t, id)
+	assert.Empty(t, secret)
+}
+
+func TestResolveRemoteTokenSource_ClientCredentials_UsesServiceAccount(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "svc-id")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "svc-secret")
+	common.SessionBaseDir = t.TempDir() // no session cached at all
+
+	target := &cliclient.Target{Server: "https://vault.example.com"}
+	c := newAuthTestCmd("", "", "")
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	src, err := resolveRemoteTokenSource(c, target, http.DefaultClient)
+	require.NoError(t, err, "service-account auth must not require a cached session")
+	assert.IsType(t, &vaultapi.ServiceAccountSource{}, src)
+}
+
+// The credential tier must survive the move to vaultapi: it is the only way
+// to authenticate remotely until users login is unguarded in 02b.
+func TestResolveRemoteTokenSource_UsernamePassword_LogsInAndCaches(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	var loginHit bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v1/users/login", r.URL.Path)
+		loginHit = true
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"token": "tok", "refresh_token": "refresh",
+			"user_id":  "0f2b6f1e-0000-0000-0000-000000000001",
+			"username": "admin", "roles": []string{"admin"},
+		})
+	}))
+	defer srv.Close()
+
+	target := &cliclient.Target{Server: srv.URL}
+	c := newAuthTestCmd("admin", "pass123", "123456")
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	src, err := resolveRemoteTokenSource(c, target, srv.Client())
+	require.NoError(t, err)
+	assert.True(t, loginHit, "credentials must produce a real login call")
+
+	tok, err := src.Token(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "tok", tok)
+
+	cached, err := common.LoadSessionForServer(common.SanitizeServerKey(srv.URL), "admin")
+	require.NoError(t, err)
+	require.NotNil(t, cached, "a credential login must cache its session")
+}
+
+func TestResolveRemoteTokenSource_NoCredentials_UsesSession(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	serverKey := common.SanitizeServerKey("https://vault.example.com")
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "tok", RefreshToken: "refresh", Username: "admin",
+		ServerKey: serverKey, ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	target := &cliclient.Target{Server: "https://vault.example.com"}
+	c := newAuthTestCmd("", "", "")
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	src, err := resolveRemoteTokenSource(c, target, http.DefaultClient)
+	require.NoError(t, err)
+	assert.IsType(t, &vaultapi.SessionSource{}, src)
+}
+
+// A cached session for a different server must never be used against this
+// target -- the "current" pointer is global across servers.
+func TestResolveRemoteTokenSource_CurrentSession_WrongServer_Refused(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "other-server-tok", Username: "admin",
+		ServerKey: common.SanitizeServerKey("https://other.example.com"),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
+	c := newAuthTestCmd("", "", "")
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	_, err := resolveRemoteTokenSource(c, target, http.DefaultClient)
+	require.Error(t, err, "a cached session for a different server must not be reused")
+}
+
+func TestResolveRemoteTokenSource_HalfCredentials_IsUsageError(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "svc-id")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "")
+	common.SessionBaseDir = t.TempDir()
+
+	target := &cliclient.Target{Server: "https://vault.example.com"}
+	c := newAuthTestCmd("", "", "")
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	_, err := resolveRemoteTokenSource(c, target, http.DefaultClient)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "client-secret")
 }
