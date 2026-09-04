@@ -102,6 +102,9 @@ type stubVaultService struct {
 func (s *stubVaultService) CreateVault(context.Context, model.CreateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
+func (s *stubVaultService) CreateVaultProvisioned(context.Context, model.CreateVaultRequest, uuid.UUID, bool) (*model.Vault, error) {
+	return nil, nil
+}
 func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, error) {
 	s.getVaultCalls++
 	return s.vault, s.err
@@ -120,6 +123,7 @@ func (s *stubVaultService) SetTxBeginner(_ vaultServices.TxBeginner)            
 func (s *stubVaultService) SetSecretCacheFlusher(_ vaultServices.SecretCacheFlusher)       {}
 func (s *stubVaultService) SetVaultCache(_ vaultServices.VaultCacheInterface)              {}
 func (s *stubVaultService) SetGlobalPurgeProtection(_ bool)                                {}
+func (s *stubVaultService) SetGrantLocker(_ vaultServices.GrantLocker)                     {}
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {

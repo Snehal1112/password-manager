@@ -21,6 +21,13 @@ type VaultProvisioningGrantRepositoryInterface interface {
 	GetByPrincipal(ctx context.Context, principalID uuid.UUID) (*model.VaultProvisioningGrant, error)
 	Delete(ctx context.Context, principalID uuid.UUID) error
 	List(ctx context.Context) ([]*model.VaultProvisioningGrant, error)
+	// LockAndReadQuotaTx takes a row lock on the principal's grant and returns
+	// its quota, scoped to the given executor so it can join a caller's
+	// transaction. Declared directly on this interface -- unlike the
+	// VaultRepository CreateTx/CountByCreatedBy pair, which live only on the
+	// concrete type -- because this repository is new in this series and has
+	// no existing test doubles that a widened interface would break.
+	LockAndReadQuotaTx(ctx context.Context, ex db.DBTX, principalID uuid.UUID) (int, error)
 }
 
 type vaultProvisioningGrantRepository struct {
@@ -85,6 +92,31 @@ func (r *vaultProvisioningGrantRepository) List(ctx context.Context) ([]*model.V
 		out = append(out, g)
 	}
 	return out, rows.Err()
+}
+
+// LockAndReadQuotaTx takes a row lock on the principal's grant and returns
+// its quota. The no-op UPDATE is the lock: PostgreSQL takes a row lock on an
+// updated row, SQLite escalates the transaction to RESERVED. Without it, two
+// concurrent creates under READ COMMITTED both read the same count and both
+// insert, exceeding the quota by one. This statement is load-bearing -- it is
+// not a redundant write.
+func (r *vaultProvisioningGrantRepository) LockAndReadQuotaTx(ctx context.Context, ex db.DBTX, principalID uuid.UUID) (int, error) {
+	if _, err := ex.ExecContext(ctx,
+		"UPDATE vault_provisioning_grants SET quota = quota WHERE principal_id = ?",
+		principalID.String()); err != nil {
+		return 0, fmt.Errorf("lock provisioning grant: %w", err)
+	}
+	var quota int
+	err := ex.QueryRowContext(ctx,
+		"SELECT quota FROM vault_provisioning_grants WHERE principal_id = ?",
+		principalID.String()).Scan(&quota)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("provisioning grant for principal %s: %w", principalID, ErrNotFound)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read provisioning quota: %w", err)
+	}
+	return quota, nil
 }
 
 // scanner is satisfied by both *sql.Row and *sql.Rows.
