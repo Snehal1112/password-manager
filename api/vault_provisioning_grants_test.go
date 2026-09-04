@@ -274,3 +274,49 @@ func TestListGrants_EmptyReturnsEmptyArrayNotNull(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.JSONEq(t, "[]", w.Body.String())
 }
+
+// --- route-contract pinning tests ---
+//
+// mapEndpointToPermission (internal/services/authorization/rbac_service.go)
+// matches "vaults" as a bare prefix, and resolvePolicy
+// (internal/middleware/middleware.go) matches "/vaults" as a substring.
+// Neither matches "/vault-provisioning-grants" ("vault-" differs from
+// "vaults" at the 6th character, and "/vault-provisioning-grants" does not
+// contain "/vaults"), so these routes fall through both to no mapped
+// permission/policy and reach the handler, which is the only place that
+// gates them. TestMapEndpointToPermission_VaultProvisioningGrantsReturnsEmpty
+// (internal/services/authorization/rbac_vault_routes_test.go) and
+// TestResolvePolicy_VaultProvisioningGrantsDoesNotMatchVaultsSubstring
+// (internal/middleware/middleware_test.go) pin those two mappers directly.
+// The two tests below pin the handler-level consequence: a non-admin's 403
+// must actually come from requireGrantAdmin (not some other gate), and an
+// admin's GET must succeed rather than being diverted into vault-management
+// handling.
+
+// TestVaultProvisioningGrants_NonAdminGetsHandlerForbidden proves the 403 a
+// non-admin caller gets carries requireGrantAdmin's own message, not a
+// generic rejection from an unrelated mapping.
+func TestVaultProvisioningGrants_NonAdminGetsHandlerForbidden(t *testing.T) {
+	api := newGrantTestAPIWithGrants(t)
+
+	w := doGrantRequestAs(api, uuid.New(), model.RoleUser, http.MethodPut,
+		"/api/v1/vault-provisioning-grants/"+uuid.New().String(), []byte(`{"quota":5}`))
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Body.String(), "admin role required",
+		"the refusal must come from requireGrantAdmin, not from an unrelated middleware mapping")
+}
+
+// TestVaultProvisioningGrants_DoesNotResolveAVault proves the list route is
+// not mistaken for a vault-scoped path: it reaches listVaultProvisioningGrants
+// and returns 200, rather than being routed as vault-management (which would
+// still require the caller resolve or hold rights on some named vault).
+func TestVaultProvisioningGrants_DoesNotResolveAVault(t *testing.T) {
+	api := newGrantTestAPIWithGrants(t)
+
+	w := doGrantRequestAs(api, uuid.New(), model.RoleAdmin, http.MethodGet,
+		"/api/v1/vault-provisioning-grants", nil)
+
+	require.Equal(t, http.StatusOK, w.Code,
+		"the route must not be mistaken for a vault-scoped path")
+}

@@ -65,6 +65,33 @@ func TestMapEndpointToPermission_DataPlaneReturnsEmpty(t *testing.T) {
 	}
 }
 
+// TestMapEndpointToPermission_VaultProvisioningGrantsReturnsEmpty pins that
+// "/vault-provisioning-grants" routes are NOT swallowed by the "vaults"
+// prefix check below -- "vault-" differs from "vaults" at the 6th character.
+// These routes are admin-only and deliberately non-delegable (see
+// api/vault_provisioning_grants.go's requireGrantAdmin); mapEndpointToPermission
+// returning "" here is what lets the request reach that handler-level gate
+// at all (ValidateEndpointAccess short-circuits to nil on an empty
+// permission). Had the "vaults" prefix check matched here instead -- e.g.
+// after a future rename to strings.HasPrefix(path, "vault") -- the
+// authorization decision would still (currently) come out the same by
+// accident, since vault-management routes also return "", but the mapping
+// itself would be silently wrong. This pins the mapping directly, the same
+// way TestMapEndpointToPermission_DataPlaneReturnsEmpty pins the data-plane
+// mapping.
+func TestMapEndpointToPermission_VaultProvisioningGrantsReturnsEmpty(t *testing.T) {
+	svc := NewRBACService(logging.InitLogger()).(*rbacService)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/v1/vault-provisioning-grants"},
+		{"PUT", "/api/v1/vault-provisioning-grants/abc"},
+		{"DELETE", "/api/v1/vault-provisioning-grants/abc"},
+	} {
+		if got := svc.mapEndpointToPermission(c.method, c.path); got != "" {
+			t.Fatalf("mapEndpointToPermission(%s, %s) = %q, want empty", c.method, c.path, got)
+		}
+	}
+}
+
 // TestValidateEndpointAccess_VaultManagementRoutes verifies that vault
 // management routes (/api/v1/vaults[/{name}]) are NOT gated by the global
 // RBAC layer for any role, admin or not. This inverts the pre-2026-08-11
