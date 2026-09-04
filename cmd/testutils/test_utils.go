@@ -682,6 +682,10 @@ func (m *MockVaultService) SetGrantLocker(l vaultServices.GrantLocker) {
 	m.Called(l)
 }
 
+func (m *MockVaultService) SetCreatorGranter(g vaultServices.CreatorGranter) {
+	m.Called(g)
+}
+
 // ErrVaultNotFoundForTest is returned by test doubles standing in for a
 // vault-lookup failure; production code never checks for this sentinel.
 var ErrVaultNotFoundForTest = errors.New("test: vault not found")

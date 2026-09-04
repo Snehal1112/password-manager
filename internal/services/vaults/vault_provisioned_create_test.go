@@ -149,6 +149,91 @@ func newProvisionedTestServiceRealDB(t *testing.T, q, n int) (vaults.VaultServic
 	return newProvisionedService(t, sqlDB), sqlDB
 }
 
+// errGranterFailed is the induced failure stubCreatorGranter returns when
+// configured to fail, standing in for a real write error (e.g. a constraint
+// violation) at the grant-writing step.
+var errGranterFailed = errors.New("granter: induced failure")
+
+// stubCreatorGranter is a vaults.CreatorGranter that records every write it's
+// given, or fails on the first call when failing is true -- used to prove a
+// failure at the grant-writing step rolls back the vault insert that
+// preceded it in the same transaction.
+type stubCreatorGranter struct {
+	failing  bool
+	policies []*model.AccessPolicy
+	roles    []*model.RoleAssignment
+}
+
+func (g *stubCreatorGranter) CreatePolicyTx(_ context.Context, _ rvdb.DBTX, p *model.AccessPolicy) error {
+	if g.failing {
+		return errGranterFailed
+	}
+	g.policies = append(g.policies, p)
+	return nil
+}
+
+func (g *stubCreatorGranter) CreateRoleTx(_ context.Context, _ rvdb.DBTX, ra *model.RoleAssignment) error {
+	if g.failing {
+		return errGranterFailed
+	}
+	g.roles = append(g.roles, ra)
+	return nil
+}
+
+// newProvisionedTestServiceWithGranter is newProvisionedTestService plus a
+// recording CreatorGranter wired via SetCreatorGranter, so a test can assert
+// on the policy/role-assignment writes CreateVaultProvisioned makes.
+func newProvisionedTestServiceWithGranter(t *testing.T, q, n int) (vaults.VaultService, *stubCreatorGranter) {
+	t.Helper()
+	svc := newProvisionedTestService(t, q, n)
+	granter := &stubCreatorGranter{}
+	svc.SetCreatorGranter(granter)
+	return svc, granter
+}
+
+// newProvisionedTestServiceWithFailingGranter is the same, but the granter
+// fails on its first call -- used to prove the vault insert rolls back too
+// when the grant-writing step fails partway through the transaction.
+func newProvisionedTestServiceWithFailingGranter(t *testing.T, q, n int) (vaults.VaultService, *stubCreatorGranter) {
+	t.Helper()
+	svc := newProvisionedTestService(t, q, n)
+	granter := &stubCreatorGranter{failing: true}
+	svc.SetCreatorGranter(granter)
+	return svc, granter
+}
+
+func TestCreateVaultProvisioned_GrantsCreatorFullRights(t *testing.T) {
+	svc, granter := newProvisionedTestServiceWithGranter(t, quota(5), existingVaults(0))
+
+	v, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "acme-prod"}, testPrincipal, true)
+	require.NoError(t, err)
+
+	require.Len(t, granter.policies, 1)
+	require.Equal(t, model.PolicyResourceVaults, granter.policies[0].ResourceType)
+	require.Equal(t, model.OpManage, granter.policies[0].Operation)
+	require.Equal(t, model.PolicyEffectAllow, granter.policies[0].Effect)
+	require.NotNil(t, granter.policies[0].VaultID)
+	require.Equal(t, v.ID, *granter.policies[0].VaultID,
+		"the creator's manage policy must be scoped to the new vault, never global")
+
+	require.Len(t, granter.roles, 1)
+	require.Equal(t, model.RoleKeyVaultAdministrator, granter.roles[0].Role)
+	require.Equal(t, v.ID, granter.roles[0].VaultID)
+	require.Equal(t, testPrincipal, granter.roles[0].PrincipalID)
+}
+
+func TestCreateVaultProvisioned_RollsBackAllThreeWrites(t *testing.T) {
+	svc, _ := newProvisionedTestServiceWithFailingGranter(t, quota(5), existingVaults(0))
+
+	_, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "doomed"}, testPrincipal, true)
+	require.Error(t, err)
+
+	_, err = svc.GetVault(context.Background(), "doomed")
+	require.Error(t, err, "a failed grant write must roll back the vault insert too")
+}
+
 func TestCreateVaultProvisioned_RefusesAtQuota(t *testing.T) {
 	svc := newProvisionedTestService(t, quota(2), existingVaults(2))
 
