@@ -346,6 +346,19 @@ func TestCanCreateVault(t *testing.T) {
 			grants:   nil,
 			want:     CreateRightNone,
 		},
+		{
+			// The real grantService.GetGrant maps not-found to
+			// ErrGrantNotFound and so never returns (nil, nil) today, but
+			// GrantReader is an interface -- a future implementation could.
+			// CanCreateVault must fail closed regardless of which
+			// implementation is behind it, so this pins the `g == nil` half
+			// of the guard independently of the `err != nil` half.
+			name:     "grant reader returns a nil grant with no error",
+			roles:    []string{"user"},
+			policies: &fakeAccessPolicyService{decision: AccessFallback},
+			grants:   &stubGrantReader{}, // zero value: nil grant, nil error
+			want:     CreateRightNone,
+		},
 	}
 
 	for _, tt := range tests {
