@@ -3175,6 +3175,32 @@ everywhere (release 2, not yet shipped, narrows that). Design:
 
 ### Worked example: self-service provisioning, quotas, and what a soft-delete costs you
 
+> **Concept: a provisioning grant is a bounded right; a global `vaults:manage`
+> access policy is not.** `VaultProvisioningGrant`'s own doc comment frames it
+> as the delegated alternative to a global grant, "which additionally confers
+> authority over every vault that already exists"
+> (`model/vault_provisioning_grant.go:16-18`) — and that isn't loose framing:
+> a global (`vault_id: null`) access policy "always appl[ies]" to every vault
+> (`internal/services/authorization/access_policy_service.go:26-31`), while a
+> grant's `Quota` bounds only vaults *this principal* creates from here on
+> (`model/vault_provisioning_grant.go:23-32`). `createVault`'s authorization
+> is a genuine three-way decision, not two names for the same check — admin,
+> a global `vaults:manage` allow, or a provisioning grant each satisfy it, but
+> only the grant path is quota-bounded (`api/vault.go:63-84`). Creation makes
+> that bound real: the creator walks away with vault-scoped `vaults:manage`
+> and `Key Vault Administrator`, both scoped to the one vault just created and
+> nothing else (`internal/services/vaults/vault_service.go:405-436`) — full
+> manager of what it made, a stranger everywhere else. And the two operations
+> that make the grant visible are deliberately asymmetric: **quota** is
+> enforced by counting rows this principal created
+> (`internal/services/vaults/vault_service.go:395`), but **listing** is
+> answered by walking the access-policy grants a principal actually holds
+> (`internal/services/vaults/vault_service.go:509-538`) — two different
+> queries over two different tables, not one list filtered two ways.
+
+All output below was captured live on 2026-09-04 against the scratch instance
+from Prerequisites, not inferred from the code.
+
 #### Prerequisites
 
 - Scratch config/DB and a running server (**§0 Environment Setup**), not a
@@ -3245,6 +3271,162 @@ everywhere (release 2, not yet shipped, narrows that). Design:
   this purpose — passing it where the grant command expects a UUID fails
   the same way the webhook example's §3.5 sibling gotcha describes for
   `vault-access grant`.
+
+#### Walkthrough
+
+CLI commands below run with the isolated `$HOME` from Prerequisites already
+exported in the shell. Every `rocketvault` invocation also emits structured
+JSON logs on stderr/stdout via logrus — trimmed throughout below for
+readability; only the command's own printed result is shown.
+
+**1. Confirm the pre-feature failure mode: `msp-bot` cannot create a vault
+without a grant.**
+
+```bash
+BOT_TOKEN=$(curl -s -X POST $BASE/users/login -H "Content-Type: application/json" \
+  -d '{"username":"msp-bot","password":"<password>","totp_code":"<code>"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['token'])")
+curl -s -X POST $BASE/vaults -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"acme-prod"}'
+```
+```json
+{"detailed_error":"","id":"Insufficient permissions: admin, vaults/manage, or a vault provisioning grant required","message":"Insufficient permissions: admin, vaults/manage, or a vault provisioning grant required","request_id":"req-fbf7f85a","status_code":403}
+```
+`403`. `msp-bot` holds no role anywhere and no provisioning grant, so
+`createVault`'s three-way decision (`api/vault.go:63-84`) finds nothing to
+allow — this is the baseline the rest of this example changes.
+
+**2. Issue the grant via the CLI, then re-issue it over HTTP for the same
+principal.**
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-provisioning grant msp-bot --quota 2
+```
+```
+Provisioning grant issued: principal=a10eee1d-f25f-432c-9b20-bd9abf416e5a quota=2
+```
+Then, with `$TOKEN` the admin JWT from Prerequisites and `$BOT_ID` msp-bot's
+user ID:
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X PUT $BASE/vault-provisioning-grants/$BOT_ID \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"quota":2}'
+```
+```
+200
+```
+This is a **re-quota**, not a first issue: the CLI call above already
+created the row, and `principal_id` is UNIQUE
+(`upsertVaultProvisioningGrant`, `api/vault_provisioning_grants.go:67-126`),
+so the handler's pre-read finds an existing grant and returns `200` rather
+than `201`. Run in this order — CLI first, HTTP second, same principal —
+only `200` is observable over HTTP at all; step 3 below is where a genuine
+`201` actually shows up.
+
+**3. Issue a grant to the service account, by UUID — this is where the `201`
+shows up.**
+
+A service account has no username, so this is the one grant a username-only
+path could never express:
+```bash
+curl -s -X PUT $BASE/vault-provisioning-grants/$SA_ID \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"quota":20}'
+```
+```json
+{"id":"590a6c82-df46-4610-9993-04dc3a353faf","principal_id":"04dc5b4e-df77-414b-aac6-bcbc39e482f1","quota":20,"created_at":"2026-09-04T12:56:55.760307381Z","created_by":"5c481eeb-19f4-49c4-a00d-157fff8f565c"}
+```
+`201` — `$SA_ID` had no prior grant, so this is the genuine first issue the
+brief predicted for a bare PUT. The CLI accepts the same UUID directly,
+ahead of any username lookup (`resolvePrincipal`,
+`cmd/vault-provisioning/grant.go:23-35`):
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-provisioning grant $SA_ID --quota 20
+```
+```
+Provisioning grant issued: principal=04dc5b4e-df77-414b-aac6-bcbc39e482f1 quota=20
+```
+A re-quota this time (same 20) — the CLI has no HTTP status to show, but
+`principal_id` being UNIQUE means the row is unchanged either way.
+
+**4. Create, as `msp-bot` — then prove the grant is real, inside `acme-prod`
+only.**
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults create acme-prod   # as msp-bot, cached session
+```
+```
+Vault created under provisioning grant: acme-prod
+ID                                    Name       Enabled  PurgeProtection  RetentionDays  Created
+------------------------------------  ---------  -------  ---------------  -------------  -------------------------
+056c2416-16bc-49cd-8559-e4822a68f375  acme-prod  true     false            90             2026-09-04T18:27:24+05:30
+```
+Writing a secret **over the CLI** fails, for a reason this plan did not
+predict:
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml secrets create example-secret hello-acme --vault acme-prod
+```
+```
+Error: forbidden: requires admin or secrets_manager role
+```
+This is a genuine divergence, recorded as found rather than reconciled.
+`cmd/secrets/create.go:95-97` gates on the caller's **global account role**
+(`admin` or `secrets_manager`) before it ever reaches the vault-scoped
+`RequireDataAction` check (`cmd/secrets/create.go:105`) that would honor
+`msp-bot`'s brand-new `Key Vault Administrator` role assignment in
+`acme-prod`. `msp-bot`'s global account role is plain `user`, so it never
+gets that far — the provisioning grant conferred a real, vault-scoped `Key
+Vault Administrator`, but this particular CLI command carries its own,
+older, global-role gate in front of it that the grant does nothing to
+satisfy. `secrets get` (`cmd/secrets/get.go:53-56`) and the HTTP write path
+(`api/secrets.go`'s `createSecret`) carry no such gate — confirmed by
+writing the same secret over HTTP instead:
+```bash
+curl -s -X POST $BASE/vaults/acme-prod/secrets -H "Authorization: Bearer $BOT_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"example-secret","value":"hello-acme"}'
+```
+```json
+{"id":"d590bb30-8507-4953-9b8e-697345fd7b1a","name":"example-secret","version":1,"created_at":"2026-09-04T18:28:32+05:30","enabled":true}
+```
+`201`. Reading it back over the CLI now works, since `secrets get` has no
+global-role gate:
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml secrets get d590bb30-8507-4953-9b8e-697345fd7b1a --vault acme-prod
+```
+```
+ID                                    Name            Value       Version  Enabled  ContentType  Tags  Expires  NotBefore  Created
+------------------------------------  --------------  ----------  -------  -------  -----------  ----  -------  ---------  -------------------------
+d590bb30-8507-4953-9b8e-697345fd7b1a  example-secret  hello-acme  1        true                                            2026-09-04T18:28:32+05:30
+```
+And the role assignment the create wrote:
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vault-access list --vault acme-prod
+```
+```
+ASSIGNMENT-ID                          ROLE                     PRINCIPAL-ID
+83fc20ac-7172-4ae1-8c95-61573ae0da21   Key Vault Administrator  a10eee1d-f25f-432c-9b20-bd9abf416e5a
+```
+Exactly one row, msp-bot's own principal ID — the automatic grant written by
+`CreateVaultProvisioned` (`internal/services/vaults/vault_service.go:429-436`),
+and nothing else in this vault.
+
+**5. `rocketvault vaults list` as `msp-bot` — the step that would have failed
+before plan 05.**
+
+```bash
+rocketvault --config /tmp/rv-prov/rv.yaml vaults list
+```
+```
+ID                                    Name       Enabled  RetentionDays  Created
+------------------------------------  ---------  -------  -------------  -------------------------
+056c2416-16bc-49cd-8559-e4822a68f375  acme-prod  true     90             2026-09-04T18:27:24+05:30
+```
+Only `acme-prod` — `default` does not appear. `ListVaultsScoped`
+(`internal/services/vaults/vault_service.go:509-538`) filters to vaults
+where the caller holds a `vaults:manage` access policy, and msp-bot's only
+such policy is the vault-scoped one `acme-prod`'s creation wrote for it
+(step 4's `vault-access list` output above shows the role-assignment half of
+that same grant, not this access policy directly — see the Concept note
+above). Before this feature, `msp-bot` held no policy anywhere and would
+have seen an empty list or a `403`, never `default`.
 
 ## 6. Vault Access (RBAC) — Azure Role Assignments
 
