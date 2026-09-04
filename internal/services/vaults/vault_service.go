@@ -63,6 +63,13 @@ type PolicyCleaner interface {
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
+// RoleAssignmentCleaner removes role assignments scoped to a vault (used on
+// purge). Separate from PolicyCleaner because the two are different tables
+// with different repositories, and either may be absent in a unit test.
+type RoleAssignmentCleaner interface {
+	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
+}
+
 // WebhookCleaner removes a vault's webhook config (used on purge). Satisfied
 // by repositories.VaultWebhookRepositoryInterface.
 //
@@ -126,6 +133,7 @@ type VaultService interface {
 	RecoverVault(ctx context.Context, name string) error
 	PurgeVault(ctx context.Context, name string) error
 	SetPolicyCleaner(p PolicyCleaner)
+	SetRoleAssignmentCleaner(c RoleAssignmentCleaner)
 	SetWebhookCleaner(c WebhookCleaner)
 	SetTxBeginner(tb TxBeginner)
 	SetSecretCacheFlusher(f SecretCacheFlusher)
@@ -140,6 +148,7 @@ type vaultService struct {
 	repo                  repositories.VaultRepositoryInterface
 	cascade               CascadeRepository
 	policies              PolicyCleaner
+	roleAssignments       RoleAssignmentCleaner
 	webhooks              WebhookCleaner
 	txBeginner            TxBeginner
 	secretCache           SecretCacheFlusher
@@ -155,6 +164,10 @@ func NewVaultService(repo repositories.VaultRepositoryInterface, cascade Cascade
 
 // SetPolicyCleaner attaches an optional cleaner that removes vault-scoped access policies on purge.
 func (s *vaultService) SetPolicyCleaner(p PolicyCleaner) { s.policies = p }
+
+// SetRoleAssignmentCleaner attaches an optional cleaner that removes
+// vault-scoped role assignments on purge.
+func (s *vaultService) SetRoleAssignmentCleaner(c RoleAssignmentCleaner) { s.roleAssignments = c }
 
 // SetWebhookCleaner attaches an optional cleaner that removes a vault's
 // webhook config on purge.
@@ -503,6 +516,15 @@ func (s *vaultService) PurgeVault(ctx context.Context, name string) error {
 	if s.policies != nil {
 		if err := s.policies.DeleteByVault(ctx, v.ID); err != nil {
 			return fmt.Errorf("delete vault policies: %w", err)
+		}
+	}
+	// role_assignments declares ON DELETE CASCADE on vault_id, but the SQLite
+	// foreign_keys pragma is off here, so the cascade is inert and the rows
+	// must be removed explicitly -- same reason as the access_policies block
+	// above.
+	if s.roleAssignments != nil {
+		if err := s.roleAssignments.DeleteByVault(ctx, v.ID); err != nil {
+			return fmt.Errorf("delete vault role assignments: %w", err)
 		}
 	}
 	// vault_webhook_configs' ON DELETE CASCADE is inert on SQLite (the
