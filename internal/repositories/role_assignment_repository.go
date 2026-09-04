@@ -23,6 +23,12 @@ type RoleAssignmentRepositoryInterface interface {
 	ListByPrincipalInVault(ctx context.Context, principalID, vaultID uuid.UUID) ([]*model.RoleAssignment, error)
 	FindByTuple(ctx context.Context, principalID uuid.UUID, role string, vaultID uuid.UUID) (*model.RoleAssignment, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	// DeleteByVault removes every role assignment scoped to vaultID. Called
+	// when a vault is purged: role_assignments declares ON DELETE CASCADE on
+	// vault_id, but SQLite runs with the foreign_keys pragma off, so that
+	// cascade never fires and the rows would be stranded -- unreachable but
+	// never removed.
+	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
 }
 
 type roleAssignmentRepository struct {
@@ -110,6 +116,19 @@ func (r *roleAssignmentRepository) FindByTuple(ctx context.Context, principalID 
 func (r *roleAssignmentRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM role_assignments WHERE id = ?`, id.String())
 	return err
+}
+
+// DeleteByVault removes every role assignment scoped to vaultID. Called when
+// a vault is purged: role_assignments declares ON DELETE CASCADE on vault_id,
+// but SQLite runs with the foreign_keys pragma off, so that cascade never
+// fires and the rows would be stranded -- unreachable but never removed.
+func (r *roleAssignmentRepository) DeleteByVault(ctx context.Context, vaultID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx,
+		"DELETE FROM role_assignments WHERE vault_id = ?", vaultID.String())
+	if err != nil {
+		return fmt.Errorf("delete role assignments for vault %s: %w", vaultID, err)
+	}
+	return nil
 }
 
 func scanRoleAssignment(row *sql.Row) (*model.RoleAssignment, error) {

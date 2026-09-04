@@ -432,6 +432,10 @@ func (c *ServiceContainer) initializeServices() error {
 	// service deletes vault-scoped policies on purge since access_policies has no FK to vaults.
 	c.vaultService.SetPolicyCleaner(c.accessPolicyRepository)
 	c.roleAssignmentRepository = repositories.NewRoleAssignmentRepository(c.conn)
+	// Wire the role-assignment cleaner now that its repository exists; the
+	// vault service deletes vault-scoped assignments on purge because the FK
+	// cascade is inert on SQLite.
+	c.vaultService.SetRoleAssignmentCleaner(c.roleAssignmentRepository)
 	c.roleAssignmentService = authzServices.NewRoleAssignmentService(
 		c.roleAssignmentRepository,
 		c.accessPolicyRepository,
