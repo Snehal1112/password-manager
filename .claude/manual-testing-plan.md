@@ -3927,12 +3927,15 @@ Broadening the same query to `delete_vault`/`purge_vault` around the same
 window (step 4's admin-run purge of `acme-third`) does not pass:
 
 ```sql
-sqlite3 /tmp/rv-prov/rv.db "select rowid, action, user_id from audit_logs
-  where action in ('delete_vault','purge_vault') order by rowid desc limit 2;"
+sqlite3 -readonly /tmp/rv-prov/rv.db "select rowid, action, user_id from audit_logs where action in ('delete_vault','purge_vault') order by rowid desc limit 2;"
 ```
 ```
-139|purge_vault|
-134|delete_vault|
++-------+--------------+---------+
+| rowid |    action    | user_id |
++-------+--------------+---------+
+| 139   | purge_vault  |         |
+| 134   | delete_vault |         |
++-------+--------------+---------+
 ```
 Both rows carry an **empty `user_id`**, even though the CLI session that ran
 them was `admin`, fully authenticated, in the same run that stamped
@@ -4002,11 +4005,12 @@ ID                                    Name     Enabled  PurgeProtection  Retenti
 
 #### Gotchas this example surfaces
 
-1. **Every boundary held.** All 16 refusal attempts across steps 1-3, on both
-   the HTTP and CLI paths — including the step-1 self-escalation probe, the
-   single most important attempt in this plan — were refused. A boundary
-   example whose conclusion is "it all worked" is a valid and valuable
-   result, not an anticlimax.
+1. **Every boundary held.** Step 1 refused all 8 attempts (4 HTTP + 4 CLI),
+   step 2 refused all 4 (3 HTTP + 1 CLI), and step 3 refused all 3 (2 HTTP +
+   1 CLI) — 15 refusal attempts in total, on both the HTTP and CLI paths,
+   including the step-1 self-escalation probe, the single most important
+   attempt in this plan. A boundary example whose conclusion is "it all
+   worked" is a valid and valuable result, not an anticlimax.
 2. **Revocation is not a cascade.** Revoking a provisioning grant removes
    only the right to create *more* vaults; it does not touch what the grant
    already produced — `msp-bot` keeps `acme-prod`, its `Key Vault
