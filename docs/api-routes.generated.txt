@@ -87,6 +87,9 @@ DELETE	/api/v1/users/sessions/{session_id:[A-Fa-f0-9-]+}
 DELETE	/api/v1/users/{user_id:[A-Fa-f0-9-]+}
 GET	/api/v1/users/{user_id:[A-Fa-f0-9-]+}
 PUT	/api/v1/users/{user_id:[A-Fa-f0-9-]+}
+GET	/api/v1/vault-provisioning-grants
+DELETE	/api/v1/vault-provisioning-grants/{principal_id}
+PUT	/api/v1/vault-provisioning-grants/{principal_id}
 GET	/api/v1/vaults
 POST	/api/v1/vaults
 DELETE	/api/v1/vaults/{name}

@@ -64,6 +64,10 @@ tags:
     description: Per-vault Azure-parity role grants
   - name: Access Policies
     description: Explicit allow/deny policies evaluated before role grants
+  - name: Vault Provisioning Grants
+    description: |
+      Admin-only, non-delegable bounded rights to create vaults -- the
+      once-per-customer alternative to a once-per-vault support ticket
   - name: Audit
     description: Audit log queries and compliance reports
 
@@ -1135,6 +1139,96 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListAccessPoliciesResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  # ─── Vault Provisioning Grants ────────────────────────────────────────────
+  /api/v1/vault-provisioning-grants:
+    get:
+      summary: List provisioning grants
+      description: |
+        Returns every provisioning grant. Admin role required -- this tier is
+        deliberately non-delegable: a principal able to amend grants could
+        raise its own quota, and the bound the grant exists to impose would
+        be decorative.
+      operationId: listVaultProvisioningGrants
+      tags:
+        - Vault Provisioning Grants
+      responses:
+        "200":
+          description: Provisioning grants retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VaultProvisioningGrant"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/vault-provisioning-grants/{principal_id}:
+    parameters:
+      - $ref: "#/components/parameters/PrincipalId"
+    put:
+      summary: Issue or re-quota a provisioning grant
+      description: |
+        Issues a new grant, or changes the quota of an existing one --
+        `principal_id` is UNIQUE, so a second PUT for the same principal is a
+        quota change, not a second right. Returns 201 on first issue, 200 on
+        re-quota. Admin role required.
+      operationId: upsertVaultProvisioningGrant
+      tags:
+        - Vault Provisioning Grants
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueGrantRequest"
+      responses:
+        "200":
+          description: Existing grant re-quotaed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultProvisioningGrant"
+        "201":
+          description: Grant issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VaultProvisioningGrant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      summary: Revoke a provisioning grant
+      description: |
+        Revokes the principal's provisioning grant. Does NOT cascade: it
+        stops future vault creation only, and deliberately leaves the
+        principal's existing vaults, and its rights over them, intact.
+        Admin role required.
+      operationId: deleteVaultProvisioningGrant
+      tags:
+        - Vault Provisioning Grants
+      responses:
+        "204":
+          description: Grant revoked
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -5476,6 +5570,51 @@ components:
             $ref: "#/components/schemas/AccessPolicy"
         total:
           type: integer
+
+    # ─── Vault provisioning grants ───────────────────────────────────────────
+    VaultProvisioningGrant:
+      type: object
+      description: |
+        A bounded right to create vaults -- the delegated alternative to a
+        global vaults:manage grant, which additionally confers authority over
+        every vault that already exists.
+      required:
+        - id
+        - principal_id
+        - quota
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+        principal_id:
+          type: string
+          format: uuid
+          description: |
+            Not constrained to a users row: a grantee may be an OAuth2
+            service account, which is how an MSP's automation authenticates.
+        quota:
+          type: integer
+          description: Maximum number of vaults this principal may have created and not yet purged.
+          example: 5
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          format: uuid
+          description: The admin who issued (or most recently re-quotaed) this grant.
+
+    IssueGrantRequest:
+      type: object
+      required:
+        - quota
+      properties:
+        quota:
+          type: integer
+          minimum: 1
+          example: 5
 
     # ─── Vaults ──────────────────────────────────────────────────────────────
     CreateVaultRequest:
