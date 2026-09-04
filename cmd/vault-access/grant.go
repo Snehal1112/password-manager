@@ -7,10 +7,38 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	authz "rocketvault/internal/services/authorization"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
+
+// runGrantRemote grants a role against a remote server. Remote mode runs no
+// client-side authorization check: the server owns that decision, and its
+// 403 is mapped into readable text rather than pre-empted here.
+func runGrantRemote(
+	cmd *cobra.Command,
+	client *vaultapi.Client,
+	target *cliclient.Target,
+	principal, role, ptype string,
+) error {
+	vault := cliclient.ResolveRemoteVault(cmd, target)
+
+	ra, err := client.CreateRoleAssignment(cmd.Context(), vault, vaultapi.GrantRoleRequest{
+		Principal:     principal,
+		PrincipalType: ptype,
+		Role:          role,
+	})
+	if err != nil {
+		return cliclient.CLIError("grant a role", err)
+	}
+
+	resp := cliclient.RoleAssignmentFromAPI(ra)
+	fmt.Fprintf(cmd.OutOrStdout(), "granted %s to %s in vault (assignment %s)\n", //nolint:errcheck
+		resp.Role, principal, resp.ID)
+	return nil
+}
 
 // InitVaultAccessGrant registers the grant command, which assigns a built-in role to a principal.
 func InitVaultAccessGrant(parent *cobra.Command) {
@@ -50,6 +78,10 @@ variable, then config, then "default" if none of those is set.
 				ptype = string(model.PrincipalTypeUser)
 			}
 			ctx := cmd.Context()
+			if client, ok := ctx.Value(common.RemoteClientKey).(*vaultapi.Client); ok && client != nil {
+				target, _ := ctx.Value(common.RemoteTargetKey).(*cliclient.Target)
+				return runGrantRemote(cmd, client, target, principal, role, ptype)
+			}
 			callerID, _ := ctx.Value(common.UserIDKey).(uuid.UUID)
 			sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 			if !ok || sc == nil {
