@@ -32,6 +32,11 @@ numericlabs.lxd {
 		reverse_proxy 127.0.0.1:5173
 	}
 
+	# The JourneyBook dev server (journeybook/, `bun run dev`) is served under /journeybook.
+	handle /journeybook* {
+		reverse_proxy 127.0.0.1:5174
+	}
+
 	# Everything else is the RocketVault API on :8774.
 	handle {
 		reverse_proxy 127.0.0.1:8774
