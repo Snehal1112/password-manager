@@ -25,6 +25,7 @@ import (
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/services/provisioning"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
@@ -639,6 +640,12 @@ func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssi
 	if v, ok := args.Get(0).(authzServices.RoleAssignmentService); ok {
 		return v
 	}
+	return nil
+}
+
+// GetGrantService returns the mocked provisioning grant service, nil unless a
+// test sets it up.
+func (m *MockServiceContainer) GetGrantService() provisioning.GrantService {
 	return nil
 }
 

@@ -132,6 +132,9 @@ func TestGetters_ZeroValueContainer(t *testing.T) {
 	assert.Nil(t, c.GetRBACService(), "GetRBACService")
 	assert.Nil(t, c.GetAccessPolicyService(), "GetAccessPolicyService")
 
+	// Provisioning
+	assert.Nil(t, c.GetGrantService(), "GetGrantService")
+
 	// OAuth2
 	assert.Nil(t, c.GetOAuth2Service(), "GetOAuth2Service")
 
@@ -287,6 +290,9 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	// Authorization services
 	assert.NotNil(t, container.GetRBACService(), "GetRBACService")
 	assert.NotNil(t, container.GetAccessPolicyService(), "GetAccessPolicyService")
+
+	// Provisioning
+	assert.NotNil(t, container.GetGrantService(), "GetGrantService must be constructed during container initialization")
 
 	// OAuth2
 	assert.NotNil(t, container.GetOAuth2Service(), "GetOAuth2Service")
@@ -512,6 +518,30 @@ func TestNewServiceContainer_ExternalPKI_NoFile_Error(t *testing.T) {
 // compile the test will not build.
 func TestServiceContainerInterface_Satisfaction(t *testing.T) {
 	var _ ServiceContainerInterface = (*ServiceContainer)(nil)
+}
+
+// ---------------------------------------------------------------------------
+// Test 14b — GetGrantService is constructed and reachable via the interface
+// ---------------------------------------------------------------------------
+
+// TestServiceContainer_GetGrantService verifies the provisioning grant
+// service is constructed during container initialization and reachable both
+// on the concrete type and through ServiceContainerInterface -- CLI commands
+// type-assert to the interface, so a getter that only exists on the concrete
+// type would silently be unreachable from them.
+func TestServiceContainer_GetGrantService(t *testing.T) {
+	cfg := newMinimalConfig(t)
+
+	c, err := NewServiceContainer(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	svc := c.GetGrantService()
+	require.NotNil(t, svc, "grant service must be constructed during container initialization")
+
+	var iface ServiceContainerInterface = c
+	require.NotNil(t, iface.GetGrantService(),
+		"accessor must be reachable through ServiceContainerInterface: CLI commands assert to the interface")
 }
 
 // ---------------------------------------------------------------------------

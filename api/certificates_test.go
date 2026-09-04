@@ -33,6 +33,7 @@ import (
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/services/provisioning"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
@@ -234,6 +235,9 @@ func (c *certSvcContainer) GetAccessPolicyService() authzServices.AccessPolicySe
 	panic("unexpected call: GetAccessPolicyService")
 }
 func (c *certSvcContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
+	return nil
+}
+func (c *certSvcContainer) GetGrantService() provisioning.GrantService {
 	return nil
 }
 func (c *certSvcContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {

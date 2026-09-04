@@ -21,6 +21,7 @@ import (
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/services/provisioning"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/model"
 
@@ -64,6 +65,10 @@ func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssi
 }
 
 func (m *MockServiceContainer) GetAuditService() auditSvc.AuditServiceInterface {
+	return nil
+}
+
+func (m *MockServiceContainer) GetGrantService() provisioning.GrantService {
 	return nil
 }
 

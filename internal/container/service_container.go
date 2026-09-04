@@ -25,6 +25,7 @@ import (
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/services/provisioning"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	secrets "rocketvault/internal/services/secrets"
@@ -67,6 +68,9 @@ type ServiceContainerInterface interface {
 	GetAccessPolicyRepository() repositories.AccessPolicyRepositoryInterface
 	GetAccessPolicyService() authzServices.AccessPolicyService
 	GetRoleAssignmentService() authzServices.RoleAssignmentService
+
+	// Provisioning service getter
+	GetGrantService() provisioning.GrantService
 
 	// OAuth2 / service account getters
 	GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface
@@ -176,6 +180,10 @@ type ServiceContainer struct {
 	accessPolicyService      authzServices.AccessPolicyService
 	roleAssignmentRepository repositories.RoleAssignmentRepositoryInterface
 	roleAssignmentService    authzServices.RoleAssignmentService
+
+	// Provisioning
+	vaultProvisioningGrantRepository repositories.VaultProvisioningGrantRepositoryInterface
+	grantService                     provisioning.GrantService
 
 	// OAuth2 service account services
 	oauth2ClientRepository repositories.OAuth2ClientRepositoryInterface
@@ -442,6 +450,8 @@ func (c *ServiceContainer) initializeServices() error {
 		c.userRepository,
 		c.logger,
 	)
+	c.vaultProvisioningGrantRepository = repositories.NewVaultProvisioningGrantRepository(c.conn)
+	c.grantService = provisioning.NewGrantService(c.vaultProvisioningGrantRepository, c.logger)
 
 	// Initialize remaining OAuth2 services (client repo already set above).
 	oauth2TokenExpiry := viperCfg.GetDuration("oauth2.token_expiry")
@@ -681,6 +691,11 @@ func (c *ServiceContainer) GetAccessPolicyService() authzServices.AccessPolicySe
 // GetRoleAssignmentService returns the role assignment service.
 func (c *ServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
 	return c.roleAssignmentService
+}
+
+// GetGrantService returns the vault-provisioning grant service.
+func (c *ServiceContainer) GetGrantService() provisioning.GrantService {
+	return c.grantService
 }
 
 // GetOAuth2ClientRepository returns the OAuth2 client repository.
