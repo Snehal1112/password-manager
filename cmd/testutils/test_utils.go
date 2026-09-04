@@ -627,6 +627,14 @@ func (m *MockVaultService) ListVaults(ctx context.Context, includeDeleted bool) 
 	return args.Get(0).([]model.Vault), args.Error(1)
 }
 
+func (m *MockVaultService) ListVaultsScoped(ctx context.Context, principalID uuid.UUID, includeDeleted, all bool) ([]model.Vault, error) {
+	args := m.Called(ctx, principalID, includeDeleted, all)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.Vault), args.Error(1)
+}
+
 func (m *MockVaultService) UpdateVault(ctx context.Context, name string, req model.UpdateVaultRequest, updatedBy uuid.UUID) (*model.Vault, error) {
 	args := m.Called(ctx, name, req, updatedBy)
 	if args.Get(0) == nil {
@@ -684,6 +692,10 @@ func (m *MockVaultService) SetGrantLocker(l vaultServices.GrantLocker) {
 
 func (m *MockVaultService) SetCreatorGranter(g vaultServices.CreatorGranter) {
 	m.Called(g)
+}
+
+func (m *MockVaultService) SetPolicyVaultLister(l vaultServices.PolicyVaultLister) {
+	m.Called(l)
 }
 
 // ErrVaultNotFoundForTest is returned by test doubles standing in for a

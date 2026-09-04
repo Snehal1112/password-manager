@@ -26,6 +26,9 @@ type AccessPolicyRepositoryInterface interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	DeleteByAssignmentID(ctx context.Context, assignmentID uuid.UUID) error
 	DeleteByVault(ctx context.Context, vaultID uuid.UUID) error
+	// ListVaultIDsForPrincipal returns the IDs of vaults where principalID
+	// holds a vault-scoped (vaults, manage) ALLOW.
+	ListVaultIDsForPrincipal(ctx context.Context, principalID uuid.UUID) ([]uuid.UUID, error)
 }
 
 type accessPolicyRepository struct {
@@ -149,6 +152,39 @@ func (r *accessPolicyRepository) DeleteByAssignmentID(ctx context.Context, assig
 func (r *accessPolicyRepository) DeleteByVault(ctx context.Context, vaultID uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM access_policies WHERE vault_id = ?`, vaultID.String())
 	return err
+}
+
+// ListVaultIDsForPrincipal returns the IDs of vaults where principalID holds
+// a vault-scoped (vaults, manage) ALLOW. NULL-scoped rows are excluded
+// deliberately: a global grant is handled by the caller's admin/global branch,
+// and including it here would make every vault appear in a scoped listing.
+// DENY rows are excluded because this answers "what may I reach", not "what
+// policies exist".
+func (r *accessPolicyRepository) ListVaultIDsForPrincipal(ctx context.Context, principalID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT DISTINCT vault_id FROM access_policies
+		 WHERE principal_id = ? AND resource_type = ? AND operation = ?
+		   AND effect = ? AND vault_id IS NOT NULL`,
+		principalID.String(), string(model.PolicyResourceVaults),
+		string(model.OpManage), string(model.PolicyEffectAllow))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var out []uuid.UUID
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			return nil, err
+		}
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return nil, fmt.Errorf("parse policy vault_id: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // scanAccessPolicy scans a single row into an AccessPolicy.

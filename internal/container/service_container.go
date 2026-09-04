@@ -439,6 +439,10 @@ func (c *ServiceContainer) initializeServices() error {
 	// Wire the policy cleaner now that the access-policy repository exists; the vault
 	// service deletes vault-scoped policies on purge since access_policies has no FK to vaults.
 	c.vaultService.SetPolicyCleaner(c.accessPolicyRepository)
+	// Wire the policy-vault lister now that the access-policy repository
+	// exists; ListVaultsScoped's non-admin path uses it to answer "what can
+	// this principal reach" instead of returning every vault.
+	c.vaultService.SetPolicyVaultLister(c.accessPolicyRepository)
 	c.roleAssignmentRepository = repositories.NewRoleAssignmentRepository(c.conn)
 	// Wire the role-assignment cleaner now that its repository exists; the
 	// vault service deletes vault-scoped assignments on purge because the FK
