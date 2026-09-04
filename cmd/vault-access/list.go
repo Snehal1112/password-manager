@@ -6,8 +6,29 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
+	"rocketvault/internal/vaultapi"
 )
+
+// runListRemote lists role assignments from a remote server, printing the
+// same columns the local path prints.
+func runListRemote(cmd *cobra.Command, client *vaultapi.Client, target *cliclient.Target) error {
+	vault := cliclient.ResolveRemoteVault(cmd, target)
+
+	list, _, err := client.ListRoleAssignments(cmd.Context(), vault, 0)
+	if err != nil {
+		return cliclient.CLIError("list role assignments", err)
+	}
+
+	out := cmd.OutOrStdout()
+	fmt.Fprintf(out, "%-38s %-20s %s\n", "ASSIGNMENT-ID", "ROLE", "PRINCIPAL-ID") //nolint:errcheck
+	for i := range list {
+		ra := cliclient.RoleAssignmentFromAPI(&list[i])
+		fmt.Fprintf(out, "%-38s %-20s %s\n", ra.ID, ra.Role, ra.PrincipalID) //nolint:errcheck
+	}
+	return nil
+}
 
 // InitVaultAccessList registers the list command, which lists role assignments in a vault.
 func InitVaultAccessList(parent *cobra.Command) {
@@ -32,6 +53,10 @@ variable, then config, then "default" if none of those is set.`,
   rocketvault vault-access list`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if client, ok := ctx.Value(common.RemoteClientKey).(*vaultapi.Client); ok && client != nil {
+				target, _ := ctx.Value(common.RemoteTargetKey).(*cliclient.Target)
+				return runListRemote(cmd, client, target)
+			}
 			sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 			if !ok || sc == nil {
 				return fmt.Errorf("service container not available in context")
