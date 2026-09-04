@@ -102,6 +102,17 @@ func marshalTags(tags map[string]string) (string, error) {
 }
 
 func (r *VaultRepository) Create(ctx context.Context, v *model.Vault) error {
+	return r.create(ctx, r.db, v)
+}
+
+// CreateTx inserts a vault on the given executor, so the insert can join a
+// caller's transaction -- used by the provisioned create path, which writes
+// the vault and the creator's grants atomically.
+func (r *VaultRepository) CreateTx(ctx context.Context, ex db.DBTX, v *model.Vault) error {
+	return r.create(ctx, ex, v)
+}
+
+func (r *VaultRepository) create(ctx context.Context, ex db.DBTX, v *model.Vault) error {
 	if v.CreatedAt.IsZero() {
 		v.CreatedAt = time.Now()
 	}
@@ -109,7 +120,7 @@ func (r *VaultRepository) Create(ctx context.Context, v *model.Vault) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx,
+	_, err = ex.ExecContext(ctx,
 		"INSERT INTO vaults (id, name, enabled, purge_protection, retention_days, created_by, created_at, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		v.ID.String(), v.Name, v.Enabled, v.PurgeProtection, v.RetentionDays, v.CreatedBy.String(), v.CreatedAt, tagsJSON)
 	if err != nil {

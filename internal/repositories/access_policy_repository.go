@@ -38,6 +38,17 @@ func NewAccessPolicyRepository(db db.DB) AccessPolicyRepositoryInterface {
 }
 
 func (r *accessPolicyRepository) Create(ctx context.Context, p *model.AccessPolicy) error {
+	return r.create(ctx, r.db, p)
+}
+
+// CreateTx inserts an access policy on the given executor, so the insert can
+// join a caller's transaction -- used by the provisioned create path, which
+// writes the vault and the creator's grants atomically.
+func (r *accessPolicyRepository) CreateTx(ctx context.Context, ex db.DBTX, p *model.AccessPolicy) error {
+	return r.create(ctx, ex, p)
+}
+
+func (r *accessPolicyRepository) create(ctx context.Context, ex db.DBTX, p *model.AccessPolicy) error {
 	if p.CreatedAt.IsZero() {
 		p.CreatedAt = time.Now()
 	}
@@ -49,7 +60,7 @@ func (r *accessPolicyRepository) Create(ctx context.Context, p *model.AccessPoli
 	if p.AssignmentID != nil {
 		assignArg = p.AssignmentID.String()
 	}
-	_, err := r.db.ExecContext(ctx,
+	_, err := ex.ExecContext(ctx,
 		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id, assignment_id, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.ID.String(), p.PrincipalID.String(), string(p.PrincipalType),

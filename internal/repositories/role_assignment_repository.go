@@ -41,10 +41,21 @@ func NewRoleAssignmentRepository(db db.DB) RoleAssignmentRepositoryInterface {
 }
 
 func (r *roleAssignmentRepository) Create(ctx context.Context, ra *model.RoleAssignment) error {
+	return r.create(ctx, r.db, ra)
+}
+
+// CreateTx inserts a role assignment on the given executor, so the insert can
+// join a caller's transaction -- used by the provisioned create path, which
+// writes the vault and the creator's grants atomically.
+func (r *roleAssignmentRepository) CreateTx(ctx context.Context, ex db.DBTX, ra *model.RoleAssignment) error {
+	return r.create(ctx, ex, ra)
+}
+
+func (r *roleAssignmentRepository) create(ctx context.Context, ex db.DBTX, ra *model.RoleAssignment) error {
 	if ra.CreatedAt.IsZero() {
 		ra.CreatedAt = time.Now().UTC()
 	}
-	_, err := r.db.ExecContext(ctx,
+	_, err := ex.ExecContext(ctx,
 		`INSERT INTO role_assignments (id, principal_id, principal_type, role, vault_id, created_by, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		ra.ID.String(), ra.PrincipalID.String(), string(ra.PrincipalType),
