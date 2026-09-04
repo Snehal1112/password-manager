@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"rocketvault/app"
 	"rocketvault/common"
@@ -567,6 +568,107 @@ func doVaultRequestAs(api *API, role, method, path string, body []byte) *httptes
 	w := httptest.NewRecorder()
 	api.rootRouter.ServeHTTP(w, r)
 	return w
+}
+
+// --- scoped-listing test fixtures ---
+
+// testPrincipal is the caller identity doVaultRequest/doVaultRequestAs place
+// in every test request's context, as a uuid.UUID -- vaultTestUserID is the
+// same value as a string. Scoped-listing fixtures grant against this ID so
+// the fixture and the request context agree on who is asking.
+var testPrincipal = uuid.MustParse(vaultTestUserID)
+
+// fakePolicyVaultLister is an in-memory vaultServices.PolicyVaultLister,
+// mirroring internal/services/vaults/vault_service_test.go's fixture of the
+// same name.
+type fakePolicyVaultLister struct {
+	ids map[uuid.UUID][]uuid.UUID
+}
+
+func (f *fakePolicyVaultLister) ListVaultIDsForPrincipal(_ context.Context, principalID uuid.UUID) ([]uuid.UUID, error) {
+	return f.ids[principalID], nil
+}
+
+// newTestAPIWithScopedVault builds a vault API seeded with two vaults,
+// grantedName and otherName, where principalID holds a vault-scoped
+// vaults:manage allow on grantedName only -- no global policy and no admin
+// role. Exercises listVaults' all=false path (CanManageVault(..., uuid.Nil)
+// denies, so ListVaultsScoped filters to what the policy lister reports).
+func newTestAPIWithScopedVault(t *testing.T, principalID uuid.UUID, grantedName, otherName string) *API {
+	t.Helper()
+	repo := newVaultFakeRepo()
+	grantedID := uuid.New()
+	repo.byName[grantedName] = &model.Vault{ID: grantedID, Name: grantedName, Enabled: true}
+	repo.byID[grantedID.String()] = repo.byName[grantedName]
+	otherID := uuid.New()
+	repo.byName[otherName] = &model.Vault{ID: otherID, Name: otherName, Enabled: true}
+	repo.byID[otherID.String()] = repo.byName[otherName]
+
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
+		Return(authzServices.AccessFallback, nil)
+
+	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+	svc.SetPolicyVaultLister(&fakePolicyVaultLister{ids: map[uuid.UUID][]uuid.UUID{
+		principalID: {grantedID},
+	}})
+
+	cont := &vaultSvcTestContainer{vaultSvc: svc, policySvc: policySvc, rbacSvc: permissiveRBAC{}}
+	return newVaultTestAPIWithContainer(cont)
+}
+
+// newTestAPIAsAdmin builds a vault API seeded with two vaults, name1 and
+// name2, and no scoped policy wiring at all -- the admin request path never
+// consults the policy lister, so listVaults must reach every vault via
+// CanManageVault's role short-circuit.
+func newTestAPIAsAdmin(t *testing.T, name1, name2 string) *API {
+	t.Helper()
+	repo := newVaultFakeRepo()
+	id1 := uuid.New()
+	repo.byName[name1] = &model.Vault{ID: id1, Name: name1, Enabled: true}
+	repo.byID[id1.String()] = repo.byName[name1]
+	id2 := uuid.New()
+	repo.byName[name2] = &model.Vault{ID: id2, Name: name2, Enabled: true}
+	repo.byID[id2.String()] = repo.byName[name2]
+
+	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+	cont := &vaultSvcTestContainer{vaultSvc: svc, policySvc: &mockAccessPolicyService{}, rbacSvc: permissiveRBAC{}}
+	return newVaultTestAPIWithContainer(cont)
+}
+
+// TestListVaults_GranteeSeesOnlyItsOwn proves a non-admin caller with a
+// vault-scoped (not global) vaults:manage allow can list vaults at all, and
+// sees only the vault it holds that grant on. doVaultRequestAs is used
+// (not doVaultRequest, which hardcodes an admin caller) so the request
+// actually exercises the non-admin, all=false path -- an admin caller would
+// pass via the "all" branch without ever reaching ListVaultsScoped's filter.
+func TestListVaults_GranteeSeesOnlyItsOwn(t *testing.T) {
+	api := newTestAPIWithScopedVault(t, testPrincipal, "acme-prod", "someone-else")
+
+	w := doVaultRequestAs(api, model.RoleUser, http.MethodGet, "/api/v1/vaults", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code,
+		"a grantee must be able to list; a blanket 403 makes provisioning unusable")
+	var got model.ListVaultsResponse
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	if assert.Len(t, got.Vaults, 1) {
+		assert.Equal(t, "acme-prod", got.Vaults[0].Name)
+	}
+}
+
+// TestListVaults_AdminStillSeesEverything proves the widening in
+// TestListVaults_GranteeSeesOnlyItsOwn does not narrow what an admin (or
+// global-grant holder) sees: they still get every vault via all=true.
+func TestListVaults_AdminStillSeesEverything(t *testing.T) {
+	api := newTestAPIAsAdmin(t, "acme-prod", "someone-else")
+
+	w := doVaultRequest(api, http.MethodGet, "/api/v1/vaults", nil)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var got model.ListVaultsResponse
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Len(t, got.Vaults, 2)
 }
 
 // TestVaultSvcTestContainer_GetCryptoService_ReturnsConfiguredService proves
