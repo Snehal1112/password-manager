@@ -47,6 +47,13 @@ func NewGrantService(repo repositories.VaultProvisioningGrantRepositoryInterface
 
 // IssueGrant creates or replaces the grant for principalID. principal_id is
 // UNIQUE, so re-issuing is a quota change rather than a second right.
+//
+// The repository's upsert only updates quota on a conflicting principal_id
+// (id, created_by and created_at survive unchanged), so the freshly-built
+// struct passed to Upsert may not match what was actually persisted on a
+// re-issue. IssueGrant reads the row back after writing it and returns that,
+// so the caller — including an HTTP handler that reports created_by as "who
+// issued this grant" — never sees values that disagree with the database.
 func (s *grantService) IssueGrant(ctx context.Context, principalID uuid.UUID, quota int, issuedBy uuid.UUID) (*model.VaultProvisioningGrant, error) {
 	g := &model.VaultProvisioningGrant{
 		ID:          uuid.New(),
@@ -60,11 +67,15 @@ func (s *grantService) IssueGrant(ctx context.Context, principalID uuid.UUID, qu
 	if err := s.repo.Upsert(ctx, g); err != nil {
 		return nil, fmt.Errorf("issue provisioning grant: %w", err)
 	}
+	stored, err := s.repo.GetByPrincipal(ctx, principalID)
+	if err != nil {
+		return nil, fmt.Errorf("read back issued grant: %w", err)
+	}
 	if s.log != nil {
 		s.log.LogAuditInfo(issuedBy.String(), "issue_provisioning_grant", "success",
-			fmt.Sprintf("Provisioning grant issued: principal=%s quota=%d", principalID, quota))
+			fmt.Sprintf("Provisioning grant issued: principal=%s quota=%d", stored.PrincipalID, stored.Quota))
 	}
-	return g, nil
+	return stored, nil
 }
 
 // GetGrant returns the grant for principalID, or ErrGrantNotFound if none
