@@ -158,6 +158,12 @@ func init() {
 	rootCmd.PersistentFlags().String("ca-cert", "", "Path to an additional CA certificate to trust for remote server connections (or set ROCKETVAULT_CA_CERT)")
 	rootCmd.PersistentFlags().Bool("insecure-skip-verify", false, "Disable TLS certificate verification for remote server connections (unsafe — dev/test only)")
 
+	// Persistent flags for unattended remote authentication.
+	rootCmd.PersistentFlags().String("client-id", "",
+		"Service-account client ID for unattended remote auth (or set ROCKETVAULT_CLIENT_ID)")
+	rootCmd.PersistentFlags().String("client-secret", "",
+		"Service-account client secret for unattended remote auth (or set ROCKETVAULT_CLIENT_SECRET)")
+
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
@@ -397,6 +403,23 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 		Username:     refreshed.Username,
 		Roles:        refreshed.Roles,
 	}, nil
+}
+
+// clientCredentials returns the service-account credentials for remote mode,
+// preferring flags over the environment. Both values must be present for the
+// service-account path to be selected; a half-configured pair is treated as
+// unset so the caller can report it as a usage error rather than silently
+// falling back to an interactive session.
+func clientCredentials(cmd *cobra.Command) (string, string) {
+	id, _ := cmd.Flags().GetString("client-id")
+	if id == "" {
+		id = os.Getenv("ROCKETVAULT_CLIENT_ID")
+	}
+	secret, _ := cmd.Flags().GetString("client-secret")
+	if secret == "" {
+		secret = os.Getenv("ROCKETVAULT_CLIENT_SECRET")
+	}
+	return id, secret
 }
 
 // resolveRemoteAuthentication is resolveAuthentication's remote-mode

@@ -787,3 +787,44 @@ func TestPersistentPreRun_RemoteTarget_SecretsList_UsesRemoteAdapter(t *testing.
 	assert.True(t, listHit, "expected the remote server's secrets list endpoint to be called")
 	assert.Contains(t, out.String(), "api-key")
 }
+
+func TestClientCredentials_FlagsWinOverEnv(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "env-id")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "env-secret")
+
+	c := &cobra.Command{}
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+	require.NoError(t, c.Flags().Set("client-id", "flag-id"))
+	require.NoError(t, c.Flags().Set("client-secret", "flag-secret"))
+
+	id, secret := clientCredentials(c)
+	assert.Equal(t, "flag-id", id)
+	assert.Equal(t, "flag-secret", secret)
+}
+
+func TestClientCredentials_FallsBackToEnv(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "env-id")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "env-secret")
+
+	c := &cobra.Command{}
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	id, secret := clientCredentials(c)
+	assert.Equal(t, "env-id", id)
+	assert.Equal(t, "env-secret", secret)
+}
+
+func TestClientCredentials_UnsetIsEmpty(t *testing.T) {
+	t.Setenv("ROCKETVAULT_CLIENT_ID", "")
+	t.Setenv("ROCKETVAULT_CLIENT_SECRET", "")
+
+	c := &cobra.Command{}
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+
+	id, secret := clientCredentials(c)
+	assert.Empty(t, id)
+	assert.Empty(t, secret)
+}
