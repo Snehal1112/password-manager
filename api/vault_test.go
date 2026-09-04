@@ -175,6 +175,7 @@ type vaultSvcTestContainer struct {
 	policySvc       authzServices.AccessPolicyService
 	rbacSvc         authzServices.RBACService
 	roleSvc         authzServices.RoleAssignmentService
+	grantSvc        provisioning.GrantService
 	logger          *logging.Logger
 }
 
@@ -260,7 +261,7 @@ func (c *vaultSvcTestContainer) GetRoleAssignmentService() authzServices.RoleAss
 	return nil
 }
 func (c *vaultSvcTestContainer) GetGrantService() provisioning.GrantService {
-	return nil
+	return c.grantSvc
 }
 func (c *vaultSvcTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
 	panic("unexpected call: GetOAuth2ClientRepository")
