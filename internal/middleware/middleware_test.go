@@ -1506,6 +1506,35 @@ func TestResolvePolicy_SignAndVerifyResolveToTheirOwnOperations(t *testing.T) {
 	}
 }
 
+// TestResolvePolicy_VaultProvisioningGrantsDoesNotMatchVaultsSubstring pins
+// that "/vault-provisioning-grants" is not mistaken for a vault-management
+// route by resolvePolicy's `strings.Contains(matchPath, "/vaults")` check --
+// "/vault-provisioning-grants" does not contain the substring "/vaults".
+// These routes are admin-only and deliberately non-delegable (see
+// api/vault_provisioning_grants.go's requireGrantAdmin); had resolvePolicy
+// matched them as PolicyResourceVaults/OpManage, they would additionally be
+// evaluated against the caller's access policies as if they were a vault
+// name, silently widening who could act on them.
+func TestResolvePolicy_VaultProvisioningGrantsDoesNotMatchVaultsSubstring(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/vault-provisioning-grants"},
+		{http.MethodPut, "/api/v1/vault-provisioning-grants/abc"},
+		{http.MethodDelete, "/api/v1/vault-provisioning-grants/abc"},
+	}
+	for _, c := range cases {
+		t.Run(c.method+" "+c.path, func(t *testing.T) {
+			resourceType, op := resolvePolicy(c.method, c.path)
+			assert.Equal(t, model.PolicyResourceType(""), resourceType, "resolvePolicy(%s, %s) resource", c.method, c.path)
+			assert.Equal(t, model.PolicyOperation(""), op, "resolvePolicy(%s, %s) op", c.method, c.path)
+		})
+	}
+}
+
 // TestPolicyMiddleware_VaultNamedSecretsDoesNotHideKeysDenyPolicy proves the
 // fix end-to-end through PolicyMiddleware: a deny policy targeting "keys"
 // must still be looked up (and enforced) for a vault literally named
