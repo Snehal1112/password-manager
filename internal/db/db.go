@@ -1129,6 +1129,10 @@ func (d *DBRepository) migrateSchema(db *sql.DB) error {
 	// backfill cannot repair on its own. Never fails the migration.
 	d.warnMismatchedRotationPolicyVaults(db)
 
+	// Diagnostic only: surface principals whose global vaults:manage grant
+	// will be narrowed by a planned follow-up release. Never fails the migration.
+	d.warnGlobalVaultManageGrants(db)
+
 	d.log.Info("Schema migration completed")
 	return nil
 }
@@ -1176,6 +1180,53 @@ func (d *DBRepository) warnMismatchedRotationPolicyVaults(db *sql.DB) {
 	}
 	if err := rows.Err(); err != nil {
 		d.log.WithError(err).Warn("Failed to read cross-vault rotation-policy rows")
+	}
+}
+
+// warnGlobalVaultManageGrants logs (never fails) every principal holding a
+// global -- vault_id IS NULL -- (vaults, manage, allow) access policy.
+//
+// Such a policy currently confers far more than the ability to create vaults.
+// accessPolicyRepository.FindEffects matches
+// "(vault_id = ? OR vault_id IS NULL)", so a NULL-scoped allow satisfies every
+// vault-scoped CheckAccess: it grants get/update/delete on every existing
+// vault via CanManageVault, and role-assignment management everywhere via
+// CanManageRoleAssignments -- which is enough to self-award Key Vault
+// Administrator in any vault.
+//
+// A planned follow-up release narrows that to create-and-list only. This
+// diagnostic exists so operators can see, before upgrading, exactly which
+// principals will lose those two behaviours. Provisioning grants
+// (vault_provisioning_grants) are the bounded replacement.
+//
+// A query error here is expected and harmless on partially-built schemas (for
+// example a migrateSchema-only test fixture with no access_policies table), so
+// it is logged at warn level and swallowed.
+func (d *DBRepository) warnGlobalVaultManageGrants(db *sql.DB) {
+	rows, err := db.Query(`
+		SELECT principal_id, principal_type
+		FROM access_policies
+		WHERE resource_type = 'vaults' AND operation = 'manage'
+		  AND effect = 'allow' AND vault_id IS NULL`)
+	if err != nil {
+		d.log.WithError(err).Warn("Failed to check for global vaults:manage grants")
+		return
+	}
+	defer rows.Close() //nolint:errcheck
+
+	for rows.Next() {
+		var principalID, principalType string
+		if err := rows.Scan(&principalID, &principalType); err != nil {
+			d.log.WithError(err).Warn("Failed to scan global vaults:manage grant")
+			return
+		}
+		d.log.WithFields(map[string]interface{}{
+			"principal_id":   principalID,
+			"principal_type": principalType,
+		}).Warn("Principal holds a global vaults:manage grant, which confers management of EVERY vault and role-assignment management everywhere; a future release narrows this to create-and-list only. Consider replacing it with a bounded vault provisioning grant.")
+	}
+	if err := rows.Err(); err != nil {
+		d.log.WithError(err).Warn("Failed to iterate global vaults:manage grants")
 	}
 }
 
