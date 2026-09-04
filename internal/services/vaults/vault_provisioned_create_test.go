@@ -245,13 +245,38 @@ func TestCreateVaultProvisioned_RefusesAtQuota(t *testing.T) {
 }
 
 func TestCreateVaultProvisioned_AllowsBelowQuota(t *testing.T) {
-	svc := newProvisionedTestService(t, quota(2), existingVaults(1))
+	// A CreatorGranter must be wired: since s.creatorGranter == nil now fails
+	// closed (see TestCreateVaultProvisioned_FailsClosedWhenCreatorGranterUnwired),
+	// a service with only TxBeginner/GrantLocker set can no longer complete a
+	// quota-bounded create.
+	svc, _ := newProvisionedTestServiceWithGranter(t, quota(2), existingVaults(1))
 
 	v, err := svc.CreateVaultProvisioned(context.Background(),
 		model.CreateVaultRequest{Name: "second"}, testPrincipal, true)
 
 	require.NoError(t, err)
 	require.Equal(t, "second", v.Name)
+}
+
+// TestCreateVaultProvisioned_FailsClosedWhenCreatorGranterUnwired proves the
+// partially-wired case -- txBeginner and grantLocker set, creatorGranter not
+// -- is refused rather than silently creating a vault its creator can never
+// manage. Without this guard the vault row would survive (the quota check
+// already passed) while permanently consuming one of the grantee's quota
+// slots, since only a purge -- which this creator has no rights to perform
+// -- frees one. That is worse than refusing the create outright, so the
+// create must fail and the vault insert must roll back with it.
+func TestCreateVaultProvisioned_FailsClosedWhenCreatorGranterUnwired(t *testing.T) {
+	svc := newProvisionedTestService(t, quota(5), existingVaults(0))
+
+	_, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "no-granter"}, testPrincipal, true)
+	require.Error(t, err,
+		"a quota-bounded create must be refused when creator grants cannot be written")
+
+	_, err = svc.GetVault(context.Background(), "no-granter")
+	require.Error(t, err,
+		"a refused creator-grant write must roll back the vault insert too")
 }
 
 func TestCreateVaultProvisioned_UnboundedIgnoresQuota(t *testing.T) {
