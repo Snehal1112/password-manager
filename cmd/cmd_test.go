@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
@@ -1226,4 +1227,34 @@ func TestRunRotationRotate_ServiceReturnsError(t *testing.T) {
 	err := cmd.RunE(cmd, []string{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to rotate secret")
+}
+
+// ---------------------------------------------------------------------------
+// vault-provisioning registration
+// ---------------------------------------------------------------------------
+
+// TestRootCommand_HasVaultProvisioning proves the vault-provisioning command
+// group is registered on the root command, mirroring the registration of
+// vault-webhook and vault-access.
+func TestRootCommand_HasVaultProvisioning(t *testing.T) {
+	var found bool
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == "vault-provisioning" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "vault-provisioning must be registered on the root command")
+}
+
+// TestVaultProvisioning_HasAllThreeSubcommands proves grant, revoke and list
+// are all attached to the vault-provisioning parent command.
+func TestVaultProvisioning_HasAllThreeSubcommands(t *testing.T) {
+	names := map[string]bool{}
+	for _, c := range vaultProvisioningCmd.Commands() {
+		names[c.Name()] = true
+	}
+	require.True(t, names["grant"], "grant must be registered")
+	require.True(t, names["revoke"], "revoke must be registered")
+	require.True(t, names["list"], "list must be registered")
 }
