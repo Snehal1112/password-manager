@@ -16,31 +16,32 @@ import (
 
 // Routes holds all subrouters for the API — typed for compile-time safety.
 type Routes struct {
-	ApiRoot         *mux.Router // /api/v1
-	Vault           *mux.Router // /api/v1/vault
-	Vaults          *mux.Router // /api/v1/vaults (vault management)
-	VaultScoped     *mux.Router // /api/v1/vaults/{vault_name} (vault-scoped resources)
-	RoleAssignments *mux.Router // /api/v1/vaults/{vault_name}/role-assignments
-	RoleAssignment  *mux.Router // /api/v1/vaults/{vault_name}/role-assignments/{assignment_id}
-	Secrets         *mux.Router // /api/v1/secrets
-	Secret          *mux.Router // /api/v1/secrets/{secret_id}
-	Users           *mux.Router // /api/v1/users
-	User            *mux.Router // /api/v1/users/{user_id}
-	Keys            *mux.Router // /api/v1/keys
-	Key             *mux.Router // /api/v1/keys/{key_id}
-	Certificates    *mux.Router // /api/v1/certificates
-	Certificate     *mux.Router // /api/v1/certificates/{certificate_id}
-	Health          *mux.Router // /api/v1/health
-	Deleted         *mux.Router // /api/v1/deleted
-	AccessPolicies  *mux.Router // /api/v1/access-policies
-	AccessPolicy    *mux.Router // /api/v1/access-policies/{policy_id}
-	ServiceAccounts *mux.Router // /api/v1/service-accounts
-	ServiceAccount  *mux.Router // /api/v1/service-accounts/{service_account_id}
-	Audit           *mux.Router // /api/v1/audit
-	OAuth2          *mux.Router // /api/v1/oauth2 (public — no auth middleware)
-	Config          *mux.Router // /api/v1/config (public — no auth middleware)
-	JWKS            *mux.Router // /jwks.json (public — no auth middleware)
-	Metrics         *mux.Router // /metrics (public — no auth middleware; gated by monitoring.enable_metrics)
+	ApiRoot                 *mux.Router // /api/v1
+	Vault                   *mux.Router // /api/v1/vault
+	Vaults                  *mux.Router // /api/v1/vaults (vault management)
+	VaultScoped             *mux.Router // /api/v1/vaults/{vault_name} (vault-scoped resources)
+	RoleAssignments         *mux.Router // /api/v1/vaults/{vault_name}/role-assignments
+	RoleAssignment          *mux.Router // /api/v1/vaults/{vault_name}/role-assignments/{assignment_id}
+	Secrets                 *mux.Router // /api/v1/secrets
+	Secret                  *mux.Router // /api/v1/secrets/{secret_id}
+	Users                   *mux.Router // /api/v1/users
+	User                    *mux.Router // /api/v1/users/{user_id}
+	Keys                    *mux.Router // /api/v1/keys
+	Key                     *mux.Router // /api/v1/keys/{key_id}
+	Certificates            *mux.Router // /api/v1/certificates
+	Certificate             *mux.Router // /api/v1/certificates/{certificate_id}
+	Health                  *mux.Router // /api/v1/health
+	Deleted                 *mux.Router // /api/v1/deleted
+	AccessPolicies          *mux.Router // /api/v1/access-policies
+	AccessPolicy            *mux.Router // /api/v1/access-policies/{policy_id}
+	VaultProvisioningGrants *mux.Router // /api/v1/vault-provisioning-grants
+	ServiceAccounts         *mux.Router // /api/v1/service-accounts
+	ServiceAccount          *mux.Router // /api/v1/service-accounts/{service_account_id}
+	Audit                   *mux.Router // /api/v1/audit
+	OAuth2                  *mux.Router // /api/v1/oauth2 (public — no auth middleware)
+	Config                  *mux.Router // /api/v1/config (public — no auth middleware)
+	JWKS                    *mux.Router // /jwks.json (public — no auth middleware)
+	Metrics                 *mux.Router // /metrics (public — no auth middleware; gated by monitoring.enable_metrics)
 }
 
 // API is the main API structure for the vault service.
@@ -124,6 +125,13 @@ func Init(options ...Options) *API {
 	r.AccessPolicies = r.ApiRoot.PathPrefix("/access-policies").Subrouter()
 	r.AccessPolicy = r.AccessPolicies.PathPrefix("/{policy_id:[A-Fa-f0-9-]+}").Subrouter()
 
+	// VaultProvisioningGrants routes are not scoped to any vault -- there is
+	// no vault yet when one is issued -- so this does not collide with the
+	// "/vaults" prefix: "vault-" differs from "vaults" at the 6th character,
+	// and resolvePolicy's "/vaults" substring match (internal/middleware/
+	// middleware.go) does not match "/vault-provisioning-grants" either.
+	r.VaultProvisioningGrants = r.ApiRoot.PathPrefix("/vault-provisioning-grants").Subrouter()
+
 	r.ServiceAccounts = r.ApiRoot.PathPrefix("/service-accounts").Subrouter()
 	r.ServiceAccount = r.ServiceAccounts.PathPrefix("/{service_account_id:[A-Fa-f0-9-]+}").Subrouter()
 
@@ -156,6 +164,7 @@ func Init(options ...Options) *API {
 	api.InitConfig()
 	api.InitDeleted()
 	api.InitAccessPolicies()
+	api.InitVaultProvisioningGrants()
 	api.InitRoleAssignments()
 	api.InitOAuth2()
 	api.InitOIDC()
@@ -168,7 +177,7 @@ func Init(options ...Options) *API {
 	api.rootRouter.NotFoundHandler = http.HandlerFunc(Handle404)
 
 	names := []string{"Vault", "Secrets", "Users", "Keys", "Certificates",
-		"Health", "Config", "Deleted", "AccessPolicies", "ServiceAccounts", "OAuth2", "OIDC", "JWKS", "BackupItem", "Audit"}
+		"Health", "Config", "Deleted", "AccessPolicies", "VaultProvisioningGrants", "ServiceAccounts", "OAuth2", "OIDC", "JWKS", "BackupItem", "Audit"}
 	api.Logger.WithField("api", strings.Join(names, ",")).Infoln("Initialized api")
 	return api
 }
