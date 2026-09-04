@@ -92,3 +92,63 @@ func CanManageRoleAssignments(ctx context.Context, accountRoles []string, polici
 	}
 	return allowed
 }
+
+// CreateRight identifies which authority permitted a vault creation. The
+// caller needs to know which, not merely whether: only the provisioning-grant
+// path is quota-bounded.
+type CreateRight int
+
+const (
+	// CreateRightNone means the principal may not create a vault.
+	CreateRightNone CreateRight = iota
+	// CreateRightAdmin is the global admin account role. Not quota-bounded.
+	CreateRightAdmin
+	// CreateRightGlobalPolicy is a global (vault_id NULL) vaults:manage allow
+	// policy. Not quota-bounded.
+	CreateRightGlobalPolicy
+	// CreateRightProvisioningGrant is a vault_provisioning_grants row. Quota
+	// applies -- the caller MUST enforce it inside the creation transaction.
+	CreateRightProvisioningGrant
+)
+
+// GrantReader reads a principal's provisioning grant. Declared here rather
+// than importing internal/services/provisioning so this package keeps no
+// dependency on that one; the container wires the concrete service in.
+type GrantReader interface {
+	GetGrant(ctx context.Context, principalID uuid.UUID) (*model.VaultProvisioningGrant, error)
+}
+
+// CanCreateVault reports which right, if any, permits principalID to create a
+// vault: the global admin account role, a global vaults:manage allow policy,
+// or a provisioning grant -- checked in that order.
+//
+// An explicit global DENY on (vaults, manage) short-circuits to
+// CreateRightNone and is never outvoted by a provisioning grant, matching the
+// deny-overrides invariant PolicyMiddleware states and CanManageRoleAssignments
+// honours.
+//
+// A nil dependency or any service error denies -- this function fails closed.
+func CanCreateVault(ctx context.Context, accountRoles []string, policies AccessPolicyService, grants GrantReader, principalID uuid.UUID) CreateRight {
+	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
+		return CreateRightAdmin
+	}
+	if policies != nil {
+		decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, uuid.Nil)
+		if err == nil {
+			if decision == AccessAllowed {
+				return CreateRightGlobalPolicy
+			}
+			if decision == AccessDenied {
+				return CreateRightNone
+			}
+		}
+	}
+	if grants == nil {
+		return CreateRightNone
+	}
+	g, err := grants.GetGrant(ctx, principalID)
+	if err != nil || g == nil {
+		return CreateRightNone
+	}
+	return CreateRightProvisioningGrant
+}
