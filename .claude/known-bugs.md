@@ -3362,6 +3362,149 @@ assignment without also holding the matching global account role.
 
 ---
 
+### B58 — Vault delete, recover, and purge audit as an unattributed actor
+
+**Status**: Open, found 2026-09-04
+**Severity**: Medium. This is not an access-control hole — authorization is
+unaffected; a refused delete/recover/purge is still refused, and the
+boundary tests around each all pass. It is an accountability gap: the three
+most destructive vault operations are exactly the ones the audit log cannot
+attribute to anyone, while the benign create and update operations are
+attributed correctly. For a self-hosted secrets manager, whose audit log is
+the only record of who removed a vault and everything in it, "who did this?"
+being unanswerable for a destructive action is a real compliance failure,
+not a cosmetic logging gap.
+**Files**: `internal/services/vaults/vault_service.go:638` (`delete_vault`),
+`:690` (`recover_vault`), `:770` (`purge_vault`);
+`internal/services/authorization/role_assignment_service.go:203`
+(`revoke_role_assignment`, same pattern, found via the grep below)
+
+**Symptom**: verified both in source and live against the scratch database
+at `/tmp/rv-prov/rv.db`. An admin performing `vaults delete` and
+`vaults purge` on its own vault produces rows with an empty `user_id`:
+
+```
+$ sqlite3 /tmp/rv-prov/rv.db \
+  "select action, user_id, outcome from audit_logs where action in ('create_vault','delete_vault','purge_vault') order by timestamp;"
+create_vault|a10eee1d-f25f-432c-9b20-bd9abf416e5a|
+create_vault|a10eee1d-f25f-432c-9b20-bd9abf416e5a|
+delete_vault||
+create_vault|a10eee1d-f25f-432c-9b20-bd9abf416e5a|
+purge_vault||
+```
+
+Every `create_vault` row carries the real principal UUID; every
+`delete_vault` and `purge_vault` row carries an empty `user_id`. Reproduced with
+a global admin acting on a vault it owns, so this is not specific to a
+non-admin, to the CLI, or to the self-service provisioning feature — it is
+below where the CLI and HTTP paths converge, so it affects both equally and
+every actor, including admins.
+
+**Root cause**: three of the five audit calls in
+`internal/services/vaults/vault_service.go` hardcode an empty actor string
+instead of passing the acting principal:
+
+```go
+s.log.LogAuditInfo("", "delete_vault", "success", fmt.Sprintf("Vault deleted: %s", name))   // :638
+s.log.LogAuditInfo("", "recover_vault", "success", fmt.Sprintf("Vault recovered: %s", name)) // :690
+s.log.LogAuditInfo("", "purge_vault", "success", fmt.Sprintf("Vault purged: %s", name))      // :770
+```
+
+The sibling calls in the same file do it correctly, passing the real
+principal:
+
+```go
+s.log.LogAuditInfo(createdBy.String(), "create_vault", "success", ...)  // :334, and :448 (provisioned path)
+s.log.LogAuditInfo(updatedBy.String(), "update_vault", "success", ...)  // :571
+```
+
+The underlying reason the three destructive calls hardcode `""` is that
+**`DeleteVault`, `RecoverVault`, and `PurgeVault` do not receive the acting
+principal in their current signatures at all**:
+
+```go
+DeleteVault(ctx context.Context, name string) error
+RecoverVault(ctx context.Context, name string) error
+PurgeVault(ctx context.Context, name string) error
+```
+
+By contrast, `CreateVault`/`CreateVaultProvisioned` take `createdBy
+uuid.UUID` and `UpdateVault` takes `updatedBy uuid.UUID` — there is simply no
+parameter to pass at the three destructive call sites. This is a signature
+gap, not a call site that forgot an argument it already had.
+
+A grep for `LogAuditInfo("` across `internal/services/` turns up one further
+call site with the identical shape:
+`internal/services/authorization/role_assignment_service.go:203`, in
+`RevokeAssignment`:
+
+```go
+s.log.LogAuditInfo("", "revoke_role_assignment", "success", ...)
+```
+
+whose sibling, `AssignRole`, passes `in.CreatedBy.String()` at line 179. Like
+the vault trio, `RevokeAssignment`'s signature —
+`RevokeAssignment(ctx context.Context, assignmentID, vaultID uuid.UUID, callerIsGlobalAdmin bool) error`
+— has no principal parameter to pass; `callerIsGlobalAdmin` is a bool, not
+an identity. Revoking a role assignment is itself a destructive,
+security-relevant action, so this is the same defect, not a coincidence.
+
+The two remaining `LogAuditInfo("system", ...)` calls in
+`internal/services/secrets/expiration_service.go:64,81` are unrelated: they
+attribute background-scheduler actions to a literal `"system"` actor on
+purpose, not an omitted caller, and are not part of this defect.
+
+**Total call sites with the defect**: four —
+`vault_service.go:638/690/770` plus
+`role_assignment_service.go:203`. The original report named only
+`delete_vault` and `purge_vault`; `recover_vault` (`:690`) and
+`revoke_role_assignment` (`:203`) were both missed and are included here.
+
+**Fix recipe**: thread the acting principal into all four methods the same
+way `CreateVault`/`UpdateVault` already do, then pass it to `LogAuditInfo`
+instead of `""`. Because none of the four methods currently accepts a
+principal parameter, this is a signature change with callers to update, not
+a one-line fix:
+
+- `VaultService.DeleteVault(ctx, name string) error` →
+  `DeleteVault(ctx, name string, actorID uuid.UUID) error`. Callers:
+  `cmd/vaults/delete.go:43` (has `principalID` in scope already, from
+  `requireCanManageVault`'s `callerIdentity(ctx)` call in
+  `cmd/vaults/authz.go:108`) and `api/vault.go:300` (has `userID` in scope
+  already, from `callerIdentity(c)` at `api/vault.go:290`).
+- `VaultService.RecoverVault(ctx, name string) error` →
+  add `actorID uuid.UUID`. Only caller: `cmd/vaults/recover.go:42`, which
+  resolves `principalID` via `requireCanManageVault` the same way `delete.go`
+  does. There is currently no HTTP route for vault recovery (confirmed by
+  grep — `RecoverVault` appears nowhere under `api/`), so only the CLI
+  caller needs updating.
+- `VaultService.PurgeVault(ctx, name string) error` →
+  add `actorID uuid.UUID`. Callers: `cmd/vaults/purge.go:49` (has
+  `principalID` in scope from `requireCanPurgeVault`,
+  `cmd/vaults/authz.go:125`) and `api/vault.go:337`, whose `purgeVault`
+  handler does not currently call `callerIdentity(c)` at all (it relies on
+  `PolicyMiddleware` for authorization and never extracts the identity for
+  its own use) — that call needs adding, not just threading through an
+  existing variable.
+- `RoleAssignmentService.RevokeAssignment(ctx, assignmentID, vaultID
+  uuid.UUID, callerIsGlobalAdmin bool) error` → add `actorID uuid.UUID`.
+  Callers: `cmd/vault-access/revoke.go:55` and `api/role_assignments.go:233`.
+
+Every call site above already resolves the caller's identity for its own
+authorization check before calling the service method, so the principal is
+available at each one — this is a mechanical signature change plus four
+call-site updates (five, counting `RevokeAssignment`), not a design problem.
+Update the mock/test doubles in `cmd/testutils/test_utils.go` (`MockVaultService.DeleteVault/RecoverVault/PurgeVault`,
+`MockRoleAssignmentService.RevokeAssignment`) to match the new signatures.
+
+**Found**: manually, while capturing the self-service-provisioning worked
+example for `.claude/manual-testing-plan.md`, and confirmed independently
+against `/tmp/rv-prov/rv.db`. Not caught by the existing test suite, which
+asserts on the returned error/success of these operations but does not
+assert on the actor recorded in the resulting audit log entry.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
