@@ -452,6 +452,15 @@ func (c *ServiceContainer) initializeServices() error {
 	)
 	c.vaultProvisioningGrantRepository = repositories.NewVaultProvisioningGrantRepository(c.conn)
 	c.grantService = provisioning.NewGrantService(c.vaultProvisioningGrantRepository, c.logger)
+	// Wire the quota-bounded create path now that the grant repository and the
+	// access-policy/role-assignment repositories all exist: the row-lock
+	// quota check, and the creator's grant of full rights over what it
+	// provisions, both run inside CreateVaultProvisioned's own transaction.
+	c.vaultService.SetGrantLocker(c.vaultProvisioningGrantRepository)
+	c.vaultService.SetCreatorGranter(&creatorGranterAdapter{
+		policies: c.accessPolicyRepository,
+		roles:    c.roleAssignmentRepository,
+	})
 
 	// Initialize remaining OAuth2 services (client repo already set above).
 	oauth2TokenExpiry := viperCfg.GetDuration("oauth2.token_expiry")

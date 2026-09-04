@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,13 +11,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/app"
 	"rocketvault/common"
+	rvdb "rocketvault/internal/db"
 	"rocketvault/internal/middleware"
+	"rocketvault/internal/repositories"
 	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/internal/services/provisioning"
 	vaultServices "rocketvault/internal/services/vaults"
@@ -481,17 +485,64 @@ func (f *fakeGrantService) ListGrants(context.Context) ([]*model.VaultProvisioni
 // grant but neither the admin role nor a global vaults:manage policy --
 // exercising createVault's CreateRightProvisioningGrant path. The caller in
 // every doVaultRequestAs request carries the fixed vaultTestUserID, so
-// principalID is not used to key the fake -- it mirrors
+// principalID is not used to key the fake grantSvc -- it mirrors
 // internal/services/authorization/vault_authz_test.go's stubGrantReader,
-// which returns its fixed grant/error for any principal.
+// which returns its fixed grant/error for any principal. That fake only
+// drives CanCreateVault's authorization decision, though: the handler now
+// calls CreateVaultProvisioned(quotaBounded=true), whose own quota check
+// runs inside a real transaction against the real vault and
+// vault_provisioning_grants tables (vault_service.go's row-lock quota
+// check), so this helper backs the vault service with a real in-memory
+// SQLite database and seeds a grant row keyed to vaultTestUserID -- the
+// only principal that will ever actually be checked.
 func newTestAPIWithGrant(t *testing.T, principalID uuid.UUID, quota int) *API {
 	t.Helper()
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, uuid.Nil).
 		Return(authzServices.AccessFallback, nil)
-	repo := newVaultFakeRepo()
-	svc := vaultServices.NewVaultService(repo, vaultNoopCascade{}, nil)
+
+	sqlDB, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	_, err = sqlDB.Exec(`CREATE TABLE vaults (
+		id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
+		enabled BOOLEAN NOT NULL DEFAULT 1,
+		purge_protection BOOLEAN NOT NULL DEFAULT 0,
+		retention_days INTEGER NOT NULL DEFAULT 90,
+		created_by TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP NULL,
+		scheduled_purge_at TIMESTAMP NULL,
+		tags TEXT NOT NULL DEFAULT '{}',
+		updated_at TIMESTAMP NULL,
+		updated_by TEXT NULL
+	)`)
+	require.NoError(t, err)
+	_, err = sqlDB.Exec(`CREATE TABLE vault_provisioning_grants (
+		id TEXT PRIMARY KEY,
+		principal_id TEXT UNIQUE NOT NULL,
+		quota INTEGER NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		created_by TEXT NOT NULL
+	)`)
+	require.NoError(t, err)
+
+	callerID := uuid.MustParse(vaultTestUserID)
+	_, err = sqlDB.Exec(
+		"INSERT INTO vault_provisioning_grants (id, principal_id, quota, created_by) VALUES (?, ?, ?, ?)",
+		uuid.New().String(), callerID.String(), quota, callerID.String())
+	require.NoError(t, err)
+
+	conn := rvdb.NewConn(sqlDB, rvdb.SQLite)
+	vaultRepo := repositories.NewVaultRepository(conn, nil)
+	grantRepo := repositories.NewVaultProvisioningGrantRepository(conn)
+
+	svc := vaultServices.NewVaultService(vaultRepo, vaultNoopCascade{}, nil)
+	svc.SetTxBeginner(conn)
+	svc.SetGrantLocker(grantRepo)
+
 	grant := &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: principalID, Quota: quota}
 	cont := &vaultSvcTestContainer{
 		vaultSvc:  svc,

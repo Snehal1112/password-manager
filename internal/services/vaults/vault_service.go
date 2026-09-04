@@ -70,6 +70,14 @@ type GrantLocker interface {
 	LockAndReadQuotaTx(ctx context.Context, ex db.DBTX, principalID uuid.UUID) (int, error)
 }
 
+// CreatorGranter writes the creator's rights over a newly provisioned vault,
+// inside the caller's transaction. Satisfied by an adapter over the concrete
+// access-policy and role-assignment repositories.
+type CreatorGranter interface {
+	CreatePolicyTx(ctx context.Context, ex db.DBTX, p *model.AccessPolicy) error
+	CreateRoleTx(ctx context.Context, ex db.DBTX, ra *model.RoleAssignment) error
+}
+
 // RoleAssignmentCleaner removes role assignments scoped to a vault (used on
 // purge). Separate from PolicyCleaner because the two are different tables
 // with different repositories, and either may be absent in a unit test.
@@ -166,6 +174,10 @@ type VaultService interface {
 	// SetGrantLocker attaches the provisioning-grant locker used by the
 	// quota-bounded create path.
 	SetGrantLocker(l GrantLocker)
+	// SetCreatorGranter attaches the writer that grants the creator full
+	// management rights over a vault it provisions, inside the same
+	// transaction as the vault insert.
+	SetCreatorGranter(g CreatorGranter)
 }
 
 type vaultService struct {
@@ -180,6 +192,7 @@ type vaultService struct {
 	log                   *logging.Logger
 	globalPurgeProtection bool
 	grantLocker           GrantLocker
+	creatorGranter        CreatorGranter
 }
 
 // NewVaultService constructs a VaultService backed by the given repository and cascade handler.
@@ -205,6 +218,11 @@ func (s *vaultService) SetGlobalPurgeProtection(protected bool) { s.globalPurgeP
 // SetGrantLocker attaches the provisioning-grant locker used by the
 // quota-bounded create path.
 func (s *vaultService) SetGrantLocker(l GrantLocker) { s.grantLocker = l }
+
+// SetCreatorGranter attaches the writer that grants the creator full
+// management rights over a vault it provisions, inside the same transaction
+// as the vault insert.
+func (s *vaultService) SetCreatorGranter(g CreatorGranter) { s.creatorGranter = g }
 
 // SetTxBeginner attaches an optional transaction beginner. When set,
 // DeleteVault/RecoverVault run their cascade atomically inside one
@@ -364,7 +382,36 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		if count >= quota {
 			return fmt.Errorf("%w: %d of %d used", ErrVaultQuotaExceeded, count, quota)
 		}
-		return txRepo.CreateTx(ctx, tx, v)
+		if err := txRepo.CreateTx(ctx, tx, v); err != nil {
+			return err
+		}
+		if s.creatorGranter == nil {
+			return nil
+		}
+		// The creator becomes full manager of what it created: vault-scoped
+		// vaults:manage for lifecycle operations, and Key Vault Administrator
+		// for the data plane. Both are scoped to this vault only -- a global
+		// policy here would hand the grantee the instance.
+		vaultID := v.ID
+		if err := s.creatorGranter.CreatePolicyTx(ctx, tx, &model.AccessPolicy{
+			ID:            uuid.New(),
+			PrincipalID:   createdBy,
+			PrincipalType: model.PrincipalTypeUser,
+			ResourceType:  model.PolicyResourceVaults,
+			Operation:     model.OpManage,
+			Effect:        model.PolicyEffectAllow,
+			VaultID:       &vaultID,
+		}); err != nil {
+			return fmt.Errorf("grant creator vault management: %w", err)
+		}
+		return s.creatorGranter.CreateRoleTx(ctx, tx, &model.RoleAssignment{
+			ID:            uuid.New(),
+			PrincipalID:   createdBy,
+			PrincipalType: model.PrincipalTypeUser,
+			Role:          model.RoleKeyVaultAdministrator,
+			VaultID:       v.ID,
+			CreatedBy:     createdBy,
+		})
 	})
 	if err != nil {
 		if errors.Is(err, ErrVaultQuotaExceeded) && s.log != nil {

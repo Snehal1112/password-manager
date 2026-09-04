@@ -124,6 +124,7 @@ func (s *stubVaultService) SetSecretCacheFlusher(_ vaultServices.SecretCacheFlus
 func (s *stubVaultService) SetVaultCache(_ vaultServices.VaultCacheInterface)              {}
 func (s *stubVaultService) SetGlobalPurgeProtection(_ bool)                                {}
 func (s *stubVaultService) SetGrantLocker(_ vaultServices.GrantLocker)                     {}
+func (s *stubVaultService) SetCreatorGranter(_ vaultServices.CreatorGranter)               {}
 
 // MockAuthenticationService is a mock implementation of AuthenticationService.
 type MockAuthenticationService struct {

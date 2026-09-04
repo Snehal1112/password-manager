@@ -96,10 +96,16 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vault, err := svc.CreateVault(r.Context(), *req, userID)
+	vault, err := svc.CreateVaultProvisioned(r.Context(), *req, userID,
+		right == authzServices.CreateRightProvisioningGrant)
 	if err != nil {
-		// Validation and duplicate failures are client errors.
-		c.SetInvalidParam(err.Error())
+		switch {
+		case errors.Is(err, vaultServices.ErrVaultQuotaExceeded), errors.Is(err, vaultServices.ErrPurgeProtectionNotPermitted):
+			c.SetPermissionError(err.Error())
+		default:
+			// Validation and duplicate failures are client errors.
+			c.SetInvalidParam(err.Error())
+		}
 		return
 	}
 
