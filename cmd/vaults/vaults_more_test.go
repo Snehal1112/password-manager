@@ -116,7 +116,7 @@ func TestRecoverCmd_ServiceError(t *testing.T) {
 
 func TestVaultsCreate_ServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
-	tc.MockVaultService.On("CreateVault", mock.Anything, mock.Anything, tc.TestUserID).
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, false).
 		Return(nil, fmt.Errorf("vault creation failed"))
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
@@ -142,7 +142,7 @@ func TestVaultsCreate_NoFormatter(t *testing.T) {
 		Enabled:       true,
 		RetentionDays: 90,
 	}
-	tc.MockVaultService.On("CreateVault", mock.Anything, mock.Anything, tc.TestUserID).Return(created, nil)
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, false).Return(created, nil)
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().Bool("purge-protection", false, "")
@@ -165,11 +165,11 @@ func TestVaultsCreate_WithPurgeProtection(t *testing.T) {
 		PurgeProtection: true,
 		RetentionDays:   30,
 	}
-	tc.MockVaultService.On("CreateVault", mock.Anything,
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything,
 		mock.MatchedBy(func(r model.CreateVaultRequest) bool {
 			return r.Name == "protected-vault" &&
 				r.PurgeProtection != nil && *r.PurgeProtection
-		}), tc.TestUserID).Return(created, nil)
+		}), tc.TestUserID, false).Return(created, nil)
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().Bool("purge-protection", false, "")
@@ -195,11 +195,11 @@ func TestVaultsCreate_WithRetentionDays(t *testing.T) {
 		Enabled:       true,
 		RetentionDays: 60,
 	}
-	tc.MockVaultService.On("CreateVault", mock.Anything,
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything,
 		mock.MatchedBy(func(r model.CreateVaultRequest) bool {
 			return r.Name == "retention-vault" &&
 				r.RetentionDays != nil && *r.RetentionDays == 60
-		}), tc.TestUserID).Return(created, nil)
+		}), tc.TestUserID, false).Return(created, nil)
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().Bool("purge-protection", false, "")

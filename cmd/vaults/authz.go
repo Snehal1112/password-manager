@@ -57,16 +57,27 @@ func resolveTargetVaultID(ctx context.Context, svc vaultServices.VaultService, n
 //
 // The CLI bypasses PolicyMiddleware entirely, so this is the only
 // authorization enforcement point on this path.
-func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInterface) error {
+//
+// The returned CreateRight is not incidental -- the caller MUST use it to
+// decide whether the create is quota-bounded (CreateRightProvisioningGrant is
+// the only bounded right; CreateRightAdmin and CreateRightGlobalPolicy are
+// not) and pass that decision to VaultService.CreateVaultProvisioned. An
+// earlier version of this function returned only an error, and its caller
+// discarded the right entirely, always calling the unbounded CreateVault --
+// letting a provisioning-grant holder create unlimited vaults, set
+// purge_protection, and receive none of the creator's grants. Do not repeat
+// that mistake: a caller that checks only "err == nil" and calls the
+// unbounded path regardless reopens the same bypass.
+func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInterface) (authz.CreateRight, error) {
 	roles, principalID, err := callerIdentity(ctx)
 	if err != nil {
-		return err
+		return authz.CreateRightNone, err
 	}
 	right := authz.CanCreateVault(ctx, roles, sc.GetAccessPolicyService(), sc.GetGrantService(), principalID)
 	if right == authz.CreateRightNone {
-		return fmt.Errorf("permission denied: admin, a global vaults/manage grant, or a vault provisioning grant required to create a vault")
+		return authz.CreateRightNone, fmt.Errorf("permission denied: admin, a global vaults/manage grant, or a vault provisioning grant required to create a vault")
 	}
-	return nil
+	return right, nil
 }
 
 // requireCanListVaults checks that the caller may list vaults instance-wide.
