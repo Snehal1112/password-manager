@@ -26,6 +26,7 @@ import (
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/services/provisioning"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
@@ -152,6 +153,8 @@ type MockServiceContainer struct {
 	// added to CLI commands don't break every pre-existing test that doesn't care about
 	// them. Tests exercising the deny path replace this field with a fresh instance.
 	RoleAssignmentService authzServices.RoleAssignmentService
+	// GrantService is returned by GetGrantService, nil by default.
+	GrantService provisioning.GrantService
 }
 
 // Repository getters - return nil for unused repositories
@@ -241,6 +244,10 @@ func (m *MockServiceContainer) GetAccessPolicyService() authzServices.AccessPoli
 
 func (m *MockServiceContainer) GetRoleAssignmentService() authzServices.RoleAssignmentService {
 	return m.RoleAssignmentService
+}
+
+func (m *MockServiceContainer) GetGrantService() provisioning.GrantService {
+	return m.GrantService
 }
 
 func (m *MockServiceContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {

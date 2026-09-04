@@ -34,6 +34,7 @@ import (
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
 	oauth2Services "rocketvault/internal/services/oauth2"
+	"rocketvault/internal/services/provisioning"
 	retryServices "rocketvault/internal/services/retry"
 	secretServices "rocketvault/internal/services/secrets"
 	userServices "rocketvault/internal/services/users"
@@ -256,6 +257,9 @@ func (c *vaultSvcTestContainer) GetRoleAssignmentService() authzServices.RoleAss
 	if c.roleSvc != nil {
 		return c.roleSvc
 	}
+	return nil
+}
+func (c *vaultSvcTestContainer) GetGrantService() provisioning.GrantService {
 	return nil
 }
 func (c *vaultSvcTestContainer) GetOAuth2ClientRepository() repositories.OAuth2ClientRepositoryInterface {
