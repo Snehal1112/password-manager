@@ -81,7 +81,7 @@ creation time.`,
 		if err != nil {
 			switch {
 			case errors.Is(err, vaultServices.ErrVaultQuotaExceeded):
-				return fmt.Errorf("failed to create vault: %w -- delete or purge an existing vault, or ask an administrator to raise your provisioning quota", err)
+				return fmt.Errorf("failed to create vault: %w -- soft-deleting a vault does not free a quota slot; a slot is released only when the vault is purged, which requires an administrator or a Key Vault Purge Operator grant. Ask an administrator to purge a vault or raise your quota", err)
 			case errors.Is(err, vaultServices.ErrPurgeProtectionNotPermitted):
 				return fmt.Errorf("failed to create vault: %w -- only an administrator can set --purge-protection", err)
 			default:
