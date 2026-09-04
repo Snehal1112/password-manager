@@ -3035,7 +3035,7 @@ and touching it wasn't part of that fix.
 
 ### B54 — No way to log in to a remote server: `users login` is blocked by the remote-target guard, so a remote session can only be created as a side effect of a `secrets` command
 
-**Status**: Fixed in commit `<COMMIT>` (2026-09-04), found 2026-09-03
+**Status**: Fixed in commit `3cf4d89` (2026-09-04), found 2026-09-03
 **Severity**: Medium — remote mode is reachable but its front door is not.
 A user with an active context who has no cached session (or whose refresh
 token has aged out) cannot authenticate by the documented command; they must
