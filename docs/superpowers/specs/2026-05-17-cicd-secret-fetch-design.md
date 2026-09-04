@@ -22,6 +22,12 @@ The pipeline authenticates as a **service account** using the OAuth2 client cred
 
 The token lifetime inherits `jwt.expiry` from RocketVault config (default 15m — sufficient for any pipeline run).
 
+> **Correction (2026-09-04):** the default is **1h**, not 15m — `jwt.expiry` is
+> optional and `internal/container/service_container.go:366-369` falls back to
+> `time.Hour`. The conclusion is unchanged (still ample for any pipeline run),
+> but a reader sizing a pipeline's token window against 15m would be planning
+> with a figure four times too small.
+
 ---
 
 ## Script Location

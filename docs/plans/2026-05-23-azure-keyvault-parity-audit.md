@@ -148,7 +148,7 @@
 | Scope hierarchy | Mgmt group → subscription → RG → vault → object | missing | only resource-type scope | none | Per-object policies absent. |
 | Service account creation guard | Owner/admin required | exact | `api/oauth2.go:141-144` | none | **Fixed**: all SA endpoints (`create`, `list`, `delete`, `rotate`) now enforce admin role check via `common.HasRequiredRole`. |
 | Service account secret rotation | Multiple credentials with overlap | partial | `oauth2_service.go:171-193` | `oauth2_service_test.go` | Single secret; no overlap window. |
-| Token lifetime / refresh | Configurable; refresh token rotation | partial | `authentication_service.go:167`, config `jwt.expiry: 15m` | `authentication_service_test.go` | **Security gap**: no refresh token rotation. |
+| Token lifetime / refresh | Configurable; refresh token rotation | partial | `authentication_service.go:167`, config `jwt.expiry` (1h — see correction below) | `authentication_service_test.go` | **Security gap**: no refresh token rotation. |
 | Session revocation | Continuous Access Evaluation | partial | `authentication_service.go:ValidateSession` | `authentication_service_test.go` | **Fixed**: `ValidateSession` now reads `sessions.revoked` via `sessionRepo.IsSessionRevoked` and rejects revoked tokens. SA tokens revoked on client delete/disable. |
 | JWKS key rotation | Automatic; overlap window | partial | `api/jwks.go:43-71`, `jwt_service.go:168-195` | `jwt_service_provider_test.go` | Only `self_pki` provider supports API rotation. |
 | Audit logging of auth | Per-request, queryable | partial | `internal/logging/logging.go:147-157`, `middleware.go:162-168,418-424`, `internal/db/db.go:367-378` | `logging_test.go:82-108` | `audit_logs` table created but **never written** — all audit goes to structured log file only. |
@@ -379,3 +379,20 @@
 - RocketVault Azure KV feature spec — `docs/superpowers/specs/2026-04-30-azure-kv-features-design.md`
 - RocketVault parity audit template — `docs/plans/2026-05-23-azure-keyvault-parity-audit-template.md`
 - RocketVault parity audit checklist — `docs/plans/2026-05-23-azure-keyvault-parity-audit-checklist.md`
+
+---
+
+## Corrections
+
+**2026-09-04 — `jwt.expiry` default.** The "Token lifetime / refresh" row cited
+`config jwt.expiry: 15m`. The key is optional and
+`internal/container/service_container.go:366-369` falls back to `time.Hour`;
+both committed configs set `1h`. The row's verdict is unaffected — the gap was
+the missing refresh-token rotation, not the lifetime — but the cited value was
+wrong and is corrected in the table above.
+
+Note that other rows in this audit reference `common.HasRequiredRole`, which
+existed when the audit was written and has since been replaced by
+`common.HasAnyRole` as part of the single-role to multi-role migration. Those
+references are left as written: they record what the code was at audit time,
+not what it is now.

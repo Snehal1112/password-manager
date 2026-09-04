@@ -42,6 +42,14 @@ jwt:
 
 15 minutes is the recommended JWT access token lifetime for a secrets manager.
 
+> **Correction (2026-09-04):** this recommendation is the likely origin of a
+> "15m" figure that later spread through the docs as though it were the
+> shipped default. It never was. What shipped sets `1h`
+> (`.rocketvault.yaml.example:28`, `.rocketvault.docker.yaml.tmpl:33`), and the
+> key is optional — `internal/container/service_container.go:366-369` falls
+> back to `time.Hour` when it is absent. The recommendation above stands as a
+> recommendation; it is not a description of current behaviour.
+
 ### 2. Delete three redundant files
 
 - `.rocketvault-test.yaml`
