@@ -6,16 +6,33 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/internal/logging"
 )
+
+// newLogCapturingDBRepository returns a DBRepository whose logger is backed
+// by a logrus test hook, so tests can assert on warn-level output without a
+// real log sink. Kept minimal rather than restructuring logging.Logger --
+// the DBRepository just needs a *logging.Logger, which wraps any
+// *logrus.Logger.
+func newLogCapturingDBRepository(t *testing.T, conn *sql.DB) (*test.Hook, *DBRepository) {
+	t.Helper()
+	base, hook := test.NewNullLogger()
+	base.SetLevel(logrus.DebugLevel)
+	repo := NewRepository(logging.WrapLogrus(base))
+	return hook, repo
+}
 
 // newTestDBRepository creates the minimal old-shape prerequisite tables that
 // migrateSchema's ALTER TABLE statements need a target for (the same set the
@@ -182,6 +199,64 @@ func TestMigrateSchema_CreatesVaultProvisioningGrants(t *testing.T) {
 		`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_vaults_created_by'`,
 	).Scan(&name)
 	require.NoError(t, err, "migrateSchema must create idx_vaults_created_by")
+}
+
+// TestWarnGlobalVaultManageGrants_LogsEachHolder verifies that a global
+// (vault_id IS NULL) vaults:manage allow is reported, and that a
+// vault-scoped one is not -- the latter is unaffected by the coming
+// narrowing and must not send operators chasing a grant that is not at risk.
+func TestWarnGlobalVaultManageGrants_LogsEachHolder(t *testing.T) {
+	database, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer database.Close()
+
+	_, err = database.Exec(`
+		CREATE TABLE access_policies (
+			id TEXT PRIMARY KEY, principal_id TEXT NOT NULL, principal_type TEXT NOT NULL,
+			resource_type TEXT NOT NULL, operation TEXT NOT NULL, effect TEXT NOT NULL,
+			vault_id TEXT NULL, assignment_id TEXT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);`)
+	require.NoError(t, err)
+
+	holder := uuid.New().String()
+	// A global allow: must be reported.
+	_, err = database.Exec(
+		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id)
+		 VALUES (?, ?, 'user', 'vaults', 'manage', 'allow', NULL)`, uuid.New().String(), holder)
+	require.NoError(t, err)
+	// A vault-scoped allow: must NOT be reported, it is unaffected by release 2.
+	_, err = database.Exec(
+		`INSERT INTO access_policies (id, principal_id, principal_type, resource_type, operation, effect, vault_id)
+		 VALUES (?, ?, 'user', 'vaults', 'manage', 'allow', ?)`,
+		uuid.New().String(), uuid.New().String(), uuid.New().String())
+	require.NoError(t, err)
+
+	hook, repo := newLogCapturingDBRepository(t, database)
+	repo.warnGlobalVaultManageGrants(database)
+
+	var messages []string
+	for _, e := range hook.AllEntries() {
+		messages = append(messages, e.Message+fmt.Sprint(e.Data))
+	}
+	joined := strings.Join(messages, "\n")
+	require.Contains(t, joined, holder, "the global-grant holder must be named in the log")
+	require.Equal(t, 1, strings.Count(joined, "global vaults:manage"),
+		"only the global grant is reported; vault-scoped grants are unaffected by release 2")
+}
+
+// TestWarnGlobalVaultManageGrants_MissingTableDoesNotPanic pins the
+// never-fail-startup posture: a query error against a partially-built
+// schema (e.g. a migrateSchema-only test fixture with no access_policies
+// table) must be logged and swallowed, never panic or propagate.
+func TestWarnGlobalVaultManageGrants_MissingTableDoesNotPanic(t *testing.T) {
+	database, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	defer database.Close()
+
+	_, repo := newLogCapturingDBRepository(t, database)
+
+	require.NotPanics(t, func() { repo.warnGlobalVaultManageGrants(database) },
+		"a diagnostic must never fail startup on a partially-built schema")
 }
 
 // TestSeedDefaultVault_Idempotent verifies seedDefaultVault does not error or duplicate.
