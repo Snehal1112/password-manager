@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"rocketvault/internal/vaultapi"
 )
 
 // loginArgs are the arguments to login.
@@ -41,7 +43,10 @@ func (s *Server) handleLogin(ctx context.Context, _ *mcp.CallToolRequest, args l
 		return errorResult("login requires username, password and totp_code"), loginResult{}, nil
 	}
 
-	source, identity, err := s.client.Login(ctx, args.Username, args.Password, args.TOTPCode, s.jwtExpiry)
+	// No SaveSession hook: an in-chat login stays in memory and never
+	// writes to ~/.rocketvault/sessions.
+	source, identity, err := s.client.Login(ctx, args.Username, args.Password, args.TOTPCode,
+		vaultapi.LoginOptions{Expiry: s.jwtExpiry})
 	if err != nil {
 		return errorResult(
 			"login failed: %s. Check the username and password, and that the TOTP code is current.",
