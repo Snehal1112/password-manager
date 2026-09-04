@@ -481,6 +481,20 @@ func (f *fakeGrantService) ListGrants(context.Context) ([]*model.VaultProvisioni
 	return nil, nil
 }
 
+// noopCreatorGranter satisfies vaultServices.CreatorGranter by accepting
+// every write and recording nothing -- this package's tests only need the
+// quota-bounded create to succeed, not to inspect the grant rows it writes
+// (that's covered in internal/services/vaults/vault_provisioned_create_test.go).
+type noopCreatorGranter struct{}
+
+func (noopCreatorGranter) CreatePolicyTx(context.Context, rvdb.DBTX, *model.AccessPolicy) error {
+	return nil
+}
+
+func (noopCreatorGranter) CreateRoleTx(context.Context, rvdb.DBTX, *model.RoleAssignment) error {
+	return nil
+}
+
 // newTestAPIWithGrant builds a vault API whose caller holds a provisioning
 // grant but neither the admin role nor a global vaults:manage policy --
 // exercising createVault's CreateRightProvisioningGrant path. The caller in
@@ -542,6 +556,13 @@ func newTestAPIWithGrant(t *testing.T, principalID uuid.UUID, quota int) *API {
 	svc := vaultServices.NewVaultService(vaultRepo, vaultNoopCascade{}, nil)
 	svc.SetTxBeginner(conn)
 	svc.SetGrantLocker(grantRepo)
+	// CreatorGranter must be wired too: vaultService.CreateVaultProvisioned
+	// fails closed when it's nil (a quota-bounded create whose creator ends
+	// up with no rights over what it made would permanently strand a quota
+	// slot). This handler-level test only cares that the create succeeds, not
+	// what the grant writes contain -- see
+	// internal/services/vaults/vault_provisioned_create_test.go for that.
+	svc.SetCreatorGranter(noopCreatorGranter{})
 
 	grant := &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: principalID, Quota: quota}
 	cont := &vaultSvcTestContainer{

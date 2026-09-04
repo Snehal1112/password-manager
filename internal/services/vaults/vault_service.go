@@ -386,7 +386,12 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 			return err
 		}
 		if s.creatorGranter == nil {
-			return nil
+			// Creating a vault whose creator holds no rights over it -- and
+			// which permanently occupies a quota slot, since only a purge
+			// (which this creator cannot perform) frees one -- is worse than
+			// refusing the create outright. Fail closed, same posture as the
+			// txBeginner/grantLocker guard above.
+			return fmt.Errorf("creator grants cannot be written: grant support is not wired")
 		}
 		// The creator becomes full manager of what it created: vault-scoped
 		// vaults:manage for lifecycle operations, and Key Vault Administrator
