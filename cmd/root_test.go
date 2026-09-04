@@ -621,111 +621,6 @@ func TestIsRemoteCapableCommand(t *testing.T) {
 	}
 }
 
-func TestResolveRemoteAuthentication_UsernamePassword_Success(t *testing.T) {
-	common.SessionBaseDir = t.TempDir()
-	previousExpiry := viper.Get("jwt.expiry")
-	viper.Set("jwt.expiry", time.Hour)
-	t.Cleanup(func() { viper.Set("jwt.expiry", previousExpiry) })
-
-	userID := uuid.New()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/users/login", r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(model.LoginResponse{
-			Token: "tok", RefreshToken: "rtok", UserID: userID.String(), Username: "admin", Roles: []string{"admin"},
-		})
-	}))
-	defer srv.Close()
-
-	target := &cliclient.Target{Server: srv.URL}
-	c := newAuthTestCmd("admin", "pass123", "123456")
-	result, err := resolveRemoteAuthentication(c, target, srv.Client())
-
-	require.NoError(t, err)
-	assert.Equal(t, "tok", result.Token)
-
-	cached, err := common.LoadSessionForServer(common.SanitizeServerKey(srv.URL), "admin")
-	require.NoError(t, err)
-	require.NotNil(t, cached)
-	assert.Equal(t, "tok", cached.Token)
-	assert.Equal(t, common.SanitizeServerKey(srv.URL), cached.ServerKey)
-}
-
-func TestResolveRemoteAuthentication_UsernameOnly_LoadsNamedCachedSession(t *testing.T) {
-	common.SessionBaseDir = t.TempDir()
-	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
-	serverKey := common.SanitizeServerKey(target.Server)
-	require.NoError(t, common.SaveSession(&common.SessionCache{
-		Token: "cached-tok", Username: "admin", ServerKey: serverKey, ExpiresAt: time.Now().Add(time.Hour),
-	}))
-
-	c := newAuthTestCmd("admin", "", "")
-	result, err := resolveRemoteAuthentication(c, target, http.DefaultClient)
-
-	require.NoError(t, err)
-	assert.Equal(t, "cached-tok", result.Token)
-}
-
-// TestResolveRemoteAuthentication_CurrentSession_WrongServer_NotUsed verifies
-// that the global "current session" pointer (see common/session.go) is never
-// reused across servers: a cached current session for one server must not
-// leak its token into a request against a different one.
-func TestResolveRemoteAuthentication_CurrentSession_WrongServer_NotUsed(t *testing.T) {
-	common.SessionBaseDir = t.TempDir()
-	require.NoError(t, common.SaveSession(&common.SessionCache{
-		Token: "other-server-tok", Username: "admin",
-		ServerKey: common.SanitizeServerKey("https://other.example.com"),
-		ExpiresAt: time.Now().Add(time.Hour),
-	}))
-
-	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
-	c := newAuthTestCmd("", "", "")
-	_, err := resolveRemoteAuthentication(c, target, http.DefaultClient)
-
-	require.Error(t, err, "a cached session for a different server must not be reused")
-}
-
-func TestResolveRemoteAuthentication_ExpiredCache_RefreshesTransparently(t *testing.T) {
-	common.SessionBaseDir = t.TempDir()
-	userID := uuid.New()
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/api/v1/users/refresh", r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(model.RefreshTokenResponse{
-			Token: "new-tok", RefreshToken: "new-refresh", UserID: userID.String(), Username: "admin", Roles: []string{"admin"},
-			ExpiresAt: time.Now().Add(time.Hour),
-		})
-	}))
-	defer srv.Close()
-
-	target := &cliclient.Target{Server: srv.URL}
-	serverKey := common.SanitizeServerKey(srv.URL)
-	require.NoError(t, common.SaveSession(&common.SessionCache{
-		Token: "old-tok", RefreshToken: "old-refresh", Username: "admin", ServerKey: serverKey,
-		ExpiresAt: time.Now().Add(-time.Minute),
-	}))
-
-	c := newAuthTestCmd("", "", "")
-	result, err := resolveRemoteAuthentication(c, target, srv.Client())
-
-	require.NoError(t, err)
-	assert.Equal(t, "new-tok", result.Token)
-
-	cached, err := common.LoadSessionForServer(serverKey, "admin")
-	require.NoError(t, err)
-	require.NotNil(t, cached)
-	assert.Equal(t, "new-tok", cached.Token, "the refreshed token must be re-cached")
-}
-
-func TestResolveRemoteAuthentication_NoCredsNoCache_ReturnsError(t *testing.T) {
-	common.SessionBaseDir = t.TempDir()
-	target := &cliclient.Target{Server: "https://vault.prod.example.com"}
-	c := newAuthTestCmd("", "", "")
-	_, err := resolveRemoteAuthentication(c, target, http.DefaultClient)
-	assert.Error(t, err)
-}
-
 // TestPersistentPreRun_RemoteTarget_SecretsList_UsesRemoteAdapter is the
 // end-to-end proof that "secrets list --server <url>" actually reaches the
 // remote server instead of either falling back to a local instance or being
@@ -929,4 +824,71 @@ func TestResolveRemoteTokenSource_HalfCredentials_IsUsageError(t *testing.T) {
 	_, err := resolveRemoteTokenSource(c, target, http.DefaultClient)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "client-secret")
+}
+
+func TestRemotePersistentPreRun_StashesVaultapiClient(t *testing.T) {
+	common.SessionBaseDir = t.TempDir()
+	serverKey := common.SanitizeServerKey("https://vault.example.com")
+	require.NoError(t, common.SaveSession(&common.SessionCache{
+		Token: "tok", RefreshToken: "refresh", Username: "admin",
+		ServerKey: serverKey, ExpiresAt: time.Now().Add(time.Hour),
+	}))
+
+	c := newAuthTestCmd("", "", "")
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+	c.Flags().String("ca-cert", "", "")
+	c.Flags().Bool("insecure-skip-verify", false, "")
+	c.Flags().String("output", "table", "") // required: formatter.New("") rejects the empty format
+	c.SetContext(context.Background())
+
+	target := &cliclient.Target{Server: "https://vault.example.com"}
+	require.NoError(t, remotePersistentPreRun(c, target))
+
+	client, ok := c.Context().Value(common.RemoteClientKey).(*vaultapi.Client)
+	require.True(t, ok, "remote pre-run must stash a *vaultapi.Client")
+	require.NotNil(t, client)
+}
+
+func TestRemoteGuard_AllowsUsersLoginAndLogout(t *testing.T) {
+	for _, name := range []string{"login", "logout"} {
+		users := &cobra.Command{Use: "users"}
+		sub := &cobra.Command{Use: name}
+		users.AddCommand(sub)
+		assert.True(t, isRemoteCapableCommand(sub), "%q must reach its remote adapter", name)
+		assert.True(t, isRemoteUnauthenticatedCommand(sub), "%q must not be pre-authenticated", name)
+	}
+}
+
+func TestRemoteGuard_StillBlocksUnmigratedGroups(t *testing.T) {
+	keys := &cobra.Command{Use: "keys"}
+	sub := &cobra.Command{Use: "list"}
+	keys.AddCommand(sub)
+	assert.False(t, isRemoteCapableCommand(sub))
+}
+
+// B54: with no session cached and no credentials passed, the pre-run must
+// still hand `users login` a client -- that is the exact situation where the
+// old pre-run failed before the command body ever ran.
+func TestRemotePersistentPreRun_UnauthenticatedCommand_StashesClientWithNoSession(t *testing.T) {
+	common.SessionBaseDir = t.TempDir() // nothing cached
+
+	users := &cobra.Command{Use: "users"}
+	c := newAuthTestCmd("", "", "")
+	c.Use = "login"
+	users.AddCommand(c)
+	c.Flags().String("client-id", "", "")
+	c.Flags().String("client-secret", "", "")
+	c.Flags().String("ca-cert", "", "")
+	c.Flags().Bool("insecure-skip-verify", false, "")
+	c.Flags().String("output", "table", "")
+	c.SetContext(context.Background())
+
+	target := &cliclient.Target{Server: "https://vault.example.com"}
+	require.NoError(t, remotePersistentPreRun(c, target),
+		"users login must not require a session to reach its RunE")
+
+	client, ok := c.Context().Value(common.RemoteClientKey).(*vaultapi.Client)
+	require.True(t, ok, "the unauthenticated branch must still stash a *vaultapi.Client")
+	require.NotNil(t, client)
 }

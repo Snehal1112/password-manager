@@ -18,12 +18,11 @@ type clientCalledRoute struct {
 	Caller string
 }
 
-// clientCalledRoutes lists every path called by internal/cliclient and
-// internal/vaultapi. Keep this in sync when either package starts or stops
-// calling a path.
+// clientCalledRoutes lists every path called by internal/vaultapi. Keep this
+// in sync when that package starts or stops calling a path.
 var clientCalledRoutes = []clientCalledRoute{
-	{"POST", "/api/v1/users/login", "cliclient.LoginRemote, vaultapi.Login"},
-	{"POST", "/api/v1/users/refresh", "cliclient.RefreshRemote, vaultapi.SessionSource.refresh"},
+	{"POST", "/api/v1/users/login", "vaultapi.Login"},
+	{"POST", "/api/v1/users/refresh", "vaultapi.SessionSource.refresh"},
 	{"POST", "/api/v1/oauth2/token", "vaultapi.ServiceAccountSource"},
 	{"GET", "/api/v1/vaults/{vault_name}/role-assignments", "vaultapi.ListRoleAssignments"},
 	{"POST", "/api/v1/vaults/{vault_name}/role-assignments", "vaultapi.CreateRoleAssignment"},
@@ -57,13 +56,13 @@ func stripConstraints(tmpl string) string {
 
 // TestClientPathsAreRegistered walks the real router -- the same
 // construction api.Init uses in production -- and asserts that every path a
-// Go client in this repo (internal/cliclient, internal/vaultapi) calls is
-// registered with the method it uses.
+// Go client in this repo (internal/vaultapi) calls is registered with the
+// method it uses.
 //
-// This test exists because the httptest-server mocks used by cliclient's and
-// vaultapi's own unit tests answer whatever path they are asked for -- a
-// mock is not a router, so it cannot catch a client calling a path the real
-// server never registers. That gap let RefreshRemote post to
+// This test exists because the httptest-server mocks used by vaultapi's own
+// unit tests answer whatever path they are asked for -- a mock is not a
+// router, so it cannot catch a client calling a path the real server never
+// registers. That gap let the now-deleted cliclient.RefreshRemote post to
 // "/api/v1/refresh" (unregistered; refreshToken is only mounted at
 // "/api/v1/users/refresh" on the users subrouter) while its own test and
 // cmd/root_test.go both asserted the wrong path against such a mock and

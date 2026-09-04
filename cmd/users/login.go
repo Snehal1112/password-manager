@@ -32,8 +32,10 @@ import (
 	"github.com/spf13/viper"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/internal/vaultapi"
 )
 
 // loginCmd represents the login command
@@ -53,6 +55,12 @@ don't need credentials repeated.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := cmd.Context()
+
+		// Branch before the service-container lookup: remote mode has no
+		// container.
+		if target, ok := ctx.Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
+			return runRemoteLogin(cmd, target)
+		}
 
 		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 		if !ok || serviceContainer == nil {
@@ -81,9 +89,51 @@ don't need credentials repeated.`,
 		}
 
 		logger.LogAuditInfo(session.UserID.String(), "login", "success", fmt.Sprintf("user logged in: %s", username))
-		fmt.Printf("Login successful, JWT token: %s\n", session.Token)
+		// The JWT is deliberately not printed: it would land in shell
+		// history and CI logs for no benefit, since the session is cached.
+		fmt.Printf("Login successful as %s.\n", session.Username)
 		return nil
 	},
+}
+
+// runRemoteLogin authenticates against a remote target rather than the local
+// service container. vaultapi.Login stamps ServerKey from the client's base
+// URL, so the session lands in that server's own file and the "current"
+// pointer follows it -- a remote login never overwrites a local one.
+func runRemoteLogin(cmd *cobra.Command, target *cliclient.Target) error {
+	ctx := cmd.Context()
+
+	client, ok := ctx.Value(common.RemoteClientKey).(*vaultapi.Client)
+	if !ok || client == nil {
+		return fmt.Errorf("remote API client not available in context")
+	}
+
+	if oidc, _ := cmd.Flags().GetBool("oidc"); oidc {
+		return runOIDCLogin(cmd, nil)
+	}
+
+	// A context may carry a default username; command flags still win.
+	username := viper.GetString("username")
+	if username == "" {
+		username = target.Username
+	}
+	password := viper.GetString("password")
+	totpCode := viper.GetString("totp-code")
+
+	if username == "" || password == "" || totpCode == "" {
+		return fmt.Errorf("username, password, and totp-code are required")
+	}
+
+	_, identity, err := client.Login(ctx, username, password, totpCode, vaultapi.LoginOptions{
+		Expiry:      viper.GetDuration("jwt.expiry"),
+		SaveSession: common.SaveSession,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to login: %w", err)
+	}
+
+	fmt.Printf("Login successful as %s.\n", identity.Username)
+	return nil
 }
 
 // performPasswordLogin authenticates via username/password/TOTP and caches

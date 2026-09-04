@@ -35,16 +35,25 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
 )
 
 const (
 	oidcLoginTimeout = 5 * time.Minute
 	oidcBasePath     = "/api/v1"
+	// defaultOIDCSessionExpiry is the access-token lifetime assumed when
+	// jwt.expiry is unset -- normal in remote mode, where no config file is
+	// loaded. Deliberately shorter than the 1h both shipped configs set:
+	// assuming too short only triggers an early refresh, while assuming too
+	// long sends a token the server has already rejected. Matches
+	// vaultapi's defaultLoginExpiry.
+	defaultOIDCSessionExpiry = 15 * time.Minute
 )
 
 // oidcExchangeResponse mirrors model.LoginResponse's JSON shape, returned
@@ -127,7 +136,11 @@ func startLoopbackListener() (redirectURI string, wait func(timeout time.Duratio
 
 // exchangeOIDCCode redeems a one-time code from the loopback callback for a
 // full session via POST {baseURL}/api/v1/oidc/cli/exchange.
-func exchangeOIDCCode(ctx context.Context, baseURL, code string) (*common.SessionCache, error) {
+//
+// httpClient carries the invocation's TLS trust options (--ca-cert,
+// --insecure-skip-verify) in remote mode; nil falls back to
+// http.DefaultClient, which is what local mode wants.
+func exchangeOIDCCode(ctx context.Context, httpClient *http.Client, baseURL, code string) (*common.SessionCache, error) {
 	body, err := json.Marshal(map[string]string{"code": code})
 	if err != nil {
 		return nil, err
@@ -139,7 +152,10 @@ func exchangeOIDCCode(ctx context.Context, baseURL, code string) (*common.Sessio
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -159,13 +175,20 @@ func exchangeOIDCCode(ctx context.Context, baseURL, code string) (*common.Sessio
 		return nil, fmt.Errorf("exchange response has an invalid user_id: %w", err)
 	}
 
+	// jwt.expiry is 0 in remote mode with no config file loaded, which would
+	// make the session born already expired. Mirror vaultapi.Login's floor.
+	expiry := viper.GetDuration("jwt.expiry")
+	if expiry <= 0 {
+		expiry = defaultOIDCSessionExpiry
+	}
+
 	return &common.SessionCache{
 		Token:        exchanged.Token,
 		RefreshToken: exchanged.RefreshToken,
 		UserID:       userID,
 		Username:     exchanged.Username,
 		Roles:        exchanged.Roles,
-		ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
+		ExpiresAt:    time.Now().Add(expiry),
 	}, nil
 }
 
@@ -175,9 +198,22 @@ func exchangeOIDCCode(ctx context.Context, baseURL, code string) (*common.Sessio
 // waits for the resulting one-time exchange code, redeems it for a
 // session, and caches the session to disk.
 func runOIDCLogin(cmd *cobra.Command, serviceContainer container.ServiceContainerInterface) error {
-	baseURL := viper.GetString("frontend.public_api_url")
-	if baseURL == "" {
-		return fmt.Errorf("frontend.public_api_url is not configured — required for OIDC CLI login")
+	ctx := cmd.Context()
+
+	// In remote mode the target names the server; local mode falls back to
+	// the configured public API URL, and keeps its "not configured" error.
+	var baseURL string
+	var httpClient *http.Client
+	target, remote := ctx.Value(common.RemoteTargetKey).(*cliclient.Target)
+	remote = remote && target != nil
+	if remote {
+		baseURL = target.Server
+		httpClient, _ = ctx.Value(common.RemoteHTTPClientKey).(*http.Client)
+	} else {
+		baseURL = viper.GetString("frontend.public_api_url")
+		if baseURL == "" {
+			return fmt.Errorf("frontend.public_api_url is not configured — required for OIDC CLI login")
+		}
 	}
 
 	redirectURI, wait, err := startLoopbackListener()
@@ -197,17 +233,34 @@ func runOIDCLogin(cmd *cobra.Command, serviceContainer container.ServiceContaine
 		return err
 	}
 
-	session, err := exchangeOIDCCode(cmd.Context(), baseURL, code)
+	session, err := exchangeOIDCCode(ctx, httpClient, baseURL, code)
 	if err != nil {
 		return fmt.Errorf("login exchange failed, please try again: %w", err)
 	}
 
-	if err := common.SaveSession(session); err != nil {
-		serviceContainer.GetLogger().WithError(err).Warn("failed to cache CLI session")
+	// Stamp the server key only in remote mode. Local mode leaves it empty,
+	// which normalises to LocalServerKey -- stamping the configured public
+	// API URL there would move the local session's file and change
+	// local-mode behaviour.
+	if remote {
+		session.ServerKey = common.SanitizeServerKey(baseURL)
 	}
 
-	serviceContainer.GetLogger().LogAuditInfo(session.UserID.String(), "login", "success",
-		fmt.Sprintf("user logged in via OIDC: %s", session.Username))
+	if err := common.SaveSession(session); err != nil {
+		if serviceContainer != nil {
+			serviceContainer.GetLogger().WithError(err).Warn("failed to cache CLI session")
+		} else {
+			logrus.WithError(err).Warn("failed to cache CLI session")
+		}
+	}
+
+	// Keep the service-container logger when there is one: LogAuditInfo
+	// persists an audit row, so falling back to logrus unconditionally would
+	// silently stop local OIDC logins from being audited.
+	if serviceContainer != nil {
+		serviceContainer.GetLogger().LogAuditInfo(session.UserID.String(), "login", "success",
+			fmt.Sprintf("user logged in via OIDC: %s", session.Username))
+	}
 	fmt.Printf("Login successful as %s\n", session.Username)
 	return nil
 }
