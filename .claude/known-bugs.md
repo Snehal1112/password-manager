@@ -3574,7 +3574,13 @@ Error: vault "acme-pinned" is protected from purge
 The vault is now permanently soft-deleted, permanently occupies a quota
 slot, and cannot be purged by anyone, including an admin —
 `PurgeVault`'s `v.PurgeProtection` check (`vault_service.go:737-739`) applies
-uniformly to every caller, with no override.
+uniformly to every caller, with no override. This is not permanent data
+pollution, though: an admin has a recovery path —
+`vaults recover` → `vaults update --purge-protection=false` → `vaults delete`
+→ `vaults purge` — since `RecoverVault` and `UpdateVault` are not subject to
+the same guard, so the slot can still be freed manually. It is a recoverable
+quota nuisance requiring an admin's intervention, not a permanently stuck
+vault.
 
 **Root cause**: the create-time guard
 (`if quotaBounded && req.PurgeProtection != nil && *req.PurgeProtection`,

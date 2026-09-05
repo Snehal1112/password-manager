@@ -28,9 +28,10 @@ var createCmd = &cobra.Command{
 	Long: `Create a new vault: an isolated boundary for secrets, keys, and
 certificates, with its own access grants.
 
-Requires the admin account role, or an access-policy allow on (vaults,
-manage) scoped globally rather than to a specific vault, since the vault
-being created does not exist yet to scope the check to.
+Requires the admin account role, an access-policy allow on (vaults, manage)
+scoped globally rather than to a specific vault (since the vault being
+created does not exist yet to scope the check to), or a bounded vault
+provisioning grant.
 
 The vault name is the positional argument; this command has no --vault
 flag.
