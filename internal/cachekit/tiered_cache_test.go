@@ -17,9 +17,10 @@ import (
 // completely unreachable — every method degrades exactly as the spec
 // requires a real network failure to degrade.
 type fakeL2 struct {
-	mu   sync.Mutex
-	data map[string][]byte
-	down bool
+	mu        sync.Mutex
+	data      map[string][]byte
+	down      bool
+	keysCalled int
 }
 
 func newFakeL2() *fakeL2 { return &fakeL2{data: make(map[string][]byte)} }
@@ -52,6 +53,7 @@ func (f *fakeL2) Invalidate(wireKey string) {
 func (f *fakeL2) Keys(prefix string) []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.keysCalled++
 	if f.down {
 		return nil
 	}
@@ -234,7 +236,7 @@ func TestTieredCache_Range_EarlyStop_SkipsL2Scan(t *testing.T) {
 	l1 := cachekit.New[string, *codecTestValue](cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0})
 	defer l1.Stop()
 	l2 := newFakeL2()
-	l2.down = true // if Range reaches L2 after an early stop, Keys returns nil harmlessly either way -- down proves it's never even attempted via a separate assertion below
+	l2.down = true
 	tc := newTieredForTest(l1, l2)
 	l1.Set("only-one", &codecTestValue{Name: "x", N: 1})
 
@@ -244,6 +246,7 @@ func TestTieredCache_Range_EarlyStop_SkipsL2Scan(t *testing.T) {
 		return false // stop immediately
 	})
 	assert.Equal(t, 1, visits)
+	assert.Zero(t, l2.keysCalled, "L2.Keys must not be called when Range callback returns false on first L1 entry")
 }
 
 func TestTieredCache_DeleteByIDPattern_FindsL2OnlyEntry(t *testing.T) {
