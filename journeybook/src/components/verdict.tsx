@@ -1,3 +1,4 @@
+import { memo } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import type { Verdict } from "@/lib/run-state"
@@ -104,12 +105,21 @@ export function TickStrip({
  * a real name, which is why it is aria-hidden and out of the tab order -- a
  * screen reader gets the figures below it as plain text instead of a second
  * set of twenty-one identical links.
+ *
+ * `activeKey` marks the journey the reader is currently scrolled into. It
+ * matters because the strip is sticky: once it is on screen for the whole run
+ * rather than only at the top of the page, "where in the run are the failures"
+ * gains a second half -- "and where am I relative to them". The mark is the
+ * same underline hover already uses, at full strength, so the strip grows no
+ * new visual device to say it.
  */
 export function RunStrip({
   groups,
+  activeKey,
   className,
 }: {
   groups: SuiteTally[]
+  activeKey?: string | null
   className?: string
 }) {
   return (
@@ -124,40 +134,62 @@ export function RunStrip({
       )}
     >
       {groups.map((g) => (
-        <a
-          key={g.key}
-          href={`#suite-${g.key}`}
-          // Focusable children inside an aria-hidden subtree are an
-          // accessibility fault. `inert` would fix that too, but it also kills
-          // the click this exists for.
-          tabIndex={-1}
-          // Grow by case count, so a 23-case journey takes 23/208 of the
-          // strip. Inline because the value is data, and Tailwind can only
-          // emit class names it literally sees in the source.
-          style={{ flex: `${g.count} 1 0` }}
-          // border-b-transparent is load-bearing: the base layer applies
-          // border-border to *, so a bare border-b-2 draws a grey rule under
-          // every group. The clip is per-group as well as on the strip --
-          // ticks have a 1px floor, so a squeezed group whose content will not
-          // fit paints over its neighbour rather than losing its own tail.
-          className="flex min-w-0 items-end gap-px overflow-hidden rounded-[2px] border-b-2 border-b-transparent pb-[5px] transition-colors hover:border-b-primary xl:gap-[2px]"
-        >
-          {g.ticks.map((t) => (
-            <span
-              key={t.id}
-              title={`${t.id} — ${t.title} · ${said[t.verdict]}`}
-              className={cn(
-                "min-w-px flex-1 rounded-[1.5px] transition-colors",
-                t.verdict === "fail" ? "h-[29px]" : "h-[22px]",
-                fill[t.verdict]
-              )}
-            />
-          ))}
-        </a>
+        <RunStripGroup key={g.key} group={g} active={g.key === activeKey} />
       ))}
     </div>
   )
 }
+
+/**
+ * One journey's link and ticks, split out of RunStrip so a scroll-driven
+ * activeKey change only re-renders the two groups whose active state
+ * actually flipped. `groups` is a stable-identity array from the caller's
+ * useMemo, so memo's shallow prop check holds for every group but those two
+ * -- turning "recreate 245 ticks" into "recreate ~2 groups' worth" on the
+ * other 21.
+ */
+const RunStripGroup = memo(function RunStripGroup({
+  group,
+  active,
+}: {
+  group: SuiteTally
+  active: boolean
+}) {
+  return (
+    <a
+      href={`#suite-${group.key}`}
+      // Focusable children inside an aria-hidden subtree are an
+      // accessibility fault. `inert` would fix that too, but it also kills
+      // the click this exists for.
+      tabIndex={-1}
+      // Grow by case count, so a 23-case journey takes 23/208 of the
+      // strip. Inline because the value is data, and Tailwind can only
+      // emit class names it literally sees in the source.
+      style={{ flex: `${group.count} 1 0` }}
+      // border-b-transparent is load-bearing: the base layer applies
+      // border-border to *, so a bare border-b-2 draws a grey rule under
+      // every group. The clip is per-group as well as on the strip --
+      // ticks have a 1px floor, so a squeezed group whose content will not
+      // fit paints over its neighbour rather than losing its own tail.
+      className={cn(
+        "flex min-w-0 items-end gap-px overflow-hidden rounded-[2px] border-b-2 border-b-transparent pb-[5px] transition-colors hover:border-b-primary xl:gap-[2px]",
+        active && "border-b-primary"
+      )}
+    >
+      {group.ticks.map((t) => (
+        <span
+          key={t.id}
+          title={`${t.id} — ${t.title} · ${said[t.verdict]}`}
+          className={cn(
+            "min-w-px flex-1 rounded-[1.5px] transition-colors",
+            t.verdict === "fail" ? "h-[29px]" : "h-[22px]",
+            fill[t.verdict]
+          )}
+        />
+      ))}
+    </a>
+  )
+})
 
 /**
  * The three-state control, repeated on every one of 200-odd rows. Both states

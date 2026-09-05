@@ -12,6 +12,11 @@ import * as React from "react"
 import { ChevronDown } from "lucide-react"
 import { Prose } from "@/components/prose"
 import { Terminal } from "@/components/terminal"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
 
 /** Remembers which prep panels a tester has folded away. */
@@ -66,8 +71,7 @@ function Panel({
     if (collapsible) setOpen(readOpen(id, true))
   }, [collapsible, id])
 
-  const toggle = () => {
-    const next = !open
+  const onOpenChange = (next: boolean) => {
     setOpen(next)
     writeOpen(id, next)
   }
@@ -89,34 +93,47 @@ function Panel({
     <section
       id={id}
       aria-labelledby={`${id}-heading`}
-      className="scroll-mt-24 rounded-lg border border-border bg-card"
+      // Same clearance the journey sections use: two standing bands overhead,
+      // the masthead's readout and the checks toolbar.
+      className="scroll-mt-[calc(var(--pin-h)+4.5rem)] rounded-lg border border-border bg-card"
     >
+      {/* The same registry Collapsible the rail's panels use, rather than the
+          hand-wired aria-expanded / aria-controls pair this carried before.
+          base-ui derives both from the trigger and panel it owns, so the ids
+          cannot fall out of step, and the two panel implementations on this
+          page stop diverging for no reason.
+
+          It ships no classes of its own -- collapsible.tsx is a pass-through
+          that adds only a data-slot -- so the trigger keeps the exact class
+          string the button had, .focus-ring included. The unstyled root div
+          between the section and its children is inert in block flow. */}
       {collapsible ? (
-        <button
-          type="button"
-          onClick={toggle}
-          aria-expanded={open}
-          aria-controls={`${id}-body`}
-          className={cn(
-            "focus-ring flex w-full items-start gap-3 px-5 py-3.5 text-left",
-            open && "border-b border-border"
-          )}
-        >
-          <span className="min-w-0 flex-1">{heading}</span>
-          <ChevronDown
-            aria-hidden="true"
+        <Collapsible open={open} onOpenChange={onOpenChange}>
+          <CollapsibleTrigger
             className={cn(
-              "mt-1 size-4 shrink-0 text-muted-foreground transition-transform",
-              !open && "-rotate-90"
+              "focus-ring flex w-full items-start gap-3 px-5 py-3.5 text-left",
+              open && "border-b border-border"
             )}
-          />
-        </button>
+          >
+            <span className="min-w-0 flex-1">{heading}</span>
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "mt-1 size-4 shrink-0 text-muted-foreground transition-transform",
+                !open && "-rotate-90"
+              )}
+            />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-5 py-4">{children}</div>
+          </CollapsibleContent>
+        </Collapsible>
       ) : (
-        <div className="border-b border-border px-5 py-3.5">{heading}</div>
+        <>
+          <div className="border-b border-border px-5 py-3.5">{heading}</div>
+          <div className="px-5 py-4">{children}</div>
+        </>
       )}
-      <div id={`${id}-body`} className="px-5 py-4" hidden={!open}>
-        {children}
-      </div>
     </section>
   )
 }

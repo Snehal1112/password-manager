@@ -23,7 +23,16 @@ const flagLabel: Record<NonNullable<Case["flag"]>, string> = {
   trap: "Trap",
 }
 
-export function CaseRow({
+/**
+ * One check.
+ *
+ * Memoised, and the two callbacks hand the row's own id back rather than
+ * closing over it, so App can pass every row the same pair. A closure per row
+ * would be a fresh prop on each App render and this memo would never hold --
+ * and App re-renders on every keystroke, every j/k move, and every scroll into
+ * a new journey.
+ */
+export const CaseRow = React.memo(function CaseRow({
   item,
   verdict,
   onVerdict,
@@ -33,9 +42,9 @@ export function CaseRow({
 }: {
   item: FlatCase
   verdict: Verdict
-  onVerdict: (v: Verdict) => void
+  onVerdict: (id: string, v: Verdict) => void
   open: boolean
-  onToggle: () => void
+  onToggle: (id: string) => void
   focused: boolean
 }) {
   const panelId = `case-panel-${item.id}`
@@ -45,6 +54,12 @@ export function CaseRow({
   React.useEffect(() => {
     first.current = false
   }, [])
+
+  const toggle = React.useCallback(() => onToggle(item.id), [onToggle, item.id])
+  const record = React.useCallback(
+    (v: Verdict) => onVerdict(item.id, v),
+    [onVerdict, item.id]
+  )
 
   return (
     <li
@@ -67,7 +82,7 @@ export function CaseRow({
       <div className="flex flex-col gap-1.5 py-2.5 pr-3 pl-5 sm:flex-row sm:items-start sm:gap-3">
         <button
           type="button"
-          onClick={onToggle}
+          onClick={toggle}
           aria-expanded={open}
           aria-controls={panelId}
           className="focus-ring group flex min-w-0 flex-1 items-start gap-3 text-left"
@@ -99,7 +114,7 @@ export function CaseRow({
           <span className="label shrink-0 text-muted-foreground sm:w-16 sm:text-right">
             {surfaceLabel[item.surface]}
           </span>
-          <VerdictControl verdict={verdict} onChange={onVerdict} size="sm" />
+          <VerdictControl verdict={verdict} onChange={record} size="sm" />
         </div>
       </div>
 
@@ -134,4 +149,4 @@ export function CaseRow({
       ) : null}
     </li>
   )
-}
+})
