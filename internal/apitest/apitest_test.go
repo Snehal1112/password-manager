@@ -13,6 +13,7 @@ import (
 
 	"rocketvault/cmd/testutils"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
 
@@ -59,8 +60,7 @@ func TestNew_ServesTheRealHandler(t *testing.T) {
 // on RoleAssignment.VaultName below decodes through vaultapi's own
 // independently-declared roleAssignmentWire (internal/vaultapi/access.go),
 // not through the model type the handler marshals from, so a tag rename on
-// the model side leaves the wire struct stale and the decode empty -- see
-// the CONTROLLER AMENDMENT proof recorded in task-2-report.md.
+// the model side leaves the wire struct stale and the decode empty.
 func TestServer_ClientSendsBearerToken(t *testing.T) {
 	var gotToken string
 
@@ -95,4 +95,28 @@ func TestServer_ClientSendsBearerToken(t *testing.T) {
 		"decoded via vaultapi's own wire struct -- a stale tag here yields an empty VaultName")
 
 	assert.Equal(t, srv.URL(), srv.Target().Server)
+}
+
+// TestOptions_DenyDataAction_Produces403 proves a test can opt into a real
+// authorization denial travelling the real error path, rather than asserting
+// against a hand-written 403.
+//
+// This targets ListSecrets (a vault data-plane route), not a role-assignment
+// route: role-assignment routes are RouteUnmanaged (MapRouteToDataAction), so
+// their authorization is decided entirely inside the handler via
+// CanManageRoleAssignments, which short-circuits to true for a global admin
+// before ever consulting HasDataAction -- the harness's caller is always a
+// global admin (see New's ValidateSession stub), so DenyDataAction has no
+// observable effect there. Vault data-plane routes are gated unconditionally
+// by PolicyMiddleware's HasDataAction check instead, with no admin bypass, so
+// that is where this option's denial actually travels the real error path.
+func TestOptions_DenyDataAction_Produces403(t *testing.T) {
+	srv := New(t, Options{DenyDataAction: model.ActionSecretsReadMetadata})
+
+	_, _, err := srv.Client().ListSecrets(context.Background(), "payments", 0)
+
+	require.Error(t, err)
+	var apiErr *vaultapi.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, vaultapi.KindForbidden, apiErr.Kind)
 }
