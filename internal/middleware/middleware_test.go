@@ -102,7 +102,7 @@ type stubVaultService struct {
 func (s *stubVaultService) CreateVault(context.Context, model.CreateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
-func (s *stubVaultService) CreateVaultProvisioned(context.Context, model.CreateVaultRequest, uuid.UUID, bool) (*model.Vault, error) {
+func (s *stubVaultService) CreateVaultProvisioned(context.Context, model.CreateVaultRequest, uuid.UUID, bool, bool) (*model.Vault, error) {
 	return nil, nil
 }
 func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, error) {

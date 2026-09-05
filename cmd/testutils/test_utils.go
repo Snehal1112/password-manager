@@ -603,8 +603,8 @@ func (m *MockVaultService) CreateVault(ctx context.Context, req model.CreateVaul
 	return args.Get(0).(*model.Vault), args.Error(1)
 }
 
-func (m *MockVaultService) CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded bool) (*model.Vault, error) {
-	args := m.Called(ctx, req, createdBy, quotaBounded)
+func (m *MockVaultService) CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded, grantCreatorRights bool) (*model.Vault, error) {
+	args := m.Called(ctx, req, createdBy, quotaBounded, grantCreatorRights)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
