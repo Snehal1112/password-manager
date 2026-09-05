@@ -1,8 +1,16 @@
 //go:build integration
 
-// Package container integration suite proves the full Rocket-mem-backed
-// TieredCache stack (Plans 01-08) works end-to-end for all four domains
-// against a real, TLS+ACL-configured Rocket-mem instance. Run with:
+// This file is the live end-to-end Rocket-mem integration suite. It proves
+// the full Rocket-mem-backed TieredCache stack (Plans 01-08) works
+// end-to-end for all four domains against a real, TLS+ACL-configured
+// Rocket-mem instance -- specifically, that the L2 tier (Rocket-mem itself)
+// is actually reachable and round-trips correctly, not merely that each
+// domain cache's in-process L1 works (that's already covered by the
+// existing unit suites). Every test below therefore uses two independent
+// ServiceContainers, each with its own fresh L1, both pointed at the same
+// Rocket-mem address/credentials: a write via container A and a read via
+// container B can only succeed through the shared L2, since B's L1 has
+// never seen A's write. Run with:
 //
 //	go test -tags=integration ./internal/container/... -run TestRocketMem -v
 //
@@ -89,38 +97,55 @@ func newRocketMemEnabledContainer(t *testing.T) *ServiceContainer {
 	return c
 }
 
+// TestRocketMem_SecretCache_RoundTripsThroughRealContainer proves a genuine
+// cross-process cache hit: containerA and containerB are separate
+// ServiceContainers, each with its own fresh, never-shared L1. Set goes
+// through containerA (populating A's L1 and, via TieredCache, the shared
+// Rocket-mem L2). Get goes through containerB, whose L1 has never seen this
+// secret -- a hit there can only have come from the shared L2.
 func TestRocketMem_SecretCache_RoundTripsThroughRealContainer(t *testing.T) {
-	c := newRocketMemEnabledContainer(t)
+	containerA := newRocketMemEnabledContainer(t)
+	containerB := newRocketMemEnabledContainer(t)
 	ctx := context.Background()
 	vaultID, secretID := uuid.New(), uuid.New()
 	scope := model.NewVaultScope(vaultID, uuid.New())
 	secret := &model.Secret{ID: secretID, VaultID: vaultID, Name: "n", Value: "integration-secret-value", Version: 1, CreatedAt: time.Now(), Enabled: true}
 
-	require.NoError(t, c.GetSecretCache().Set(ctx, secret, scope))
-	got, ok := c.GetSecretCache().Get(ctx, secretID, scope)
+	require.NoError(t, containerA.GetSecretCache().Set(ctx, secret, scope))
+	got, ok := containerB.GetSecretCache().Get(ctx, secretID, scope)
 	require.True(t, ok)
 	require.Equal(t, "integration-secret-value", got.Value)
 }
 
 // TestRocketMem_KeyCache_RoundTripsThroughRealContainer proves a genuine
-// cross-process cache hit through the real container's rocket-mem-backed
-// KeyCache: the mock repository returns valid ciphertext on the first
-// Read (populating the cache via a miss) and deliberately corrupted
-// ciphertext on the second Read. If the second Sign still produces a
-// signature that verifies against the original public key, the key
-// material for it could only have come from the cache (Rocket-mem), not a
-// fresh AES-GCM decrypt of the now-garbage value -- mirrors the call-count
-// assertion technique in internal/services/keys/crypto_service_cache_test.go's
+// cross-process cache hit through the real, shared Rocket-mem-backed
+// KeyCache: svcA and svcB are two CryptoService instances wired to two
+// separate ServiceContainers' KeyCaches (so separate, never-shared L1s) but
+// sharing one mock KeyRepositoryInterface. The mock returns valid
+// ciphertext on the first Read (svcA's cache miss, which decrypts it and
+// populates svcA's L1 *and* the shared Rocket-mem L2) and deliberately
+// corrupted ciphertext on the second Read (svcB's call). svcB's L1 has
+// never seen this key, so it can only satisfy the lookup via the shared L2.
+// If the second Sign still produces a signature that verifies against the
+// original public key, the key material for it could only have come from
+// the shared L2 (Rocket-mem) -- if svcB's L2 lookup had missed too, it would
+// have fallen through to a fresh AES-GCM decrypt of the corrupted value,
+// which either errors or produces a signature that fails verification.
+// Mirrors the call-count assertion technique in
+// internal/services/keys/crypto_service_cache_test.go's
 // TestCacheHit_ReducesDecryptCalls, adapted to prove correctness against a
-// real cache instead of counting calls on a mock one.
+// real, shared cache instead of counting calls on a mock one.
 func TestRocketMem_KeyCache_RoundTripsThroughRealContainer(t *testing.T) {
-	c := newRocketMemEnabledContainer(t)
+	containerA := newRocketMemEnabledContainer(t)
+	containerB := newRocketMemEnabledContainer(t)
 
+	origMasterKey := viper.GetString("master_key")
 	masterKey := make([]byte, 32)
 	for i := range masterKey {
 		masterKey[i] = byte(i + 1)
 	}
 	viper.Set("master_key", base64.StdEncoding.EncodeToString(masterKey))
+	t.Cleanup(func() { viper.Set("master_key", origMasterKey) })
 
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
@@ -133,6 +158,8 @@ func TestRocketMem_KeyCache_RoundTripsThroughRealContainer(t *testing.T) {
 	userID, keyID := uuid.New(), uuid.New()
 	scope := model.NewOwnerScope(uuid.Nil, userID)
 
+	// One mock repository shared by both services -- it's a plain Go value,
+	// not owned by either container.
 	repo := mocks.NewMockKeyRepositoryInterface(t)
 	repo.On("CurrentVersion", mock.Anything, keyID).Return(1, nil)
 	repo.On("Read", mock.Anything, keyID, scope).
@@ -140,26 +167,36 @@ func TestRocketMem_KeyCache_RoundTripsThroughRealContainer(t *testing.T) {
 	repo.On("Read", mock.Anything, keyID, scope).
 		Return(&model.Key{ID: keyID, UserID: userID, Type: "RSA", Value: corruptedCiphertext, Enabled: true}, nil).Once()
 
-	svc := keys.NewCryptoService(keys.CryptoServiceConfig{
+	svcA := keys.NewCryptoService(keys.CryptoServiceConfig{
 		KeyRepository: repo,
-		KeyCache:      c.GetKeyCache(), // the real, rocket-mem-backed cache -- not a mock
+		KeyCache:      containerA.GetKeyCache(), // real, rocket-mem-backed cache -- container A's fresh L1
+		Logger:        &logging.Logger{Logger: logrus.New()},
+	})
+	svcB := keys.NewCryptoService(keys.CryptoServiceConfig{
+		KeyRepository: repo,
+		KeyCache:      containerB.GetKeyCache(), // real, rocket-mem-backed cache -- container B's fresh, separate L1
 		Logger:        &logging.Logger{Logger: logrus.New()},
 	})
 
 	data := []byte("integration test payload")
 
-	// First Sign: cache miss, decrypts validCiphertext, caches it (in L1 and,
-	// via TieredCache, in the real Rocket-mem instance).
-	res1, err := svc.Sign(context.Background(), keys.SignRequest{
+	// First Sign via svcA: cache miss on A's fresh L1, decrypts
+	// validCiphertext (the repo's first Read), caches the result in A's L1
+	// and, via TieredCache, in the shared Rocket-mem L2.
+	res1, err := svcA.Sign(context.Background(), keys.SignRequest{
 		KeyID: keyID, UserID: userID, Scope: scope, Data: data, Algorithm: crypto.AlgorithmRS256,
 	})
 	require.NoError(t, err)
 
-	// Second Sign: repo now returns corrupted ciphertext, so if this call
-	// reached the decrypt path at all it would either error or produce a
-	// signature that fails verification. A successful, valid signature
-	// proves the key material came from the cache.
-	res2, err := svc.Sign(context.Background(), keys.SignRequest{
+	// Second Sign via svcB: B's L1 has never seen this key, so this can
+	// only be satisfied by the shared L2 (Rocket-mem). The repo's second
+	// Read (used only on a total cache miss) now returns corrupted
+	// ciphertext, so if this call reached the decrypt path at all it would
+	// either error or produce a signature that fails verification. A
+	// successful, valid signature proves the key material came from the
+	// shared L2, not a fresh decrypt and not svcA's L1 (svcB never touches
+	// svcA's L1 -- they're different CryptoService/KeyCache instances).
+	res2, err := svcB.Sign(context.Background(), keys.SignRequest{
 		KeyID: keyID, UserID: userID, Scope: scope, Data: data, Algorithm: crypto.AlgorithmRS256,
 	})
 	require.NoError(t, err)
@@ -169,23 +206,33 @@ func TestRocketMem_KeyCache_RoundTripsThroughRealContainer(t *testing.T) {
 	assert.NotEmpty(t, res1.Signature)
 }
 
+// TestRocketMem_CertCache_RoundTripsThroughRealContainer proves a genuine
+// cross-process cache hit: Set via containerA, Get via containerB, whose
+// fresh L1 has never seen this certificate -- a hit there can only have
+// come from the shared L2.
 func TestRocketMem_CertCache_RoundTripsThroughRealContainer(t *testing.T) {
-	c := newRocketMemEnabledContainer(t)
+	containerA := newRocketMemEnabledContainer(t)
+	containerB := newRocketMemEnabledContainer(t)
 	ctx := context.Background()
 	vaultID, certID := uuid.New(), uuid.New()
 	scope := model.NewVaultScope(vaultID, uuid.New())
 	cert := &model.Certificate{ID: certID, VaultID: vaultID, Name: "n", Certificate: "PUBLIC-PEM", PrivateKey: "encrypted-ciphertext", Enabled: true, CreatedAt: time.Now()}
 
-	require.NoError(t, c.GetCertificateCache().Set(ctx, cert, scope))
-	got, ok := c.GetCertificateCache().Get(ctx, certID, scope)
+	require.NoError(t, containerA.GetCertificateCache().Set(ctx, cert, scope))
+	got, ok := containerB.GetCertificateCache().Get(ctx, certID, scope)
 	require.True(t, ok)
 	require.Equal(t, "PUBLIC-PEM", got.Certificate)
 }
 
+// TestRocketMem_VaultCache_RoundTripsThroughRealContainer proves a genuine
+// cross-process cache hit: Set via containerA, Get via containerB, whose
+// fresh L1 has never seen this vault -- a hit there can only have come from
+// the shared L2.
 func TestRocketMem_VaultCache_RoundTripsThroughRealContainer(t *testing.T) {
-	c := newRocketMemEnabledContainer(t)
-	c.GetVaultCache().Set("integration-vault", &model.Vault{Name: "integration-vault", Enabled: true})
-	got, ok := c.GetVaultCache().Get("integration-vault")
+	containerA := newRocketMemEnabledContainer(t)
+	containerB := newRocketMemEnabledContainer(t)
+	containerA.GetVaultCache().Set("integration-vault", &model.Vault{Name: "integration-vault", Enabled: true})
+	got, ok := containerB.GetVaultCache().Get("integration-vault")
 	require.True(t, ok)
 	require.Equal(t, "integration-vault", got.Name)
 }
