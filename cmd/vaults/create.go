@@ -85,7 +85,7 @@ creation time.`,
 			case errors.Is(err, vaultServices.ErrVaultQuotaExceeded):
 				return fmt.Errorf("failed to create vault: %w -- soft-deleting a vault does not free a quota slot; a slot is released only when the vault is purged, which requires an administrator or a Key Vault Purge Operator grant. Ask an administrator to purge a vault or raise your quota", err)
 			case errors.Is(err, vaultServices.ErrPurgeProtectionNotPermitted):
-				return fmt.Errorf("failed to create vault: %w -- only an administrator can set --purge-protection", err)
+				return fmt.Errorf("failed to create vault: %w -- a quota-bounded provisioning grant cannot set --purge-protection; an admin or a global vaults:manage holder can", err)
 			default:
 				return fmt.Errorf("failed to create vault: %w", err)
 			}

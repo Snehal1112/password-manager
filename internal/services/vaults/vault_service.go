@@ -347,8 +347,10 @@ var ErrVaultQuotaExceeded = errors.New("vault provisioning quota exceeded")
 // ErrPurgeProtectionNotPermitted means a quota-bounded caller tried to set
 // purge_protection. Allowing it would let a grantee protect a vault,
 // soft-delete it, and hold the quota slot forever, since PurgeVault refuses a
-// protected vault and the purge scheduler honours the same flag.
-var ErrPurgeProtectionNotPermitted = errors.New("purge protection may only be set by an administrator")
+// protected vault and the purge scheduler honours the same flag. The guard is
+// on quotaBounded specifically, not on "non-admin": a global-policy holder,
+// who has no quota to pin, may still set purge_protection.
+var ErrPurgeProtectionNotPermitted = errors.New("purge protection may only be set on a create that is not quota-bounded")
 
 // CreateVaultProvisioned creates a vault, enforcing the caller's provisioning
 // quota when quotaBounded is true and granting the caller full management

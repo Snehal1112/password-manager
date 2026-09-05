@@ -85,16 +85,18 @@ func CanPurgeVault(ctx context.Context, accountRoles []string, roles RoleAssignm
 // (see internal/middleware/middleware.go). Only AccessFallback (no matching
 // policy row) falls through to the role-assignment check.
 //
-// vaultID == uuid.Nil always denies here, unlike CanManageVault's identically
-// shaped guard. CanManageVault's uuid.Nil branch serves a real collection-level
-// decision (create/list a vault). Role assignments have no such collection
-// level -- there is no "manage role assignments across every vault" operation
-// -- so this branch has no real decision to serve. Routing it to CheckAccess
-// anyway would re-widen the exact thing this release narrows: a global
-// vaults:manage allow satisfying role-assignment management everywhere. Every
-// call site passes a resolved vault ID today, so this is dead code in
-// practice; it fails closed rather than mirroring CanManageVault so a future
-// caller can't accidentally reopen that widening by passing uuid.Nil.
+// vaultID == uuid.Nil always denies a non-admin caller here, unlike
+// CanManageVault's identically shaped guard -- the admin account role still
+// short-circuits above and returns true regardless. CanManageVault's
+// uuid.Nil branch serves a real collection-level decision (create/list a
+// vault). Role assignments have no such collection level -- there is no
+// "manage role assignments across every vault" operation -- so this branch
+// has no real decision to serve. Routing it to CheckAccess anyway would
+// re-widen the exact thing this release narrows: a global vaults:manage
+// allow satisfying role-assignment management everywhere. Every call site
+// passes a resolved vault ID today, so this is dead code in practice; it
+// fails closed rather than mirroring CanManageVault so a future caller can't
+// accidentally reopen that widening by passing uuid.Nil.
 func CanManageRoleAssignments(ctx context.Context, accountRoles []string, policies AccessPolicyService, roles RoleAssignmentService, principalID, vaultID uuid.UUID, write bool) bool {
 	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
 		return true
