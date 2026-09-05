@@ -341,3 +341,75 @@ func TestLoadRotationConfig_PartialSet(t *testing.T) {
 	assert.True(t, cfg.Keys.Enabled, "Keys.Enabled should still use the default (true)")
 	assert.Equal(t, time.Hour, cfg.Keys.Interval, "Keys.Interval should still use the default (1h)")
 }
+
+// ---------------------------------------------------------------------------
+// TestLoadRocketMemConfig_* tests
+// ---------------------------------------------------------------------------
+
+func resetRocketMemViperKeys(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{
+		"cache.rocket_mem.enabled", "cache.rocket_mem.addr", "cache.rocket_mem.tls",
+		"cache.rocket_mem.username", "cache.rocket_mem.password",
+		"cache.rocket_mem.dial_timeout", "cache.rocket_mem.read_timeout",
+		"cache.rocket_mem.write_timeout", "cache.rocket_mem.pool_size",
+	} {
+		viper.Set(k, nil)
+	}
+}
+
+func TestLoadRocketMemConfig_DefaultsDisabled(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.False(t, cfg.Enabled)
+}
+
+func TestLoadRocketMemConfig_EnabledWithoutTLS_FailsClosed(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	viper.Set("cache.rocket_mem.enabled", true)
+	viper.Set("cache.rocket_mem.tls", false)
+	viper.Set("cache.rocket_mem.username", "vault")
+	viper.Set("cache.rocket_mem.password", "secret")
+
+	_, err := LoadRocketMemConfig()
+	assert.Error(t, err, "enabling rocket_mem without TLS must fail startup, not degrade silently")
+}
+
+func TestLoadRocketMemConfig_EnabledWithoutCredentials_FailsClosed(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	viper.Set("cache.rocket_mem.enabled", true)
+	viper.Set("cache.rocket_mem.tls", true)
+	viper.Set("cache.rocket_mem.username", "")
+	viper.Set("cache.rocket_mem.password", "")
+
+	_, err := LoadRocketMemConfig()
+	assert.Error(t, err, "enabling rocket_mem against a would-be-open ACL must fail startup")
+}
+
+func TestLoadRocketMemConfig_EnabledWithTLSAndCredentials_Succeeds(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	viper.Set("cache.rocket_mem.enabled", true)
+	viper.Set("cache.rocket_mem.addr", "rocketmem.internal:6380")
+	viper.Set("cache.rocket_mem.tls", true)
+	viper.Set("cache.rocket_mem.username", "rocketvault")
+	viper.Set("cache.rocket_mem.password", "s3cret")
+
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "rocketmem.internal:6380", cfg.Addr)
+	assert.True(t, cfg.TLS)
+	assert.Equal(t, "rocketvault", cfg.Username)
+	assert.Equal(t, "s3cret", cfg.Password)
+}
+
+func TestLoadRocketMemConfig_DefaultTimeoutsAndPoolSize(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 100*time.Millisecond, cfg.DialTimeout)
+	assert.Equal(t, 100*time.Millisecond, cfg.ReadTimeout)
+	assert.Equal(t, 100*time.Millisecond, cfg.WriteTimeout)
+	assert.Equal(t, 10, cfg.PoolSize)
+}
