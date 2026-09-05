@@ -67,13 +67,43 @@ func newRoleAssignmentCtx(role string, policySvc authzServices.AccessPolicyServi
 	}
 }
 
+// TestRoleAssignments_GlobalVaultsManageCannotGrantInAnyVault pins the
+// escalation path from the design doc's Problem section. Before the narrowing,
+// a NULL-scoped vaults:manage allow satisfied CanManageRoleAssignments for
+// EVERY vault, so its holder could award itself Key Vault Administrator
+// anywhere. CheckAccess still says allowed -- the global row does match -- and
+// that must no longer be what the handler consults.
+func TestRoleAssignments_GlobalVaultsManageCannotGrantInAnyVault(t *testing.T) {
+	policySvc := &mockAccessPolicyService{}
+	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessAllowed, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+
+	c := newRoleAssignmentCtx("user", policySvc)
+	w := httptest.NewRecorder()
+	body := []byte(`{"principal":"alice","role":"key-vault-administrator"}`)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/vaults/prod/role-assignments", bytes.NewReader(body))
+
+	createRoleAssignment(c, w, r)
+	if c.Err != nil {
+		writeError(w, c)
+	}
+
+	assert.Equal(t, http.StatusForbidden, w.Code,
+		"a global vaults:manage allow must not permit granting roles in a vault")
+}
+
 // TestRoleAssignments_GrantRequiresAdmin verifies a non-admin caller without a
 // vaults/manage policy is rejected with 403 before the service is invoked.
 func TestRoleAssignments_GrantRequiresAdmin(t *testing.T) {
-	// Non-admin: CanManageRoleAssignments falls through to CheckAccess, which
-	// returns AccessFallback (no policy), so the caller is denied.
+	// Non-admin: CanManageRoleAssignments falls through to the vault-scoped
+	// policy check, which returns AccessFallback (no policy), so the caller is
+	// denied.
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 
 	c := newRoleAssignmentCtx("user", policySvc)
@@ -148,6 +178,8 @@ func TestRoleAssignments_GrantAllowedForDataAccessAdministrator(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
 
 	roleSvc := &mockRoleAssignmentService{}
 	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsWrite).
@@ -190,6 +222,8 @@ func TestRoleAssignments_GrantDeniedRoleNotGrantable_Returns403(t *testing.T) {
 
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 
 	roleSvc := &mockRoleAssignmentService{}
@@ -235,6 +269,8 @@ func TestRoleAssignments_RevokeDeniedRoleNotGrantable_Returns403(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
 
 	roleSvc := &mockRoleAssignmentService{}
 	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
@@ -273,6 +309,8 @@ func TestRoleAssignments_GrantDeniedForDataAccessAdministratorInWrongVault(t *te
 
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 
 	roleSvc := &mockRoleAssignmentService{}
@@ -314,6 +352,8 @@ func TestRoleAssignments_RevokeAllowedForDataAccessAdministrator(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
 
 	roleSvc := &mockRoleAssignmentService{}
 	roleSvc.On("HasDataAction", mock.Anything, callerID, vaultID, model.ActionRoleAssignmentsDelete).
@@ -354,6 +394,8 @@ func TestRoleAssignments_DataAccessAdministrator_GrantAndRevokeComposeAcrossVaul
 
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 
 	roleSvc := &mockRoleAssignmentService{}

@@ -2,14 +2,18 @@ package authorization_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
 	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	rvdb "rocketvault/internal/db"
+	"rocketvault/internal/repositories"
 	"rocketvault/internal/services/authorization"
 	"rocketvault/model"
 )
@@ -209,6 +213,58 @@ func TestCheckVaultScopedAccess_RepoErrorFailsClosed(t *testing.T) {
 	got, err := svc.CheckVaultScopedAccess(ctx, pid, model.PolicyResourceVaults, model.OpManage, vaultID)
 	require.Error(t, err)
 	assert.Equal(t, authorization.AccessFallback, got)
+}
+
+// TestCheckAccess_GlobalDenyBlocksDataPlaneInEveryVault is the regression pin
+// for the one thing the vault-management narrowing must never touch: a
+// NULL-scoped (global) DENY on a data-plane resource keeps blocking in every
+// vault. That is what CheckAccess and the repository's
+// "(vault_id = ? OR vault_id IS NULL)" clause exist for, and it is the sole
+// mechanism behind an operator suspending a principal instance-wide.
+//
+// Every other suite that covers a deny -- PolicyMiddleware's and
+// vaultcli.RequireDataAction's -- stubs the AccessPolicyService itself, so it
+// asserts only "AccessDenied yields 403", never that a NULL-scoped row
+// produces AccessDenied. This test therefore runs the real service over the
+// real repository against SQLite, so a narrowing that leaked into CheckAccess
+// or FindEffects would fail here rather than pass unnoticed everywhere.
+func TestCheckAccess_GlobalDenyBlocksDataPlaneInEveryVault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sqlDB, err := sql.Open("sqlite3", ":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	_, err = sqlDB.ExecContext(ctx, `CREATE TABLE access_policies (
+		id             TEXT PRIMARY KEY,
+		principal_id   TEXT NOT NULL,
+		principal_type TEXT NOT NULL,
+		resource_type  TEXT NOT NULL,
+		operation      TEXT NOT NULL,
+		effect         TEXT NOT NULL,
+		vault_id       TEXT NULL,
+		assignment_id  TEXT NULL,
+		created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	require.NoError(t, err)
+
+	repo := repositories.NewAccessPolicyRepository(rvdb.NewConn(sqlDB, rvdb.SQLite))
+	svc := authorization.NewAccessPolicyService(repo)
+	principalID := uuid.New()
+
+	// A single global deny row: no vault_id, so it belongs to no vault.
+	require.NoError(t, repo.Create(ctx, &model.AccessPolicy{
+		ID: uuid.New(), PrincipalID: principalID, PrincipalType: model.PrincipalTypeUser,
+		ResourceType: model.PolicyResourceSecrets, Operation: model.OpGet,
+		Effect: model.PolicyEffectDeny, VaultID: nil,
+	}))
+
+	// Two unrelated vaults, neither named by the policy row.
+	for _, vaultID := range []uuid.UUID{uuid.New(), uuid.New()} {
+		got, err := svc.CheckAccess(ctx, principalID, model.PolicyResourceSecrets, model.OpGet, vaultID)
+		require.NoError(t, err)
+		assert.Equal(t, authorization.AccessDenied, got,
+			"a global deny on secrets:get must block in every vault")
+	}
 }
 
 func TestCreatePolicy_AssignsIDAndTimestamp(t *testing.T) {

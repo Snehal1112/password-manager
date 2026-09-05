@@ -230,6 +230,11 @@ func TestVaultWebhook_Unauthorized_Returns403(t *testing.T) {
 			policy := &mockAccessPolicyService{}
 			policy.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(authzServices.AccessDenied, nil)
+			// A webhook route always targets one vault, so CanManageVault
+			// consults the vault-scoped check. The deny is stubbed on both:
+			// a deny matches whatever its scope.
+			policy.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(authzServices.AccessDenied, nil)
 			api, _ := newWebhookTestAPI(t, stub, policy)
 
 			w := doVaultRequestAs(api, model.RoleUser, tc.method, "/api/v1/vaults/prod/webhook", tc.body)

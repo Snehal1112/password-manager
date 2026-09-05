@@ -55,7 +55,13 @@ func buildAuthzVaultAPI(policySvc authzServices.AccessPolicyService) (*API, uuid
 func TestGetVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	// No policy covers prod's ID -> AccessFallback -> CanManageVault denies.
+	// A get targets one vault, so the decision comes from
+	// CheckVaultScopedAccess; CheckAccess is stubbed to the same fallback so
+	// the fixture describes one principal consistently.
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 
@@ -66,11 +72,16 @@ func TestGetVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
 }
 
 // TestGetVault_AllowedWhenScopedToTargetVault proves that a matching vaults:manage
-// grant on the target vault still returns 200.
+// grant on the target vault still returns 200. The grant is vault-scoped: that
+// is the only shape that confers management of one vault, a global (vault_id
+// NULL) allow no longer does.
 func TestGetVault_AllowedWhenScopedToTargetVault(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	api, id := buildAuthzVaultAPI(policySvc)
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, id).
+		Return(authzServices.AccessAllowed, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, id).
 		Return(authzServices.AccessAllowed, nil)
 
@@ -84,6 +95,8 @@ func TestGetVault_NotFoundBeforeForbidden(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
 	api, _ := buildAuthzVaultAPI(policySvc)
 
 	w := doVaultRequestAs(api, string(model.RoleUser), http.MethodGet, "/api/v1/vaults/ghost", nil)
@@ -94,6 +107,9 @@ func TestGetVault_NotFoundBeforeForbidden(t *testing.T) {
 func TestUpdateVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 	api, _ := buildAuthzVaultAPI(policySvc)
@@ -109,6 +125,8 @@ func TestUpdateVault_NotFoundBeforeForbidden(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
 	api, _ := buildAuthzVaultAPI(policySvc)
 
 	body := []byte(`{"enabled":false}`)
@@ -120,6 +138,9 @@ func TestUpdateVault_NotFoundBeforeForbidden(t *testing.T) {
 func TestDeleteVault_ForbiddenWhenNotScopedToTargetVault(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 	api, _ := buildAuthzVaultAPI(policySvc)
@@ -185,8 +206,13 @@ func TestVaultManage_ScopedToDefault_CannotReachOtherVault(t *testing.T) {
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, defID).
 		Return(authzServices.AccessAllowed, nil)
-	// ...but the handler's re-check against the target vault (B) is not.
+	// ...but the handler's vault-scoped re-check against the target vault (B)
+	// is not. The handler consults CheckVaultScopedAccess; CheckAccess is
+	// stubbed alongside it because PolicyMiddleware still uses that one.
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, prodID).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, prodID).
 		Return(authzServices.AccessFallback, nil)
 
@@ -212,6 +238,8 @@ func TestVaultManage_ScopedToDefault_CannotReachOtherVault(t *testing.T) {
 func TestVaultManage_RealAuthorizationMiddleware_NonAdminDeniedWithoutGrant(t *testing.T) {
 	policySvc := &mockAccessPolicyService{}
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(authzServices.AccessFallback, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(authzServices.AccessFallback, nil)
 	router, _ := buildChainedVaultAPI(policySvc)
 
@@ -250,12 +278,18 @@ func TestVaultManage_RealAuthorizationMiddleware_NonAdminAllowedWithGrant(t *tes
 
 	// The ambient PolicyMiddleware check (default vault, since {name} routes
 	// bypass VaultResolutionMiddleware) and the handler's own re-check
-	// (target vault "prod") are two distinct CheckAccess calls; both must
-	// allow for a 200.
+	// (target vault "prod") are two distinct calls; both must allow for a 200.
+	// They now hit different methods: the middleware still uses CheckAccess,
+	// while the handler uses the vault-scoped check. A real vault-scoped allow
+	// row on "prod" satisfies both, which is why both are stubbed allowed --
+	// only a NULL-scoped row would make them disagree.
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, defID).
 		Return(authzServices.AccessAllowed, nil)
 	policySvc.On("CheckAccess", mock.Anything, mock.Anything,
+		model.PolicyResourceVaults, model.OpManage, prodID).
+		Return(authzServices.AccessAllowed, nil)
+	policySvc.On("CheckVaultScopedAccess", mock.Anything, mock.Anything,
 		model.PolicyResourceVaults, model.OpManage, prodID).
 		Return(authzServices.AccessAllowed, nil)
 
