@@ -73,11 +73,13 @@ creation time.`,
 			req.RetentionDays = &rd
 		}
 
-		// Only a provisioning-grant holder is quota-bounded; admins and
-		// global-policy holders go through CreateVaultProvisioned's
-		// unbounded fallback to the pre-existing CreateVault behaviour.
+		// Only a provisioning grant is quota-bounded. Everyone except an admin
+		// receives creator grants over what they create: after the global-grant
+		// narrowing, a global-policy holder's instance-wide allow no longer
+		// covers the vault it just made.
 		vault, err := vaultService.CreateVaultProvisioned(ctx, req, userID,
-			right == authz.CreateRightProvisioningGrant)
+			right == authz.CreateRightProvisioningGrant,
+			right != authz.CreateRightAdmin)
 		if err != nil {
 			switch {
 			case errors.Is(err, vaultServices.ErrVaultQuotaExceeded):
