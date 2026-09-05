@@ -70,6 +70,16 @@ func newOSStoreProviderWithKeychain(cn string, kc keychainBackend) (*OSStoreProv
 		logrus.WithError(err).Warn("OSStoreProvider: keychain read failed (not ErrNotFound), regenerating key")
 	}
 
+	if key, err := loadFromPEMFile(); err == nil {
+		kid := thumbprint(key.Public())
+		logrus.WithField("kid", kid).Info("OSStoreProvider: loaded JWT signing key from PEM fallback file")
+		return &OSStoreProvider{
+			privateKey: key,
+			kid:        kid,
+			publicInfo: []PublicKeyInfo{{KeyID: kid, Algorithm: osStoreAlgorithm, PublicKey: key.Public()}},
+		}, nil
+	}
+
 	logrus.WithField("cn", cn).Warn("OSStoreProvider: no key in keychain, auto-generating RSA-2048 key")
 
 	key, cert, err := generateSelfSignedRSA(cn)
@@ -155,6 +165,16 @@ func generateSelfSignedRSA(cn string) (*rsa.PrivateKey, *x509.Certificate, error
 	return key, cert, nil
 }
 
+// fallbackKeyPath returns ~/.local/share/rocketvault/jwt-signing.pem, the
+// location persistKey writes to and loadFromPEMFile reads back from.
+func fallbackKeyPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "share", "rocketvault", "jwt-signing.pem"), nil
+}
+
 // persistKey writes the key + cert PEM to ~/.local/share/rocketvault/jwt-signing.pem.
 func persistKey(key *rsa.PrivateKey, cert *x509.Certificate, cn string) error {
 	keyPEM := pem.EncodeToMemory(&pem.Block{
@@ -167,18 +187,41 @@ func persistKey(key *rsa.PrivateKey, cert *x509.Certificate, cn string) error {
 	})
 	combined := append(certPEM, keyPEM...)
 
-	home, err := os.UserHomeDir()
+	userPath, err := fallbackKeyPath()
 	if err != nil {
-		return fmt.Errorf("cannot determine home dir: %w", err)
+		return err
 	}
-	dir := filepath.Join(home, ".local", "share", "rocketvault")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+	if err := os.MkdirAll(filepath.Dir(userPath), 0700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", filepath.Dir(userPath), err)
 	}
-	userPath := filepath.Join(dir, "jwt-signing.pem")
 	if err := os.WriteFile(userPath, combined, 0600); err != nil {
 		return fmt.Errorf("write to %s: %w", userPath, err)
 	}
 	logrus.WithField("path", userPath).Info("OSStoreProvider: persisted fallback key to user home")
 	return nil
+}
+
+// loadFromPEMFile reads back the key persistKey previously wrote, so that a
+// machine without a working OS keychain reuses the same JWT signing key
+// across restarts instead of generating a new one (and invalidating every
+// existing session) every time.
+func loadFromPEMFile() (*rsa.PrivateKey, error) {
+	userPath, err := fallbackKeyPath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(userPath)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			return nil, fmt.Errorf("no RSA PRIVATE KEY block in %s", userPath)
+		}
+		if block.Type == "RSA PRIVATE KEY" {
+			return x509.ParsePKCS1PrivateKey(block.Bytes)
+		}
+	}
 }

@@ -1358,7 +1358,7 @@ rocketvault context list --output json | jq '.[] | select(.current)'
 </pre></div>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: remote mode (--server/ROCKETVAULT_ADDR/context &quot;https://vault.prod.internal&quot;) is not yet supported for &quot;rocketvault keys list&quot;; unset it to run against the local instance
 </pre></div>
-<p><code>keys</code>, <code>certificate</code>, <code>vaults</code>, <code>vault-access</code>, <code>audit</code>, and the <code>users</code> <em>resource</em> commands have no remote adapter yet. The authority on what does is the <code>remoteCapableCommands</code> map in <code>cmd/root.go</code> — read that rather than this list, which has gone stale before. As of 2026-09-04 it holds <code>secrets</code> (all seven subcommands) and <code>users</code> (<code>login</code>, <code>logout</code>). With any context active, <code>persistentPreRun</code>'s remote-target guard refuses everything else rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.</p>
+<p><code>keys</code>, <code>certificate</code>, <code>vaults</code>, <code>audit</code>, and the <code>users</code> <em>resource</em> commands have no remote adapter yet — <code>vault-access</code> no longer belongs on this list (see below). The authority on what does is the <code>remoteCapableCommands</code> map in <code>cmd/root.go</code> — read that rather than this list, which has gone stale before. As of 2026-09-04 it held <code>secrets</code> (all seven subcommands) and <code>users</code> (<code>login</code>, <code>logout</code>); <code>vault-access</code> (<code>grant</code>, <code>list</code>, <code>revoke</code>) has since joined them. <code>vault-access roles</code> has not, and is not going to — it reads compiled-in role definitions and never contacts a server, so it's handled separately by <code>isLocalOnlyCommand</code> rather than by this map. With any context active, <code>persistentPreRun</code>'s remote-target guard refuses everything else rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.</p>
 <p><strong>For the groups that do have an adapter, there is no such guard — and the danger that creates is real, even if not literally silent:</strong></p>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault secrets delete &lt;secret-id&gt;
 </pre></div>
@@ -1428,6 +1428,74 @@ rocketvault secrets list --server https://vault.staging.internal:8443
 # Targets staging, not prod — an explicit --server always wins.
 </pre></div>
 <p><code>cliclient.ResolveTarget</code> checks, in order: the <code>--server</code> flag, then <code>ROCKETVAULT_ADDR</code>, then the active context. A context is the lowest-precedence, easiest-to-forget-about source of a target — which is exactly why it's the one that causes surprises days after it was set, not the one typed on the command line in front of you.</p>
+<h3 id="vault-access-works-remotely-too"><code>vault-access</code> works remotely too</h3>
+<p>Since <code>grant</code>, <code>list</code>, and <code>revoke</code> joined <code>remoteCapableCommands</code>, Priya can run
+the exact commands she'd use locally against <code>prod</code>, once authenticated the
+same way as any other remote command:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use prod
+rocketvault users login --username ops-oncall --password '&lt;prod-password&gt;' --totp-code 482913
+
+rocketvault vault-access grant daeho --role &quot;Key Vault Reader&quot; --vault prod
+# granted Key Vault Reader to daeho in vault (assignment &lt;assignment-id&gt;)
+
+rocketvault vault-access list --vault prod
+# ASSIGNMENT-ID                         ROLE                 PRINCIPAL-ID
+# &lt;assignment-id&gt;                       Key Vault Reader     &lt;daeho-user-id&gt;
+
+rocketvault vault-access revoke &lt;assignment-id&gt; --vault prod
+# revoked assignment &lt;assignment-id&gt;
+</pre></div>
+<p>Local and remote print through the same <code>Fprintf</code> format strings in
+<code>cmd/vault-access/{grant,list,revoke}.go</code> — there is no separate remote
+formatter, so this output is byte-identical to what the same commands print
+in local mode. A denial from the server surfaces the same way for all three:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">Error: failed to grant a role: no role assignment in this vault grants the required action
+</pre></div>
+<p>(substitute <code>list role assignments</code> or <code>revoke a role assignment</code> for the
+other two.)</p>
+<p><code>vault-access roles</code> did <strong>not</strong> join the map — as noted above, it's routed
+through <code>isLocalOnlyCommand</code> instead, because it only prints compiled-in role
+definitions and never contacts a server. An active context, local or remote,
+has no effect on it either way.</p>
+<h3 id="the-rocketvault_vault-divergence-vault-access-reads-it-secrets-doesnt">The <code>ROCKETVAULT_VAULT</code> divergence: <code>vault-access</code> reads it, <code>secrets</code> doesn't</h3>
+<p><code>vault-access grant/list/revoke</code> are the only three callers of
+<code>cliclient.ResolveRemoteVault</code> (<code>internal/cliclient/vault.go</code>), whose
+precedence is:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">--vault flag (only when Flags().Changed) &gt; ROCKETVAULT_VAULT &gt;
+context's default vault &gt; config &quot;vault&quot; key &gt; &quot;default&quot;
+</pre></div>
+<p>The <code>secrets</code> remote adapters (<code>cmd/secrets/list.go:138-141</code> and its
+siblings) never call that function — they still resolve the vault the older
+way:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">go</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">vault, _ := cmd.Flags().GetString(&quot;vault&quot;)
+if vault == &quot;&quot; {
+    vault = target.Vault
+}
+</pre></div>
+<p>— flag, then the context's default vault, skipping <code>ROCKETVAULT_VAULT</code>
+entirely. Priya can reproduce the gap in one shell, under one context:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault context use prod          # prod's default vault is &quot;prod&quot;
+export ROCKETVAULT_VAULT=payments
+
+rocketvault vault-access list
+# acts on &quot;payments&quot; -- ResolveRemoteVault honors the env var
+
+rocketvault secrets list
+# acts on &quot;prod&quot; -- the secrets adapter never looks at ROCKETVAULT_VAULT,
+# and falls straight back to the context's default vault
+</pre></div>
+<p>Same shell, same exported variable, same active context — two different
+vaults, depending only on which command group she typed. It's worth QA
+catching precisely because it's reproducible and quiet: neither command
+errors, and neither prints which vault it resolved to.</p>
+<p>One more wrinkle before relying on <code>--vault</code> to sidestep this:
+<code>ResolveRemoteVault</code> checks <code>cmd.Flags().Changed(&quot;vault&quot;)</code>, not whether the
+value is non-empty. A <code>--vault</code> left at a non-empty <em>default</em> is not a
+deliberate choice on the caller's part and will not outrank an exported
+<code>ROCKETVAULT_VAULT</code> — only a flag she actually typed does.</p>
+<p>This resolves when plan 07 migrates the <code>secrets</code> remote adapters onto
+<code>ResolveRemoteVault</code> too. Until then, treat <code>ROCKETVAULT_VAULT</code> as a
+<code>vault-access</code>-only setting rather than a CLI-wide one.</p>
 <hr>
 <h2 id="journey-u--wiring-and-not-relying-on-a-vault-webhook">Journey U — Wiring (and Not Relying On) a Vault Webhook</h2>
 <p><strong>Actor</strong>: Priya (<code>admin</code>) — webhook config is authorized by <code>CanManageVault</code>, the same vault-<em>management</em> tier as <code>vaults create/update/delete</code> (Correction 8's table), <strong>not</strong> a per-vault Azure data-plane role. Holding <code>Key Vault Administrator</code> or <code>Key Vault Crypto Officer</code> in a vault is not enough.</p>

@@ -631,3 +631,10 @@ JSON the test author wrote, so a renamed API field keeps them green. Plan 01's
 route-contract test catches wrong *paths*, not wrong *shapes*. **Sequence the
 in-process harness before plan 04**, not after — it is the difference between
 building it once and retrofitting it across five groups.
+
+**Closed 2026-09-05.** The harness landed as `internal/apitest`
+(`docs/superpowers/specs/2026-09-05-in-process-api-test-harness-design.md`,
+plans `2026-09-05-api-test-harness-01-core.md` and `-02-migrate-vault-access.md`),
+and `vault-access`'s three remote tests were migrated onto it. Plan 04 should
+use `apitest.New` from the start for `keys`, adding an `Options` field for the
+key service rather than hand-writing a handler.
