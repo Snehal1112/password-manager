@@ -619,19 +619,32 @@ against what webhook configuration actually is (storage only; nothing sends).
 scorecard was added. **Deliberately not added: a ➕ row for webhooks.** Per the
 sub-project 1 spec's own decision, a parity claim for CRUD with nothing wired to
 it would be premature; the row belongs here when something delivers. Also
-re-verified and unchanged: key import is still unroutable (`ActionKeysImport`
-appears only in `model/azure_roles.go`, never in `data_actions.go`), and the
-PKCS#11 provider still has no HMAC mechanism — both ❌ rows are current, not
-stale. `GET /secrets` was checked for the same defect as § B30 and is clean:
-`listSecrets` (`api/secrets.go:391`) builds its response without values
-deliberately, which is what makes the versions route an outlier rather than a
-pattern.*
+re-verified and unchanged at the time: key import was still unroutable
+(`ActionKeysImport` appeared only in `model/azure_roles.go`, never in
+`data_actions.go`), and the PKCS#11 provider still has no HMAC mechanism — see
+the 2026-08-26 correction below for the first of those two. `GET /secrets` was
+checked for the same defect as § B30 and is clean: `listSecrets`
+(`api/secrets.go:391`) builds its response without values deliberately, which
+is what makes the versions route an outlier rather than a pattern.*
 
-**Not supported (❌):** key import (declared as a role action in
-`model/azure_roles.go` but unroutable — no path maps to it), key release to
-confidential compute (TEE), HMAC sign/verify on symmetric keys (implemented in the
-crypto-operations layer but unreachable in practice — every oct key is HSM-backed and
-the PKCS#11 provider has no HMAC mechanism), public-CA / ACME certificate enrollment,
+*Corrected 2026-08-26: the "key import still unroutable" claim above, and its
+restatement in the "Not supported" list below, went stale five days after this
+reconciliation pass was written and were never updated. Key import shipped
+2026-08-25 (§2's own "Import key" row already said so) — `POST /keys/import`
+is registered on both the flat and vault-scoped routers (`api/keys.go:304`,
+`registerKeyRoutes`), `mapKeyAction`'s `case "import"` in
+`internal/services/authorization/data_actions.go:155-159` maps it to
+`model.ActionKeysImport`, and the CLI wraps it at `cmd/keys/import.go`
+(commits `cdbb5b9`, `d4dab13`, `92f4ad7`, `e23ec73`, all 2026-08-25). The
+scorecard was never wrong — §2's per-row text and the 71%/55/77 scorecard both
+already reflected this; only these two prose paragraphs lagged. Re-verified
+during a wider `az keyvault` CLI-parity audit (2026-08-26) that also confirmed
+the HMAC-on-symmetric-keys ❌ is still accurate.*
+
+**Not supported (❌):** key release to confidential compute (TEE), HMAC
+sign/verify on symmetric keys (implemented in the crypto-operations layer but
+unreachable in practice — every oct key is HSM-backed and the PKCS#11 provider
+has no HMAC mechanism), public-CA / ACME certificate enrollment,
 geo-replication, and cloud log sinks (Event Hub / Azure Monitor archive). RSNULL is
 intentionally omitted (TLS edge case, deprecated).
 
