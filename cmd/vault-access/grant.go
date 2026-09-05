@@ -17,6 +17,17 @@ import (
 // runGrantRemote grants a role against a remote server. Remote mode runs no
 // client-side authorization check: the server owns that decision, and its
 // 403 is mapped into readable text rather than pre-empted here.
+//
+// This is the canonical remote-adapter shape: take (cmd, client, target) as a
+// fixed prefix so the function is testable without assembling a context, then
+// the command's own input. cmd/secrets/*.go still uses the older form, which
+// takes a ctx and pulls TokenKey and RemoteHTTPClientKey out of it -- those
+// migrate to this shape in plan 08. Copy this one, not those.
+//
+// New adapters should pass their input as a request struct rather than
+// positionally: keys create has six flags, and the positional form would give
+// it nine parameters with four adjacent strings. See the Post-Execution Review
+// in docs/superpowers/plans/2026-09-03-cli-remote-vaultapi-03b-vault-access-adapter.md.
 func runGrantRemote(
 	cmd *cobra.Command,
 	client *vaultapi.Client,

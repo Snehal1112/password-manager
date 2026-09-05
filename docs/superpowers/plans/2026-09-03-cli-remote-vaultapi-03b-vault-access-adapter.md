@@ -530,3 +530,104 @@ vaultapi, convert to model types, print what local prints."
 **Ordering:** Task 1 establishes the adapter shape; Task 2 copies it twice; Task 3 removes the guard that keeps all three unreachable. Task 3 must be last — landing it earlier would expose commands whose remote branches do not exist yet.
 
 **Open question for review after execution:** whether `runXRemote` functions should take the client and target as parameters (as here) or pull them from the context themselves. Parameters make them directly testable without building a context, which is why they are used here — but if the six-argument `runGrantRemote` signature grows awkward in the keys group, that is the signal to revisit before plan 04 copies it.
+
+---
+
+## Post-Execution Review (2026-09-05)
+
+This plan asked to be reviewed before plan 04 copies its shape across `keys`,
+`certificates`, `audit` and `vaults`. That review is done. **The shape is
+sound and plan 04 should adopt it — with the three amendments below, which are
+binding on plan 04, not optional polish.**
+
+Reviewed against the merged code on `v-4.0.0` (`661a4d6`).
+
+### Amendment 1 — pass command input as a struct, not positionally
+
+The open question above resolves **against** the positional form, at the first
+command plan 04 touches.
+
+`runGrantRemote` takes six parameters and reads fine. But `cmd/keys/create.go`
+registers six flags (`name`, `type`, `bits`, `curve`, `tags`,
+`purge-protection`), so the same style yields:
+
+```go
+// Do NOT do this.
+func runKeysCreateRemote(cmd *cobra.Command, client *vaultapi.Client, target *cliclient.Target,
+    name, keyType string, bits int, curve, tags string, purgeProtection bool) error
+```
+
+Nine parameters, four same-typed strings adjacent — a silent-transposition
+hazard that no test catches, because every wrong ordering still compiles.
+
+**Keep** the `(cmd, client, target)` prefix: that is what makes these functions
+testable without assembling a context, and it is the genuinely good part of the
+shape. **Change** the tail to a single request struct, preferring the
+`vaultapi` request type where one exists (`GrantRoleRequest` already does):
+
+```go
+func runKeysCreateRemote(cmd *cobra.Command, client *vaultapi.Client, target *cliclient.Target,
+    req vaultapi.CreateKeyRequest) error
+```
+
+`runGrantRemote` itself may stay positional — it is under the threshold and
+rewriting it buys nothing. The rule starts at `keys`.
+
+### Amendment 2 — list adapters must go through the formatter
+
+`runListRemote` hand-rolls fixed-width columns with `fmt.Fprintf`. That was
+**correct for this plan**, whose constraint was byte-identical parity with the
+local path — and `vault-access list`'s local path hand-rolls them too
+(`list.go:25-28`).
+
+It is **wrong as a template.** `cmd/keys/list.go:110-127` resolves
+`common.OutputFormatterKey` and calls `fmtr.Write(...)`, so it honours
+`--output json|yaml`. A `runKeysListRemote` copied from `runListRemote` would
+silently drop output-format support that `keys` already has in local mode —
+breaking this plan's own "remote output must be identical to local output"
+constraint in the opposite direction.
+
+**Every list adapter in plan 04 goes through `formatter.Formatter`.** Copy the
+local path's output mechanism, not this plan's.
+
+*Separately:* `vault-access list --output json` silently ignoring the flag is a
+pre-existing local-mode gap, not something this plan introduced. Worth its own
+small fix; out of scope for the adapter work.
+
+### Amendment 3 — name the canonical shape in the code
+
+Two adapter conventions now coexist in `cmd/`:
+
+| | `vault-access` (this plan) | `secrets` (pre-existing) |
+|---|---|---|
+| Signature | `(cmd, client, target, ...)` | `(cmd, ctx, target, ...)` |
+| Transport | `*vaultapi.Client` parameter | pulls `TokenKey` + `RemoteHTTPClientKey` from ctx |
+| Failure mode | cannot compile without a client | three runtime `not available in context` checks |
+
+This plan's is better — the dependency is in the type signature rather than in
+three lookups that can only fail at runtime. But **plan 08** is what converts
+`secrets` over, and until it runs, a reader of `cmd/` finds two patterns with
+nothing saying which is current.
+
+Add a comment on `runGrantRemote` naming it the canonical shape and pointing at
+plan 08 for the `secrets` migration, so plan 04 does not copy the wrong
+neighbour.
+
+### Confirmed good — replicate as-is
+
+- **Dispatch branches** are identical across all three commands: same
+  `RemoteClientKey` type assertion, same nil check, same early return placed
+  before the service-container lookup. Mechanical to replicate.
+- **`revoke` places its branch after `uuid.Parse`**, so the local
+  "invalid assignment id" check guards remote input too.
+- **No client-side authorization in the remote path.** The server owns the
+  decision and `CLIError` maps its 403. Replicating checks like
+  `requireCanManageRoleAssignments` client-side would drift from the server.
+
+### Unchanged and still blocking-ish
+
+The response-shape gap described above stands: these `httptest` handlers return
+JSON the test author wrote, so a renamed API field keeps them green. Plan 01's
+route-contract test catches wrong *paths*, not wrong *shapes*. **Sequence the
+in-process harness before plan 04**, not after — it is the difference between
+building it once and retrofitting it across five groups.
