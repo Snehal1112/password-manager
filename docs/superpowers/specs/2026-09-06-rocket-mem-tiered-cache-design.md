@@ -72,8 +72,38 @@ type L2[K comparable] interface {
     Get(wireKey string) ([]byte, bool)
     Set(wireKey string, payload []byte, ttl time.Duration)
     Invalidate(wireKey string)
+    // Keys returns every live wire key matching prefix (e.g.
+    // "rocketvault:secret:"). Used only by Range (see below), never on a
+    // hot path. Errors (including "L2 unreachable") return an empty slice —
+    // the same fail-open-to-miss posture as every other L2 method.
+    Keys(prefix string) []string
 }
 ```
+
+**Why `Keys` is required, not optional:** `cachekit.Interface[K,V]` includes
+`Range(fn func(key K, value V) bool)`, and the existing invalidation pattern
+used by `SecretCache.DeleteByID`, `certcache`, and `keycache` all depend on
+`Range` visiting **every live entry** — none of them know in advance which
+scope-key(s) a given secret/key/cert ID was cached under, so they discover
+it by scanning. If `TieredCache.Range` only visited L1, an entry evicted
+from L1 (TTL/LRU) but still alive in L2 would be invisible to that scan —
+silently reopening the exact "a secret rotated because it was compromised
+keeps being served from cache" bug class this codebase has hit before,
+except now from an external cache instead of a stale in-process one.
+
+So `TieredCache.Range` scans **both** tiers: it ranges L1 as today, then
+calls `L2.Keys(domainPrefix)`, decodes any wire key not already visited via
+L1, and calls `fn` for those too (L1's copy wins on a key present in both,
+since it's guaranteed at least as fresh). This makes `Range` more expensive
+whenever the L2 tier is enabled, but `Range` is only ever used by bounded,
+infrequent invalidation sweeps (a mutation event), never a hot read path, so
+paying one `KEYS`-equivalent network round-trip there is an acceptable
+trade for correctness. Rocket-mem's `KEYS` support was verified as "partial"
+(missing character-class ranges and negation) — a literal prefix wildcard
+like `rocketvault:secret:*` is the basic case that partial support should
+still cover, but Plan B (below) must verify this against a live rocket-mem
+instance before relying on it, since "partial" was not fully enumerated
+during the initial audit.
 
 The actual Rocket-mem/go-redis-backed implementation of `L2[K]` lives in a
 new package, `internal/rocketmemcache`, which is the only place `go-redis`
