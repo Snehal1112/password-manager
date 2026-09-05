@@ -72,6 +72,18 @@ func (c *Client) Invalidate(wireKey string) {
 	_ = c.rdb.Del(context.Background(), wireKey).Err()
 }
 
+// Keys returns every live key matching prefix* (Rocket-mem's KEYS
+// supports a basic prefix-wildcard glob -- verified against a live
+// instance in this package's integration suite). Any error degrades to an
+// empty slice, same fail-open reasoning as every other method here.
+func (c *Client) Keys(prefix string) []string {
+	keys, err := c.rdb.Keys(context.Background(), prefix+"*").Result()
+	if err != nil {
+		return nil
+	}
+	return keys
+}
+
 // Close releases the underlying connection pool. Owned and called exactly
 // once by the container (see the design spec's "L2 connection lifecycle"
 // note) -- never by an individual TieredCache.

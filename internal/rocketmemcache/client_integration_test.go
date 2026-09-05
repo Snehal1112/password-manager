@@ -79,3 +79,15 @@ func TestClient_Get_Unreachable_DegradesToMiss(t *testing.T) {
 		c.Set("anything", []byte("x"), time.Minute) // must not panic or block past the dial timeout
 	})
 }
+
+func TestClient_Keys_ReturnsMatchingPrefix(t *testing.T) {
+	c := newTestClient(t)
+	prefix := "rocketmemcache_test:keys:" + t.Name() + ":"
+	c.Set(prefix+"a", []byte("1"), 30*time.Second)
+	c.Set(prefix+"b", []byte("2"), 30*time.Second)
+	defer c.Invalidate(prefix + "a")
+	defer c.Invalidate(prefix + "b")
+
+	keys := c.Keys(prefix)
+	assert.ElementsMatch(t, []string{prefix + "a", prefix + "b"}, keys)
+}
