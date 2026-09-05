@@ -7,14 +7,18 @@
 // renames a field. Everything below the service layer is stubbed, so this
 // harness catches status codes, route existence and auth-header plumbing
 // outright. Response-shape drift is only caught once a caller decodes
-// through its own independently-declared struct -- e.g. the vaultapi client
+// through its own independently-declared struct -- e.g. (*Server).Client(),
+// whose vaultapi wire types are declared independently of the model package
 // -- rather than a model type, since decoding into the same model type the
-// handler marshals from round-trips regardless of tag renames; see Task 2.
+// handler marshals from round-trips regardless of tag renames.
+// TestServer_ClientSendsBearerToken exercises this: it decodes through
+// vaultapi.RoleAssignment and fails if a model-side JSON tag drifts.
 // Business logic, persistence and real authorization decisions are out of
 // scope by design; see the spec.
 package apitest
 
 import (
+	"context"
 	"errors"
 	"net/http/httptest"
 	"testing"
@@ -26,8 +30,10 @@ import (
 	"rocketvault/api"
 	"rocketvault/app"
 	"rocketvault/cmd/testutils"
+	"rocketvault/internal/cliclient"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
 
@@ -35,6 +41,12 @@ import (
 // authentication service accepts any token; this constant exists so tests
 // driving raw HTTP can send the same one.
 const testToken = "apitest-token"
+
+// staticToken is the harness's token source. The stubbed authentication
+// service accepts any token, so this only has to be non-empty and stable.
+type staticToken string
+
+func (s staticToken) Token(context.Context) (string, error) { return string(s), nil }
 
 // Options configures the stubbed services behind the real router. Fields are
 // added one per command group as that group's adapter lands -- the first real
@@ -53,12 +65,23 @@ type Options struct {
 // Server is a running in-process API. It is closed via t.Cleanup; callers do
 // not close it themselves.
 type Server struct {
-	tc   *testutils.TestContext
-	http *httptest.Server
+	tc     *testutils.TestContext
+	http   *httptest.Server
+	client *vaultapi.Client
 }
 
 // URL returns the server root, e.g. "http://127.0.0.1:38123".
 func (s *Server) URL() string { return s.http.URL }
+
+// Client returns a vaultapi client pointed at this server, authenticated with
+// a token the stubbed auth service accepts.
+func (s *Server) Client() *vaultapi.Client { return s.client }
+
+// Target returns the cliclient.Target a remote adapter resolves its vault
+// against.
+func (s *Server) Target() *cliclient.Target {
+	return &cliclient.Target{Server: s.http.URL}
+}
 
 // New starts an in-process server backed by the real route table and
 // middleware chain. It fails the test outright on any construction error: a
@@ -130,7 +153,19 @@ func New(t *testing.T, opts Options) *Server {
 	httpSrv := httptest.NewServer(router)
 	t.Cleanup(httpSrv.Close)
 
-	return &Server{tc: tc, http: httpSrv}
+	client, err := vaultapi.New(vaultapi.Config{
+		BaseURL:    httpSrv.URL,
+		HTTPClient: httpSrv.Client(),
+		Tokens:     staticToken(testToken),
+		// DisableRetry keeps a deliberate 4xx from being retried, so a test
+		// asserting an error path does not wait on backoff.
+		DisableRetry: true,
+	})
+	if err != nil {
+		t.Fatalf("apitest: build vaultapi client: %v", err)
+	}
+
+	return &Server{tc: tc, http: httpSrv, client: client}
 }
 
 // relaxRateLimits raises the per-IP and per-vault budgets for the duration of
