@@ -20,6 +20,7 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/rocketmemcache"
 	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -226,6 +227,12 @@ type ServiceContainer struct {
 	keyCache keycache.Cache
 	// Prometheus metrics for crypto operations.
 	cryptoMetrics metrics.CryptoMetrics
+
+	// rocketMemClient is the single shared L2 connection backing every
+	// domain's TieredCache (Plans 05-08). nil when cache.rocket_mem is
+	// disabled. Not exposed via ServiceContainerInterface -- nothing outside
+	// this package constructs a TieredCache, so no getter is needed yet.
+	rocketMemClient *rocketmemcache.Client
 }
 
 // Config holds configuration for the service container.
@@ -234,6 +241,10 @@ type Config struct {
 	Logger      *logging.Logger
 	CacheConfig *rvconfig.CacheConfig
 	Viper       *viper.Viper // Configuration manager for retry policies and other settings
+
+	// RocketMemConfig overrides the loaded cache.rocket_mem.* config, mirroring
+	// CacheConfig's own override field -- nil means "load from Viper".
+	RocketMemConfig *rvconfig.RocketMemConfig
 }
 
 // NewServiceContainer creates a new service container with the provided configuration.
@@ -273,6 +284,26 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 		config.CacheConfig = &loaded
 	}
 	container.cacheConfig = *config.CacheConfig
+
+	if config.RocketMemConfig == nil {
+		loaded, err := rvconfig.LoadRocketMemConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load rocket_mem config: %w", err)
+		}
+		config.RocketMemConfig = &loaded
+	}
+	if config.RocketMemConfig.Enabled {
+		container.rocketMemClient = rocketmemcache.New(rocketmemcache.Config{
+			Addr:         config.RocketMemConfig.Addr,
+			TLS:          config.RocketMemConfig.TLS,
+			Username:     config.RocketMemConfig.Username,
+			Password:     config.RocketMemConfig.Password,
+			DialTimeout:  config.RocketMemConfig.DialTimeout,
+			ReadTimeout:  config.RocketMemConfig.ReadTimeout,
+			WriteTimeout: config.RocketMemConfig.WriteTimeout,
+			PoolSize:     config.RocketMemConfig.PoolSize,
+		})
+	}
 
 	if err := container.initializeServices(); err != nil {
 		return nil, fmt.Errorf("failed to initialize services: %w", err)
@@ -915,6 +946,12 @@ func (c *ServiceContainer) Close() error {
 	if c.keyProvider != nil {
 		if err := c.keyProvider.Close(); err != nil {
 			c.logger.WithError(err).Warn("Failed to close key provider")
+		}
+	}
+
+	if c.rocketMemClient != nil {
+		if err := c.rocketMemClient.Close(); err != nil {
+			c.logger.WithError(err).Warn("Failed to close rocket-mem client")
 		}
 	}
 
