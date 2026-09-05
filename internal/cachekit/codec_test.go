@@ -17,6 +17,14 @@ type codecTestValue struct {
 	N    int    `json:"n"`
 }
 
+func (v *codecTestValue) Clone() *codecTestValue {
+	if v == nil {
+		return nil
+	}
+	cp := *v
+	return &cp
+}
+
 func TestPlainJSONCodec_RoundTrip(t *testing.T) {
 	var codec cachekit.PlainJSONCodec[codecTestValue]
 	in := codecTestValue{Name: "widget", N: 7}
