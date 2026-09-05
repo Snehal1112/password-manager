@@ -30,6 +30,18 @@ type AccessPolicyService interface {
 	// Returns AccessAllowed, AccessDenied, or AccessFallback (use RBAC).
 	CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (AccessDecision, error)
 
+	// CheckVaultScopedAccess evaluates a policy against ONE specific vault. It
+	// differs from CheckAccess in exactly one way, and the asymmetry is
+	// deliberate: a NULL-scoped (global) DENY still matches, because a global
+	// deny must keep blocking every vault; a NULL-scoped ALLOW does not,
+	// because an instance-wide allow is a grant to operate on the vault
+	// COLLECTION (create, list) and never authority over a vault someone else
+	// owns.
+	//
+	// Callers pass a concrete vaultID. Use CheckAccess, not this, for the
+	// collection-level (uuid.Nil) decision.
+	CheckVaultScopedAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (AccessDecision, error)
+
 	CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error
 	GetPolicy(ctx context.Context, id uuid.UUID) (*model.AccessPolicy, error)
 	ListPolicies(ctx context.Context) ([]*model.AccessPolicy, error)
@@ -63,6 +75,39 @@ func (s *accessPolicyService) CheckAccess(ctx context.Context, principalID uuid.
 		}
 	}
 	return AccessAllowed, nil
+}
+
+// CheckVaultScopedAccess evaluates access policies for the triple
+// (principalID, resourceType, operation) against one specific vault.
+//
+// It reuses FindEffects — which matches "(vault_id = ? OR vault_id IS NULL)"
+// — and then discards NULL-scoped ALLOW rows, keeping NULL-scoped DENY rows.
+// The narrowing is applied here rather than in FindEffects or CheckAccess on
+// purpose: those two are shared with PolicyMiddleware and
+// vaultcli.RequireDataAction for secrets/keys/certificates, where the
+// "OR vault_id IS NULL" clause is what makes a global explicit deny work.
+func (s *accessPolicyService) CheckVaultScopedAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, operation model.PolicyOperation, vaultID uuid.UUID) (AccessDecision, error) {
+	policies, err := s.repo.FindEffects(ctx, principalID, resourceType, operation, vaultID)
+	if err != nil {
+		return AccessFallback, fmt.Errorf("policy lookup: %w", err)
+	}
+
+	// Any deny wins outright, whatever its scope, so every row is inspected
+	// for a deny before any allow can be honoured.
+	scopedAllow := false
+	for _, p := range policies {
+		if p.Effect == model.PolicyEffectDeny {
+			return AccessDenied, nil
+		}
+		if p.VaultID != nil && *p.VaultID == vaultID {
+			scopedAllow = true
+		}
+	}
+	if scopedAllow {
+		return AccessAllowed, nil
+	}
+	// Either no rows, or only NULL-scoped allows -- which confer nothing here.
+	return AccessFallback, nil
 }
 
 func (s *accessPolicyService) CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
