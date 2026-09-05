@@ -20,7 +20,7 @@ var getCmd = &cobra.Command{
 protection, retention period, and creation time.
 
 Requires the admin account role, or an access-policy allow on (vaults,
-manage) scoped to this vault or granted globally.
+manage) scoped to this vault.
 
 The vault name is the positional argument; this command has no --vault
 flag.`,

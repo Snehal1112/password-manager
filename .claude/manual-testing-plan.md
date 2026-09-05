@@ -4069,9 +4069,10 @@ and `CanManageRoleAssignments` to consult a vault-scoped check for a
 concrete vault, so a global allow now confers create-and-list only. Do not
 read step 6 above as current behavior; it documents the pre-narrowing state
 for historical/regression-comparison purposes. See the "Narrowed global
-`vaults:manage` (release 2)" subsection immediately below for the current
-test procedure, and `docs/release-notes/v4.6.0-narrow-global-vault-manage.md`
-for the full account of what changed.
+`vaults:manage` (release 2)" subsection below (after this example's Teardown)
+for the current test procedure, and
+`docs/release-notes/v4.6.0-narrow-global-vault-manage.md` for the full
+account of what changed.
 
 For the design of the narrowing itself, see
 `docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`
