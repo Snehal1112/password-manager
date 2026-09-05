@@ -6,7 +6,7 @@ Guidance for Claude Code when working in `journeybook/`.
 
 A single-file, offline HTML page that a QA engineer opens from disk to work
 through RocketVault's vault, user and access journeys, recording a pass or fail
-against each check. 21 journeys, 208 checks, transcribed from
+against each check. 23 journeys, 245 checks, transcribed from
 `../docs/VAULT_USER_ACCESS_JOURNEYS_v3.md`.
 
 It is a **static artifact**, not an app: it never talks to a RocketVault
@@ -61,7 +61,7 @@ It diverges from `../web` in three ways, all on purpose:
 copied from `../web/src/index.css`, but that scale put `--background` and
 `--card` both at pure white, so a panel was drawn by nothing but a 1.25:1
 hairline and eight real pairings failed WCAG AA — including the Pass and Fail
-labels on all 208 rows, and `--untested`, which left the run strip a blank band
+labels on every row, and `--untested`, which left the run strip a blank band
 until something was recorded.
 
 It has its own strategy now, and it is the inverse of dark's: **the panel

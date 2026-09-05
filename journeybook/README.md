@@ -1,7 +1,7 @@
 # RocketVault Journeybook
 
 A single-file, offline HTML page that walks a QA engineer through every
-RocketVault vault, user and access journey — 21 journeys, 213 checks — and
+RocketVault vault, user and access journey — 23 journeys, 245 checks — and
 records a pass or fail against each one.
 
 Built from [`docs/VAULT_USER_ACCESS_JOURNEYS_v3.md`](../docs/VAULT_USER_ACCESS_JOURNEYS_v3.md).

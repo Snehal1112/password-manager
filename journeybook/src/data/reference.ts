@@ -276,6 +276,21 @@ export const flagTraps: FlagTrap[] = [
       "Not supported by every subcommand. The authority is the remoteCapableCommands map in cmd/root.go, not any document.",
   },
   {
+    command: "vault-provisioning grant --quota",
+    gotcha:
+      'Documented as required but not registered required with cobra — it is a plain Int flag defaulting to 0, so omitting it gives the positive-integer error, not required flag(s) "quota" not set.',
+  },
+  {
+    command: "vault-provisioning grant/revoke",
+    gotcha:
+      "Print the resolved principal UUID, never the username you typed. A test asserting the literal argument fails on a correct build.",
+  },
+  {
+    command: "vault-provisioning list",
+    gotcha:
+      "Ignores both --vault and --output — it writes with fmt.Fprintf and never reaches the output formatter, unlike vaults list.",
+  },
+  {
     command: "HTTP -HSM type suffix",
     gotcha:
       "buildKeyResponse appends -HSM for PKCS#11-backed keys. keys list --output json still prints plain RSA/ECDSA — the suffix is added by the HTTP handler only.",

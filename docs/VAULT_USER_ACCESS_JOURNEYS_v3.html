@@ -20,7 +20,7 @@
   <div class="doc-meta"><span class="doc-chip">docs/VAULT_USER_ACCESS_JOURNEYS_v3.md</span></div>
   <hr/>
 </header>
-<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#new-in-v3--two-corrections-that-change-the-cast">New in v3 — two corrections that change the cast</a></li><li><a href="#global-setup-used-by-every-journey">Global setup used by every journey</a></li><li><a href="#corrected-cast">Corrected Cast</a></li><li><a href="#journey-a--day-zero-the-admin-discovers-she-has-no-access">Journey A — Day Zero: the admin discovers she has no access</a></li><li><a href="#journey-b--onboarding-a-backend-engineer">Journey B — Onboarding a Backend Engineer</a></li><li><a href="#journey-c--security-engineer-owns-the-key-lifecycle">Journey C — Security Engineer Owns the Key Lifecycle</a></li><li><a href="#journey-d--cicd-service-account-sign-only">Journey D — CI/CD Service Account, Sign-Only</a></li><li><a href="#journey-e--narrowest-possible-crypto-grant">Journey E — Narrowest Possible Crypto Grant</a></li><li><a href="#journey-f--crypto-user-hits-the-rotation-policy-wall">Journey F — Crypto User Hits the Rotation-Policy Wall</a></li><li><a href="#journey-g--delegating-access-management-without-handing-over-the-keys">Journey G — Delegating Access Management Without Handing Over the Keys</a></li><li><a href="#journey-h--emergency-lockout-via-explicit-deny">Journey H — Emergency Lockout via Explicit Deny</a></li><li><a href="#journey-i--revoking-a-compromised-service-account">Journey I — Revoking a Compromised Service Account</a></li><li><a href="#journey-j--retiring-a-vault-and-the-purge-trap">Journey J — Retiring a Vault (and the purge trap)</a></li><li><a href="#journey-k--the-clihttp-purge-divergence">Journey K — The CLI/HTTP Purge Divergence</a></li><li><a href="#journey-l--compliance-auditor">Journey L — Compliance Auditor</a></li><li><a href="#journey-m--offboarding">Journey M — Offboarding</a></li><li><a href="#journey-n--multi-vault-isolation-verification">Journey N — Multi-Vault Isolation Verification</a></li><li><a href="#journey-o--migrating-a-secret-set-to-a-new-vault-and-retiring-the-original">Journey O — Migrating a Secret Set to a New Vault, and Retiring the Original</a></li><li><a href="#journey-p--a-user-role-principal-runs-the-entire-secret-rotation-lifecycle">Journey P — A user-Role Principal Runs the Entire Secret-Rotation Lifecycle</a></li><li><a href="#journey-q--certificate-manager-issues-chains-and-retires-a-tls-certificate">Journey Q — Certificate Manager Issues, Chains, and Retires a TLS Certificate</a></li><li><a href="#journey-r--disaster-recovery-scheduled-backups-and-a-post-rotation-restore">Journey R — Disaster Recovery: Scheduled Backups and a Post-Rotation Restore</a></li><li><a href="#journey-s--rotating-the-master-key-after-an-infrastructure-departure">Journey S — Rotating the Master Key After an Infrastructure Departure</a></li><li><a href="#journey-t--working-across-prod-staging-and-dev-from-one-laptop">Journey T — Working Across Prod, Staging, and Dev From One Laptop</a></li><li><a href="#journey-u--wiring-and-not-relying-on-a-vault-webhook">Journey U — Wiring (and Not Relying On) a Vault Webhook</a></li><li><a href="#cli-quick-reference">CLI Quick Reference</a></li><li><a href="#corrections-retained-from-v2">Corrections retained from v2</a></li></ol></nav>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#new-in-v3--two-corrections-that-change-the-cast">New in v3 — two corrections that change the cast</a></li><li><a href="#global-setup-used-by-every-journey">Global setup used by every journey</a></li><li><a href="#corrected-cast">Corrected Cast</a></li><li><a href="#journey-a--day-zero-the-admin-discovers-she-has-no-access">Journey A — Day Zero: the admin discovers she has no access</a></li><li><a href="#journey-b--onboarding-a-backend-engineer">Journey B — Onboarding a Backend Engineer</a></li><li><a href="#journey-c--security-engineer-owns-the-key-lifecycle">Journey C — Security Engineer Owns the Key Lifecycle</a></li><li><a href="#journey-d--cicd-service-account-sign-only">Journey D — CI/CD Service Account, Sign-Only</a></li><li><a href="#journey-e--narrowest-possible-crypto-grant">Journey E — Narrowest Possible Crypto Grant</a></li><li><a href="#journey-f--crypto-user-hits-the-rotation-policy-wall">Journey F — Crypto User Hits the Rotation-Policy Wall</a></li><li><a href="#journey-g--delegating-access-management-without-handing-over-the-keys">Journey G — Delegating Access Management Without Handing Over the Keys</a></li><li><a href="#journey-h--emergency-lockout-via-explicit-deny">Journey H — Emergency Lockout via Explicit Deny</a></li><li><a href="#journey-i--revoking-a-compromised-service-account">Journey I — Revoking a Compromised Service Account</a></li><li><a href="#journey-j--retiring-a-vault-and-the-purge-trap">Journey J — Retiring a Vault (and the purge trap)</a></li><li><a href="#journey-k--the-clihttp-purge-divergence">Journey K — The CLI/HTTP Purge Divergence</a></li><li><a href="#journey-l--compliance-auditor">Journey L — Compliance Auditor</a></li><li><a href="#journey-m--offboarding">Journey M — Offboarding</a></li><li><a href="#journey-n--multi-vault-isolation-verification">Journey N — Multi-Vault Isolation Verification</a></li><li><a href="#journey-o--migrating-a-secret-set-to-a-new-vault-and-retiring-the-original">Journey O — Migrating a Secret Set to a New Vault, and Retiring the Original</a></li><li><a href="#journey-p--a-user-role-principal-runs-the-entire-secret-rotation-lifecycle">Journey P — A user-Role Principal Runs the Entire Secret-Rotation Lifecycle</a></li><li><a href="#journey-q--certificate-manager-issues-chains-and-retires-a-tls-certificate">Journey Q — Certificate Manager Issues, Chains, and Retires a TLS Certificate</a></li><li><a href="#journey-r--disaster-recovery-scheduled-backups-and-a-post-rotation-restore">Journey R — Disaster Recovery: Scheduled Backups and a Post-Rotation Restore</a></li><li><a href="#journey-s--rotating-the-master-key-after-an-infrastructure-departure">Journey S — Rotating the Master Key After an Infrastructure Departure</a></li><li><a href="#journey-t--working-across-prod-staging-and-dev-from-one-laptop">Journey T — Working Across Prod, Staging, and Dev From One Laptop</a></li><li><a href="#journey-u--wiring-and-not-relying-on-a-vault-webhook">Journey U — Wiring (and Not Relying On) a Vault Webhook</a></li><li><a href="#journey-v--delegating-vault-creation-without-delegating-the-instance">Journey V — Delegating Vault Creation Without Delegating the Instance</a></li><li><a href="#journey-w--the-global-grant-that-no-longer-means-what-it-used-to">Journey W — The Global Grant That No Longer Means What It Used To</a></li><li><a href="#cli-quick-reference">CLI Quick Reference</a></li><li><a href="#corrections-retained-from-v2">Corrections retained from v2</a></li></ol></nav>
 <main class="doc">
 <blockquote>
 <p>Every journey now carries the actual CLI commands. Flags and command names are taken from <code>cmd/</code> (<code>cmd/keys/*.go</code>, <code>cmd/keys/rotation_policy.go</code>, <code>cmd/users/*.go</code>, <code>cmd/vaults/*.go</code>, <code>cmd/vault-access/*.go</code>, <code>cmd/rotation.go</code>, <code>cmd/root.go</code>), not invented. Where a capability has no CLI command, that is called out explicitly rather than papered over with a plausible-looking invocation.</p>
@@ -214,6 +214,11 @@ ADMIN_TOKEN=$(curl -s -X POST $BASE/users/login \
 <td><code>noor</code></td>
 <td><strong><code>certificate_manager</code></strong></td>
 <td>Must run <code>certificates create/update/delete/renew</code> from the CLI (Correction 8)</td>
+</tr>
+<tr>
+<td><code>iris</code></td>
+<td><code>user</code></td>
+<td>Platform automation. Holds a <strong>global</strong> (<code>vault_id</code> <code>NULL</code>) <code>(vaults, manage, allow)</code> access policy — not an account role. Journey W is entirely about what that does and no longer does</td>
 </tr>
 </tbody>
 </table>
@@ -1565,11 +1570,210 @@ rocketvault vault-webhook delete --vault prod
 <p><strong>Do not build an operational process that depends on this webhook actually firing.</strong> Configuring it today buys you nothing operationally; it is safe to set up now only in the sense that flipping it on later (once a sender ships) will not require reconfiguring the URL or secret.</p>
 </blockquote>
 <hr>
+<h2 id="journey-v--delegating-vault-creation-without-delegating-the-instance">Journey V — Delegating Vault <em>Creation</em> Without Delegating the Instance</h2>
+<p><strong>Actor</strong>: Priya (<code>admin</code>) issues the grant; Wren (global role <code>user</code>) is the grantee</p>
+<p>Journey G handed Wren the right to manage access <em>inside</em> one vault. This journey hands her something different: the right to create vaults of her own, up to a fixed count, with no authority whatsoever over a vault she did not create. The group's own help text (<code>cmd/vault_provisioning.go</code>) frames it exactly that way — &quot;the delegated alternative to a global <code>vaults:manage</code> policy, which additionally confers authority over every vault that already exists.&quot; Journey W is that other option. Read the two as a pair.</p>
+<h3 id="1-issue-the-grant--and-note-what-comes-back">1. Issue the grant — and note what comes back</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya:
+rocketvault vault-provisioning grant wren --quota 3
+# Provisioning grant issued: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34 quota=3
+</pre></div>
+<p>The success line prints the <strong>resolved principal UUID</strong>, never the username you typed. <code>resolvePrincipal</code> parses the argument as a UUID first and falls back to a username lookup, and what is printed is the stored grant's <code>principal_id</code>. A QA case asserting the literal string <code>wren</code> in this output will fail on a correct build.</p>
+<p>A raw UUID is accepted directly and takes precedence over a username lookup, because an OAuth2 service account is an <code>oauth2_clients</code> row with no username to look up:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-provisioning grant 3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a --quota 20
+# Provisioning grant issued: principal=3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a quota=20
+</pre></div>
+<p>Re-issuing for the same principal <strong>changes the quota rather than stacking a second grant</strong> — <code>principal_id</code> is <code>UNIQUE</code> and the repository upsert updates only the quota, leaving <code>id</code>, <code>created_by</code> and <code>created_at</code> as they were:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-provisioning grant wren --quota 10
+# Provisioning grant issued: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34 quota=10
+</pre></div>
+<h3 id="2-a-zero-or-negative-quota-is-refused-with-the-reason-stated">2. A zero or negative quota is refused, with the reason stated</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-provisioning grant wren --quota 0
+# Error: --quota must be a positive integer: a zero-quota grant is indistinguishable from no grant
+
+rocketvault vault-provisioning grant wren --quota -1
+# Error: --quota must be a positive integer: a zero-quota grant is indistinguishable from no grant
+</pre></div>
+<p><code>--quota</code> is documented as required but is <strong>not</strong> registered with cobra's required-flag machinery — it is a plain <code>Int</code> flag defaulting to <code>0</code>. Omitting it entirely therefore produces the same message above, not cobra's <code>required flag(s) &quot;quota&quot; not set</code>.</p>
+<p>Note the ordering: the admin check runs <strong>before</strong> the quota check. A non-admin who types <code>--quota 0</code> sees the permission error in step 3, never this one.</p>
+<h3 id="3-this-tier-is-non-delegable--the-point-of-the-whole-journey">3. This tier is non-delegable — the point of the whole journey</h3>
+<p>Every other CLI authorization tier in RocketVault has a delegation path. The data plane falls through to <code>vaultcli.RequireDataAction</code>; <code>vaults</code> and <code>vault-access</code> fall through to an access policy or a role assignment. <code>cmd/vault-provisioning/authz.go</code> has <strong>neither</strong>. <code>requireGrantAdmin</code> reads the caller's account roles and checks one thing: <code>common.HasAnyRole(roles, model.RoleAdmin)</code>.</p>
+<p>Wren holds <code>Key Vault Data Access Administrator</code> in <code>prod</code> — the one role that exists to delegate access management — and it buys her nothing here:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Wren:
+rocketvault vault-provisioning grant marcus --quota 5
+# Error: permission denied: managing vault provisioning grants requires the admin role
+
+rocketvault vault-provisioning revoke marcus
+# Error: permission denied: managing vault provisioning grants requires the admin role
+
+rocketvault vault-provisioning list
+# Error: permission denied: managing vault provisioning grants requires the admin role
+</pre></div>
+<p>Iris, holding a global <code>vaults:manage</code> access policy (Journey W), gets the identical three refusals. So does the grantee herself — a provisioning grant confers nothing over provisioning grants.</p>
+<blockquote>
+<p>The code states its own reason, and it is worth quoting to anyone who asks for an exception: <em>&quot;a principal able to amend grants could raise its own quota, and the bound the grant exists to impose would be decorative.&quot;</em> The same sentence appears in <code>cmd/vault-provisioning/authz.go</code>'s <code>requireGrantAdmin</code> doc comment, in the group <code>Long</code> text, and in the <code>internal/services/provisioning</code> package comment. It is a deliberate design position, not an oversight to be patched.</p>
+</blockquote>
+<h3 id="4-list-is-instance-wide-not-vault-scoped">4. <code>list</code> is instance-wide, not vault-scoped</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya:
+rocketvault vault-provisioning list
+# PRINCIPAL-ID                           QUOTA    CREATED-AT
+# 4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34   10       2026-09-05T11:04:22Z
+# 3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a   20       2026-09-05T11:07:51Z
+</pre></div>
+<p>A grant is a global right to create vaults, not a right inside one, so this lists every grant on the instance. <code>--vault</code> is a root-level persistent flag, so it parses here and is then <strong>ignored</strong> — <code>runList</code> never reads it:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vault-provisioning list --vault prod
+# identical output — same rows, no filtering
+</pre></div>
+<p>Two more shapes worth pinning in a test: the header row is emitted unconditionally, so a fresh instance with no grants prints the header and nothing else; and <code>--output json</code> is likewise ignored, because <code>runList</code> writes with <code>fmt.Fprintf</code> and never touches the output formatter. This is the opposite of <code>vaults list</code>, which does honour <code>--output</code>.</p>
+<h3 id="5-what-the-grant-actually-buys--and-where-it-stops">5. What the grant actually buys — and where it stops</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Wren, with quota 3:
+rocketvault vaults create tenant-a
+rocketvault vaults create tenant-b
+rocketvault vaults create tenant-c
+# each prints the create table: ID  Name  Enabled  PurgeProtection  RetentionDays  Created
+
+rocketvault vaults create tenant-d
+# Error: failed to create vault: vault provisioning quota exceeded: 3 of 3 used -- soft-deleting
+# a vault does not free a quota slot; a slot is released only when the vault is purged, which
+# requires an administrator or a Key Vault Purge Operator grant. Ask an administrator to purge a
+# vault or raise your quota
+</pre></div>
+<p>The quota check runs <strong>inside</strong> the insert transaction, so two concurrent creates cannot both pass a check-then-insert race.</p>
+<p>A quota-bounded create may not set purge protection — because a grantee who could would soft-delete a protected vault and hold its slot forever:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vaults create tenant-e --purge-protection
+# Error: failed to create vault: purge protection may only be set on a create that is not
+# quota-bounded -- a quota-bounded provisioning grant cannot set --purge-protection; an admin
+# or a global vaults:manage holder can
+</pre></div>
+<p>The hint above is honest about the trap: Wren cannot free her own slot, because purge is gated on <code>CanPurgeVault</code>, and the creator grant she receives is <code>Key Vault Administrator</code>, which does not carry <code>ActionVaultPurge</code> (Journey J).</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vaults delete tenant-a       # succeeds — she manages what she created
+rocketvault vaults purge tenant-a
+# Error: permission denied: admin or Key Vault Purge Operator required for vault &quot;tenant-a&quot;
+
+rocketvault vaults get prod
+# Error: permission denied: admin or vaults/manage required for vault &quot;prod&quot;
+</pre></div>
+<h3 id="6-revoke-stops-future-creates-and-cascades-to-nothing">6. Revoke stops future creates and cascades to nothing</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya:
+rocketvault vault-provisioning revoke wren
+# Provisioning grant revoked: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34
+</pre></div>
+<p>Again a UUID, not <code>wren</code> — the same <code>resolvePrincipal</code> path as <code>grant</code>, and the same trap for a test asserting the typed argument.</p>
+<p>Revocation <strong>does not cascade</strong>. <code>cmd/vault-provisioning/revoke.go</code>'s help states it outright: it &quot;leaves every vault the principal already created, and that vault's own access grants, untouched. Removing access to existing vaults is a separate operator action.&quot; Verify both halves:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Wren, after revocation:
+rocketvault vaults create tenant-f
+# Error: permission denied: admin, a global vaults/manage grant, or a vault provisioning grant
+#        required to create a vault
+
+rocketvault vaults get tenant-b          # still succeeds
+rocketvault secrets list --vault tenant-b   # still succeeds — Key Vault Administrator survives
+</pre></div>
+<p>That is the operationally important half. Revoking a grant is <em>not</em> offboarding. Offboarding means revoking the grant <strong>and</strong> removing the per-vault creator grants — the vault-scoped <code>vaults:manage</code> policy (HTTP only, see Journey W) and the <code>Key Vault Administrator</code> role assignment (<code>rocketvault vault-access revoke &lt;assignment-id&gt; --vault tenant-b</code>) — for every vault the principal created.</p>
+<h3 id="7-the-trail">7. The trail</h3>
+<p>Both operations are logged with a named actor, taken from <code>requireGrantAdmin</code>'s return value — the CLI has no middleware to stamp one for it:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya:
+rocketvault audit logs --action issue_provisioning_grant --limit 20 --output json
+rocketvault audit logs --action revoke_provisioning_grant --limit 20 --output json
+</pre></div>
+<p>A create made under a grant is distinguishable from every other create in the same log: <code>Vault created under provisioning grant: &lt;name&gt;</code>, versus plain <code>Vault created: &lt;name&gt;</code> for an admin and <code>Vault created under global vaults:manage grant (creator rights granted): &lt;name&gt;</code> for Journey W's Iris.</p>
+<hr>
+<h2 id="journey-w--the-global-grant-that-no-longer-means-what-it-used-to">Journey W — The Global Grant That No Longer Means What It Used To</h2>
+<p><strong>Actor</strong>: Iris (global role <code>user</code>, plus a global <code>vaults:manage</code> access policy)</p>
+<p>As of v4.6.0 a global (<code>vault_id</code> <code>NULL</code>) <code>(vaults, manage, allow)</code> policy confers <strong>create and list, and nothing else</strong>. Its holder loses get, update, delete, recover, webhook configuration, and role-assignment management on every vault it does not hold a <em>vault-scoped</em> grant over. The whole journey turns on one contrast, and the two halves must not be run together: a vault Iris <strong>created</strong> stays reachable; a vault she <strong>did not create</strong> does not.</p>
+<h3 id="1-setup-is-http-only">1. Setup is HTTP-only</h3>
+<p>There is no CLI command for access policies — the only mechanism is the admin-gated <code>POST /api/v1/access-policies</code> (<code>api/access_policies.go</code>, gated by <code>requireAccessPolicyAdmin</code>). This is the same constraint Journey I hit from the other direction.</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya. Omitting vault_id is what makes the policy global — the field is a
+# STRING in CreateAccessPolicyRequest, and &quot;an empty vault_id leaves the policy
+# global; a value scopes it to that vault&quot;.
+POLICY_ID=$(curl -s -X POST $BASE/access-policies \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;principal_id&quot;:&quot;&lt;iris-user-id&gt;&quot;,&quot;principal_type&quot;:&quot;user&quot;,
+       &quot;resource_type&quot;:&quot;vaults&quot;,&quot;operation&quot;:&quot;manage&quot;,&quot;effect&quot;:&quot;allow&quot;}' | jq -r .id)
+
+curl -s $BASE/access-policies/$POLICY_ID -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; | jq .
+# no vault_id field in the response — VaultID is `omitempty` and nil means GLOBAL
+</pre></div>
+<blockquote>
+<p><code>rocketvault vault-access grant iris --role &quot;Key Vault Administrator&quot; --vault prod</code> is <strong>not</strong> a CLI substitute for this, however much it looks like one. <code>ExpandRole</code> returns <code>nil, nil</code> for every Azure built-in role, so a role grant writes <code>role_assignments</code> rows and nothing <code>CanManageVault</code> can see. It satisfies data-plane checks and restores none of the vault-management rights this journey is about.</p>
+</blockquote>
+<h3 id="2-create-and-list-still-work">2. Create and list still work</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Iris:
+rocketvault vaults create tenant-x
+# ID  Name  Enabled  PurgeProtection  RetentionDays  Created
+
+rocketvault vaults list
+# every vault on the instance — dev, staging, prod, tenant-x, ...
+</pre></div>
+<p>The collection-level decision (<code>vaultID == uuid.Nil</code>) still calls <code>CheckAccess</code>, which a <code>NULL</code>-scoped allow satisfies. <code>vaults list</code> also treats her as an &quot;all&quot; lister, so she <strong>sees</strong> vaults she cannot touch. That asymmetry is the single most confusing thing about this release in practice, and it is intended: listing is not managing.</p>
+<p>Unlike Journey V's grantee, she has no quota to pin, so purge protection is open to her:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vaults create tenant-y --purge-protection    # succeeds
+</pre></div>
+<p>Three tiers exist on the create path, and only the middle one is refused: admin may set purge protection, a global-policy holder may set it, a provisioning grantee may not.</p>
+<h3 id="3-she-can-manage-the-vault-she-created--because-creating-it-wrote-her-a-scoped-grant">3. She can manage the vault she created — because creating it wrote her a scoped grant</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Iris:
+rocketvault vaults get tenant-x
+rocketvault vaults update tenant-x --retention-days 14
+rocketvault vault-webhook get --vault tenant-x
+rocketvault vault-access list --vault tenant-x
+# all succeed
+</pre></div>
+<p>None of that comes from the global policy. <code>cmd/vaults/create.go</code> passes <code>right != authz.CreateRightAdmin</code> as <code>grantCreatorRights</code>, and <code>CreateVaultProvisioned</code> writes, in the same transaction as the vault row, a vault-scoped <code>vaults:manage</code> access policy <strong>and</strong> a <code>Key Vault Administrator</code> role assignment for the creator. Confirm the policy really is scoped, not global:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya:
+curl -s $BASE/access-policies/principal/&lt;iris-user-id&gt; \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; | jq '.access_policies[] | {operation, effect, vault_id}'
+# one row with no vault_id (the global allow) plus one row per vault she created,
+# each carrying that vault's UUID
+</pre></div>
+<h3 id="4-she-cannot-manage-a-vault-she-did-not-create--the-actual-breaking-change">4. She cannot manage a vault she did not create — the actual breaking change</h3>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Iris, against prod, which Priya created in Journey A:
+rocketvault vaults get prod
+# Error: permission denied: admin or vaults/manage required for vault &quot;prod&quot;
+
+rocketvault vaults update prod --retention-days 7
+# Error: permission denied: admin or vaults/manage required for vault &quot;prod&quot;
+
+rocketvault vaults delete prod
+# Error: permission denied: admin or vaults/manage required for vault &quot;prod&quot;
+
+rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault
+# Error: permission denied: managing webhook config for vault &quot;prod&quot; requires admin or vaults/manage
+
+rocketvault vault-access grant iris --role &quot;Key Vault Administrator&quot; --vault prod
+# Error: permission denied: admin, vaults/manage, or Key Vault Data Access Administrator
+#        required for this vault
+</pre></div>
+<p>The mechanism is one function. A concrete vault ID routes <code>CanManageVault</code> and <code>CanManageRoleAssignments</code> to <code>CheckVaultScopedAccess</code> instead of <code>CheckAccess</code>; that method reuses the same <code>(vault_id = ? OR vault_id IS NULL)</code> lookup, then <strong>discards <code>NULL</code>-scoped allow rows and keeps <code>NULL</code>-scoped deny rows</strong>. Her global allow survives the query and is thrown away by the filter, so the decision falls through to <code>AccessFallback</code>, which is not <code>AccessAllowed</code>, and <code>CanManageVault</code> fails closed.</p>
+<p>That last command is why both functions were narrowed together. Role-assignment management is by itself enough to self-award <code>Key Vault Administrator</code> anywhere; narrowing only <code>CanManageVault</code> would have left the escalation wide open.</p>
+<h3 id="5-the-two-things-that-did-not-change">5. The two things that did <em>not</em> change</h3>
+<p>A global <strong>deny</strong> still blocks everything, including vaults the denied principal created — the asymmetry between deny and allow is deliberate:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd"># As Priya, the same POST with effect &quot;deny&quot; and no vault_id:
+curl -s -X POST $BASE/access-policies \
+  -H &quot;Authorization: Bearer $ADMIN_TOKEN&quot; -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;principal_id&quot;:&quot;&lt;iris-user-id&gt;&quot;,&quot;principal_type&quot;:&quot;user&quot;,
+       &quot;resource_type&quot;:&quot;vaults&quot;,&quot;operation&quot;:&quot;manage&quot;,&quot;effect&quot;:&quot;deny&quot;}' | jq -r .id
+
+# As Iris:
+rocketvault vaults get tenant-x
+# Error: permission denied: admin or vaults/manage required for vault &quot;tenant-x&quot;
+#        &lt;-- the vault she created, now unreachable
+</pre></div>
+<p>And the <code>admin</code> account role is untouched: it short-circuits both functions before any policy check runs. Priya's behaviour anywhere in this document is unaffected by this release.</p>
+<h3 id="6-help-text-was-corrected-alongside-the-behaviour">6. Help text was corrected alongside the behaviour</h3>
+<p>Worth one grep during a QA pass, because stale help is how a narrowed permission gets re-widened in someone's head. <code>cmd/vaults/{delete,get,recover,update}.go</code> and <code>cmd/vault-webhook/{delete,get,set}.go</code> previously said the operation required an allow &quot;scoped to this vault or granted globally&quot;; all six now say &quot;scoped to this vault&quot;:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault vaults get --help | grep -A1 'access-policy allow'
+# Requires the admin account role, or an access-policy allow on (vaults,
+# manage) scoped to this vault.
+</pre></div>
+<p><code>cmd/vaults/list.go</code> still says &quot;granted globally&quot; — correctly, and it is the only one that should. <code>cmd/vaults/create.go</code> goes further and says the allow must be &quot;scoped globally rather than to a specific vault (since the vault being created does not exist yet to scope the check to)&quot;, which is the same fact from the other side: a vault-scoped grant does not let you create.</p>
+<h3 id="7-if-you-are-upgrading-not-testing-fresh">7. If you are upgrading, not testing fresh</h3>
+<p>Run v4.5.0 once first and read the startup log for <code>warnGlobalVaultManageGrants</code> (<code>internal/db/db.go</code>). It names every principal holding a <code>NULL</code>-scoped <code>(vaults, manage, allow)</code> row, and every one of them loses everything in step 4 on upgrade. For each, either issue a bounded provisioning grant (Journey V) if it only ever needed to create and manage its <em>own future</em> vaults, or add explicit vault-scoped policies via the HTTP call in step 1 with a real <code>vault_id</code>. A provisioning grant does <strong>not</strong> retroactively repair vaults created under v4.5.0: those rows got no creator grants, because creator grants on the global-policy path are new in this release.</p>
+<hr>
 <h2 id="cli-quick-reference">CLI Quick Reference</h2>
 <h3 id="command-groups">Command groups</h3>
 <div class="codewrap"><div class="code-hd"><span class="code-lang">bash</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">rocketvault users        admin | create | get | list | update | delete | login | logout
 rocketvault vaults       create | list | get | update | delete | recover | purge | preview-migration
 rocketvault vault-access roles | grant | revoke | list
+rocketvault vault-provisioning grant | revoke | list
 rocketvault vault-webhook get | set | delete
 rocketvault keys         create | get | list | update | delete | rotate | sign | verify | wrap | unwrap
 rocketvault keys rotation-policy  get | set | delete
@@ -1637,6 +1841,18 @@ rocketvault master-key   rotate
 <tr>
 <td><code>--server</code> / <code>ROCKETVAULT_ADDR</code></td>
 <td>Not supported by every subcommand; some are local-only and will tell you to unset it</td>
+</tr>
+<tr>
+<td><code>vault-provisioning grant --quota</code></td>
+<td>Documented as required but <strong>not</strong> registered required with cobra — it is a plain <code>Int</code> defaulting to <code>0</code>, so omitting it gives the positive-integer error, not <code>required flag(s) &quot;quota&quot; not set</code></td>
+</tr>
+<tr>
+<td><code>vault-provisioning grant/revoke</code></td>
+<td>Print the <strong>resolved principal UUID</strong>, never the username you typed. A test asserting the literal argument fails on a correct build</td>
+</tr>
+<tr>
+<td><code>vault-provisioning list</code></td>
+<td>Ignores both <code>--vault</code> and <code>--output</code> — it writes with <code>fmt.Fprintf</code> and never reaches the output formatter, unlike <code>vaults list</code></td>
 </tr>
 <tr>
 <td>HTTP <code>-HSM</code> type suffix</td>
