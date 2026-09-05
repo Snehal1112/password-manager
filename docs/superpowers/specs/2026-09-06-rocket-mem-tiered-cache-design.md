@@ -67,8 +67,9 @@ existing `Interface[K, V]`, but parameterized over a small `L2[K]` interface
 rather than a concrete client:
 
 ```go
-// in cachekit — no go-redis import
-type L2[K comparable] interface {
+// in cachekit — no go-redis import. Not generic over K: every operation is
+// already wire-string-keyed, so a type parameter would be unused.
+type L2 interface {
     Get(wireKey string) ([]byte, bool)
     Set(wireKey string, payload []byte, ttl time.Duration)
     Invalidate(wireKey string)
@@ -111,11 +112,27 @@ gets imported. `TieredCache` depends on the interface, not the package.
 
 Because Redis-family keys are wire strings, and not every domain's cache key
 is already a plain `string` today (`internal/keycache` keys by a composite
-`(uuid.UUID, int)` pair, not a string), `TieredCache[K, V]`'s `K` must supply
-a stable wire representation via a small `WireKey() string` method — each
-domain's existing key type gains this method (trivial for the string-keyed
-caches; a one-line `fmt.Sprintf("%s:%d", id, version)` for keycache's
-composite key).
+`{uuid.UUID, int}` struct, not a string), `TieredCache[K, V]`'s constructor
+takes an explicit key codec rather than constraining `K` itself — simpler
+than adding a method to every domain's key type (`SecretCache`/`certcache`/
+`vaultcache` key on a bare `string`, which can't grow a method without a
+wrapper type):
+
+```go
+type KeyCodec[K comparable] struct {
+    ToWire   func(K) string
+    FromWire func(string) (K, bool) // ok=false for a malformed/foreign wire key
+}
+```
+
+`FromWire` is needed, not just `ToWire`, because `Range` (below) discovers
+keys that exist only in L2 via `L2.Keys(prefix)`, which returns wire strings
+— it must turn each one back into a `K` to call `fn(k, v)`. For the three
+string-keyed domains this pair is the identity (`ToWire` returns the string
+unchanged, `FromWire` always succeeds). For keycache's composite key,
+`ToWire` is `id.String() + ":" + strconv.Itoa(version)` and `FromWire` parses
+it back via `uuid.Parse` + `strconv.Atoi`, returning `ok=false` (skipped,
+never an error) for anything malformed.
 
 `Interface[K, V]`, for reference:
 
