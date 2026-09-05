@@ -384,6 +384,28 @@ func TestCanManageRoleAssignments_NonAdminDeniedWithNothing(t *testing.T) {
 	}
 }
 
+// TestCanManageRoleAssignments_NilVaultIDFailsClosed pins that vaultID ==
+// uuid.Nil denies outright, unlike CanManageVault's identically shaped
+// uuid.Nil branch. Role assignments have no collection-level operation for
+// that branch to serve -- there is no "manage role assignments across every
+// vault" -- so routing it to CheckAccess would only re-widen the exact thing
+// this release narrows: a global vaults:manage allow satisfying
+// role-assignment management everywhere.
+//
+// decision: AccessAllowed proves the guard fires BEFORE the policy service is
+// ever consulted -- if it fell through to CheckAccess like CanManageVault's
+// branch does, this fake would answer allowed and the test would pass for the
+// wrong reason.
+func TestCanManageRoleAssignments_NilVaultIDFailsClosed(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessAllowed}
+	if CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, nil, uuid.New(), uuid.Nil, true) {
+		t.Fatal("vaultID == uuid.Nil must deny outright, even when the policy service would allow")
+	}
+	if CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, nil, uuid.New(), uuid.Nil, false) {
+		t.Fatal("vaultID == uuid.Nil must deny outright for delete too")
+	}
+}
+
 // stubGrantReader returns a fixed grant or error for any principal.
 type stubGrantReader struct {
 	grant *model.VaultProvisioningGrant
