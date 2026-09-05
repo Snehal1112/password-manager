@@ -51,6 +51,7 @@ func TestOSStore_KeychainHappyPath(t *testing.T) {
 }
 
 func TestOSStore_KeychainUnavailable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	kc := newFakeKeychain()
 	kc.setErr = errors.New("keychain daemon not running")
 
@@ -61,6 +62,20 @@ func TestOSStore_KeychainUnavailable(t *testing.T) {
 
 	_, getErr := kc.Get(keychainService, keychainUser("test-cn-unavail"))
 	assert.Error(t, getErr, "key should not be in keychain when Set failed")
+}
+
+func TestOSStore_PEMFallbackReloadedAcrossRestarts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	kc := newFakeKeychain()
+	kc.setErr = errors.New("keychain daemon not running")
+
+	p1, err := newOSStoreProviderWithKeychain("test-cn-pem-reload", kc)
+	require.NoError(t, err)
+
+	p2, err := newOSStoreProviderWithKeychain("test-cn-pem-reload", kc)
+	require.NoError(t, err)
+
+	assert.Equal(t, p1.KeyID(), p2.KeyID(), "kid must be stable across restarts when falling back to the PEM file")
 }
 
 func TestOSStore_KeychainMissingKey(t *testing.T) {
