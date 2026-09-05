@@ -181,6 +181,9 @@ type mockAccessPolicyService struct {
 func (m *mockAccessPolicyService) CheckAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
 	return m.decision, nil
 }
+func (m *mockAccessPolicyService) CheckVaultScopedAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
+	return m.decision, nil
+}
 func (m *mockAccessPolicyService) CreatePolicy(context.Context, *model.AccessPolicy) error {
 	return nil
 }

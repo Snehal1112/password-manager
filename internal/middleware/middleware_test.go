@@ -940,6 +940,11 @@ func (m *MockAccessPolicyService) CheckAccess(ctx context.Context, principalID u
 	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
 }
 
+func (m *MockAccessPolicyService) CheckVaultScopedAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, op model.PolicyOperation, vaultID uuid.UUID) (authzServices.AccessDecision, error) {
+	args := m.Called(ctx, principalID, resourceType, op, vaultID)
+	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
+}
+
 func (m *MockAccessPolicyService) CreatePolicy(ctx context.Context, policy *model.AccessPolicy) error {
 	args := m.Called(ctx, policy)
 	return args.Error(0)

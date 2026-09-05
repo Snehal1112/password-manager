@@ -16,11 +16,23 @@ import (
 // returning a fixed decision/error for CheckAccess. The remaining interface
 // methods are no-ops; no test in this file exercises them.
 type fakeAccessPolicyService struct {
-	decision AccessDecision
-	err      error
+	decision AccessDecision // returned by CheckAccess (collection level)
+	// scoped is returned by CheckVaultScopedAccess. Kept separate from
+	// decision so a test can assert that a caller consults the vault-scoped
+	// check and not the collection-level one.
+	scoped    AccessDecision
+	scopedSet bool
+	err       error
 }
 
 func (f *fakeAccessPolicyService) CheckAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (AccessDecision, error) {
+	return f.decision, f.err
+}
+
+func (f *fakeAccessPolicyService) CheckVaultScopedAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (AccessDecision, error) {
+	if f.scopedSet {
+		return f.scoped, f.err
+	}
 	return f.decision, f.err
 }
 func (f *fakeAccessPolicyService) CreatePolicy(context.Context, *model.AccessPolicy) error {

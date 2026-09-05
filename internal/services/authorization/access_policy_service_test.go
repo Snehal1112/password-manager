@@ -151,6 +151,66 @@ func TestCheckAccess_ReturnsErrorOnRepoFailure(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+// TestCheckVaultScopedAccess covers the asymmetry that defines this method: a
+// NULL-scoped DENY still matches every vault, a NULL-scoped ALLOW matches none.
+func TestCheckVaultScopedAccess(t *testing.T) {
+	vaultID := uuid.New()
+	otherVault := uuid.New()
+
+	allowGlobal := &model.AccessPolicy{Effect: model.PolicyEffectAllow, VaultID: nil}
+	denyGlobal := &model.AccessPolicy{Effect: model.PolicyEffectDeny, VaultID: nil}
+	allowScoped := &model.AccessPolicy{Effect: model.PolicyEffectAllow, VaultID: &vaultID}
+	denyScoped := &model.AccessPolicy{Effect: model.PolicyEffectDeny, VaultID: &vaultID}
+	allowOther := &model.AccessPolicy{Effect: model.PolicyEffectAllow, VaultID: &otherVault}
+
+	cases := []struct {
+		name     string
+		rows     []*model.AccessPolicy
+		expected authorization.AccessDecision
+	}{
+		{"no rows falls back", nil, authorization.AccessFallback},
+		{"global allow alone does NOT grant the vault", []*model.AccessPolicy{allowGlobal}, authorization.AccessFallback},
+		{"global deny still blocks the vault", []*model.AccessPolicy{denyGlobal}, authorization.AccessDenied},
+		{"vault-scoped allow grants", []*model.AccessPolicy{allowScoped}, authorization.AccessAllowed},
+		{"vault-scoped deny blocks", []*model.AccessPolicy{denyScoped}, authorization.AccessDenied},
+		{"global deny beats a vault-scoped allow", []*model.AccessPolicy{allowScoped, denyGlobal}, authorization.AccessDenied},
+		{"global deny beats a scoped allow regardless of row order", []*model.AccessPolicy{denyGlobal, allowScoped}, authorization.AccessDenied},
+		{"global allow plus vault-scoped allow grants", []*model.AccessPolicy{allowGlobal, allowScoped}, authorization.AccessAllowed},
+		{"an allow scoped to another vault does not grant this one", []*model.AccessPolicy{allowOther}, authorization.AccessFallback},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &mockPolicyRepo{}
+			svc := authorization.NewAccessPolicyService(repo)
+			ctx := context.Background()
+			pid := uuid.New()
+			repo.On("FindEffects", ctx, pid, model.PolicyResourceVaults, model.OpManage, vaultID).
+				Return(tc.rows, nil)
+
+			got, err := svc.CheckVaultScopedAccess(ctx, pid, model.PolicyResourceVaults, model.OpManage, vaultID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
+// TestCheckVaultScopedAccess_RepoErrorFailsClosed pins that a lookup failure is
+// never reported as an allow.
+func TestCheckVaultScopedAccess_RepoErrorFailsClosed(t *testing.T) {
+	repo := &mockPolicyRepo{}
+	svc := authorization.NewAccessPolicyService(repo)
+	ctx := context.Background()
+	pid := uuid.New()
+	vaultID := uuid.New()
+	repo.On("FindEffects", ctx, pid, model.PolicyResourceVaults, model.OpManage, vaultID).
+		Return([]*model.AccessPolicy(nil), errors.New("db down"))
+
+	got, err := svc.CheckVaultScopedAccess(ctx, pid, model.PolicyResourceVaults, model.OpManage, vaultID)
+	require.Error(t, err)
+	assert.Equal(t, authorization.AccessFallback, got)
+}
+
 func TestCreatePolicy_AssignsIDAndTimestamp(t *testing.T) {
 	repo := &mockPolicyRepo{}
 	svc := authorization.NewAccessPolicyService(repo)

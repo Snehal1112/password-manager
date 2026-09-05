@@ -24,6 +24,9 @@ type fakePolicySvc struct {
 func (f *fakePolicySvc) CheckAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
 	return f.decision, nil
 }
+func (f *fakePolicySvc) CheckVaultScopedAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
+	return f.decision, nil
+}
 func (f *fakePolicySvc) CreatePolicy(context.Context, *model.AccessPolicy) error { return nil }
 func (f *fakePolicySvc) GetPolicy(context.Context, uuid.UUID) (*model.AccessPolicy, error) {
 	return nil, nil
