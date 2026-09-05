@@ -278,6 +278,10 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
     actor: "Priya, then ops-oncall",
     premise:
       "Soft-delete cascades. Recovery cascades, but only for children stamped with the vault's exact `deleted_at`. Purge does not cascade at all, and permanently orphans everything inside.",
+    context: [
+      "Three operations, three different cascade behaviours. Soft-delete cascades to everything in the vault. Recovery cascades too, but only to children stamped with the vault's exact `deleted_at`. Purge does not cascade at all.",
+      "The last of those is the trap this journey exists for, and it is silent — nothing errors and nothing warns. The API cannot show you the rows that are left behind, which is why J6 goes to the database directly.",
+    ],
     cases: [
       {
         id: "J1",
@@ -288,6 +292,11 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         expected:
           "Contained secrets, keys and certs are each stamped with the vault's own deleted_at.",
         assert: "Children are soft-deleted with the vault's timestamp",
+        why: "The cascade stamps every contained secret, key and certificate with the vault's own `deleted_at`, not with a timestamp of its own. That shared value is what makes J3's recovery possible, and it is the same fact that makes J4's earlier-deleted secret unrecoverable.",
+        verify: {
+          look: "Every item the cascade touched carries the same `deleted_at` as the vault row itself, not the time each one was created or last changed.",
+        },
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J",
       },
       {
         id: "J2",
@@ -297,6 +306,7 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         command: `rocketvault vaults list --include-deleted --output json`,
         expected: "staging appears with a deleted_at.",
         assert: "--include-deleted surfaces it",
+        related: [{ id: "J1", rel: "depends" }],
       },
       {
         id: "J3",
@@ -307,6 +317,9 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         expected:
           "Only children whose deleted_at matches the vault's are restored.",
         assert: "Vault and matching children are back",
+        why: "Recovery cascades, but the restore is scoped by `WHERE vault_id = ? AND deleted_at = ?`. Only children carrying the vault's exact deletion timestamp come back — which is every item the J1 cascade stamped, and nothing else.",
+        related: [{ id: "J1", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J",
       },
       {
         id: "J4",
@@ -322,6 +335,11 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         flag: "trap",
         notes:
           "Do not assume vault recovery brings everything back. This is the most commonly missed assertion in the whole document.",
+        why: "A secret soft-deleted individually, earlier, carries its own `deleted_at`, and that value does not equal the vault's. The `WHERE vault_id = ? AND deleted_at = ?` clause driving the cascade therefore never matches it, so vault recovery steps straight past it.",
+        after:
+          "The secret is still soft-deleted and still recoverable on its own. Restore it explicitly before continuing, or the rest of this journey runs against a smaller secret set than it expects.",
+        related: [{ id: "J3", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J",
       },
       {
         id: "J5",
@@ -336,6 +354,9 @@ rocketvault vaults purge staging      # as ops-oncall`,
         assert: "Purge Operator can purge",
         notes:
           "`ActionVaultPurge` is granted by **no other role** — not Administrator's data-plane bundle, not Crypto Officer.",
+        why: "Purge is deliberately a second pair of hands. The CLI path also carries an admin bypass in `CanPurgeVault` that the HTTP route does not have, so a global admin succeeds here and takes a 403 for the same purge over REST.",
+        related: [{ id: "K3", rel: "diverges" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey K",
       },
       {
         id: "J6",
@@ -349,7 +370,15 @@ rocketvault vaults purge staging      # as ops-oncall`,
         assert: "Orphaned rows survive the purge",
         flag: "trap",
         notes:
-          "`PurgeVault` deletes the vault row and its access_policies rows and stops. No cascade call, and no FK forcing one — `secrets`/`keys`/`certificates` carry a plain `vault_id TEXT NOT NULL` with no `REFERENCES vaults(id)`, unlike `role_assignments.vault_id`. The orphans are unreachable through any route and are never swept by the purge scheduler. **Purge a vault's contents item-by-item first**, or accept them.",
+          "**Purge a vault's contents item-by-item before purging the vault**, or accept permanently orphaned rows.",
+        why: "`PurgeVault` deletes the vault row and its `access_policies` rows and stops. There is no cascade call, and no foreign key forcing one — `secrets`, `keys` and `certificates` carry a plain `vault_id TEXT NOT NULL` with no `REFERENCES vaults(id)`, unlike `role_assignments.vault_id`, which does have `ON DELETE CASCADE`.",
+        verify: {
+          look: "Rows come back. They are still soft-deleted, and their `vault_id` names a vault that is no longer in the `vaults` table. **Rows coming back is the pass here, not the failure** — an empty result means the orphaning did not happen and something about this build differs from the document.",
+        },
+        after:
+          "Nothing to undo; the rows cannot be reached to be undone. Vault-scoped routes 404 because the name no longer resolves, flat routes only ever reach `default`, and the purge scheduler never sweeps them because it purges individually-deleted items only.",
+        related: [{ id: "J5", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J — the purge trap",
       },
       {
         id: "J7",
@@ -359,6 +388,9 @@ rocketvault vaults purge staging      # as ops-oncall`,
         command: `rocketvault vaults purge <vault-with-protected-contents>`,
         expected: "Error: ... purge protection enabled",
         assert: "Fail-closed — the one guardrail that does exist",
+        why: "The one guardrail that does exist in the other direction, and it fails closed: a vault holding any purge-protected item refuses the bulk purge outright rather than purging everything it is allowed to and leaving the rest.",
+        related: [{ id: "J5", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J",
       },
     ],
   },
