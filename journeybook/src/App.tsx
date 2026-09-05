@@ -297,10 +297,70 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey)
   }, [visible, focusId, focusCase, nextTodo, setVerdict, toggleOpen, shortcuts])
 
+  /*
+   * True while a journey link is animating the page to its target.
+   *
+   * The observer below reports whatever journey is passing the top of the
+   * viewport, which is right when a reader is scrolling and wrong when the
+   * page is travelling on their behalf. Jumping from A to W sweeps every
+   * journey between them through the band in a few hundred milliseconds, and
+   * the strip's marker would strobe across twenty groups before landing --
+   * motion nobody asked for, drawing the eye away from where they are going.
+   * So the marker is set once, to the target, and held there until the page
+   * stops moving.
+   */
+  const jumping = React.useRef(false)
+
+  React.useEffect(() => {
+    let release: number | undefined
+
+    const settle = () => {
+      jumping.current = false
+      window.clearTimeout(release)
+    }
+
+    // Every journey link on the page is a plain anchor -- deliberately, since
+    // the rail is the page's real navigation -- so one delegated listener
+    // catches the rail's links and the run strip's alike, and keeps both
+    // components unaware of this.
+    const onClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      const link = target?.closest?.<HTMLAnchorElement>('a[href^="#suite-"]')
+      if (!link) return
+      jumping.current = true
+      setActiveSuite(link.getAttribute("href")?.slice(7) ?? null)
+      // scrollend is exact where it exists. The timeout is the fallback, and
+      // is deliberately longer than any native smooth scroll: releasing late
+      // costs one stale frame, releasing early brings the strobe back.
+      window.clearTimeout(release)
+      release = window.setTimeout(settle, 1200)
+    }
+
+    // A reader who grabs the wheel mid-flight has taken over, so the marker
+    // goes back to following them immediately rather than waiting out a
+    // journey they have abandoned.
+    const takeover = () => {
+      if (jumping.current) settle()
+    }
+
+    document.addEventListener("click", onClick)
+    window.addEventListener("scrollend", settle)
+    window.addEventListener("wheel", takeover, { passive: true })
+    window.addEventListener("touchstart", takeover, { passive: true })
+    return () => {
+      document.removeEventListener("click", onClick)
+      window.removeEventListener("scrollend", settle)
+      window.removeEventListener("wheel", takeover)
+      window.removeEventListener("touchstart", takeover)
+      window.clearTimeout(release)
+    }
+  }, [])
+
   // Highlight the journey the reader is actually looking at.
   React.useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
+        if (jumping.current) return
         const shown = entries
           .filter((en) => en.isIntersecting)
           .sort(
@@ -459,6 +519,15 @@ export default function App() {
                       <p className="mt-2.5 max-w-[74ch] pl-[1.6rem] text-[13.5px] leading-relaxed text-muted-foreground">
                         <Prose>{s.premise}</Prose>
                       </p>
+
+                      {s.context?.map((para) => (
+                        <p
+                          key={para.slice(0, 48)}
+                          className="mt-2.5 max-w-[74ch] pl-[1.6rem] text-[13.5px] leading-relaxed text-muted-foreground"
+                        >
+                          <Prose>{para}</Prose>
+                        </p>
+                      ))}
 
                       <ul className="mt-4 overflow-hidden rounded-lg border border-border bg-card">
                         {shown.map((c) => (

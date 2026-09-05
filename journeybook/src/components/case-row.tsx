@@ -2,7 +2,7 @@ import * as React from "react"
 import { ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { FlatCase } from "@/data"
-import type { Case } from "@/data/types"
+import type { Case, Relation } from "@/data/types"
 import type { Verdict } from "@/lib/run-state"
 import { GutterSegment, VerdictControl } from "@/components/verdict"
 import { Terminal } from "@/components/terminal"
@@ -21,6 +21,46 @@ const flagLabel: Record<NonNullable<Case["flag"]>, string> = {
   divergence: "Divergence",
   gap: "Gap",
   trap: "Trap",
+}
+
+const relationLabel: Record<Relation, string> = {
+  depends: "depends on",
+  diverges: "diverges from",
+  contrasts: "contrasts with",
+}
+
+/**
+ * One labelled section of the expanded panel.
+ *
+ * The label sits right-aligned in a 3.5rem gutter with content starting at
+ * 5.5rem, so nine possible sections share one hard vertical rule rather than
+ * nine headings interrupting the prose. Below 640px the grid collapses and the
+ * label stacks above its content.
+ */
+function Row({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <>
+      <dt className="label mt-3.5 text-muted-foreground first:mt-0 sm:mt-0 sm:text-right">
+        {label}
+      </dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
+  )
+}
+
+/** Prose shared by Why, Before, After, Note and the Verify commentary. */
+function Text({ children }: { children: string }) {
+  return (
+    <p className="max-w-[68ch] text-[13px] leading-relaxed text-muted-foreground">
+      <Prose>{children}</Prose>
+    </p>
+  )
 }
 
 /**
@@ -119,32 +159,79 @@ export const CaseRow = React.memo(function CaseRow({
       </div>
 
       {open ? (
-        <div
-          id={panelId}
-          className="space-y-4 pt-1 pr-3 pb-5 pl-5 sm:pl-[4.4rem]"
-        >
-          {item.precondition ? (
-            <p className="max-w-[68ch] text-[13px] leading-relaxed text-muted-foreground">
-              <span className="font-medium text-foreground">
-                Before you run it.{" "}
-              </span>
-              <Prose>{item.precondition}</Prose>
-            </p>
-          ) : null}
+        <div id={panelId} className="pt-1 pr-3 pb-5 pl-5">
+          <dl className="grid grid-cols-1 gap-y-1 sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:gap-x-3 sm:gap-y-4">
+            {item.why ? (
+              <Row label="Why">
+                <Text>{item.why}</Text>
+              </Row>
+            ) : null}
 
-          <Terminal label="Run" copy>
-            {item.command}
-          </Terminal>
+            {item.precondition ? (
+              <Row label="Before">
+                <Text>{item.precondition}</Text>
+              </Row>
+            ) : null}
 
-          <Terminal label="Expected" tone="output">
-            {item.expected}
-          </Terminal>
+            <Row label="Run">
+              <Terminal copy>{item.command}</Terminal>
+            </Row>
 
-          {item.notes ? (
-            <p className="max-w-[68ch] text-[13px] leading-relaxed text-muted-foreground">
-              <Prose>{item.notes}</Prose>
-            </p>
-          ) : null}
+            <Row label="Expected">
+              <Terminal tone="output">{item.expected}</Terminal>
+            </Row>
+
+            {item.verify ? (
+              <Row label="Verify">
+                <div className="space-y-2">
+                  {item.verify.command ? (
+                    <Terminal copy>{item.verify.command}</Terminal>
+                  ) : null}
+                  <Text>{item.verify.look}</Text>
+                </div>
+              </Row>
+            ) : null}
+
+            {item.after ? (
+              <Row label="After">
+                <Text>{item.after}</Text>
+              </Row>
+            ) : null}
+
+            {item.notes ? (
+              <Row label="Note">
+                <Text>{item.notes}</Text>
+              </Row>
+            ) : null}
+
+            {item.related?.length ? (
+              <Row label="Related">
+                <ul className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {item.related.map((r) => (
+                    <li key={r.id} className="text-[13px] leading-relaxed">
+                      <a
+                        href={`#case-${r.id}`}
+                        className="focus-ring rounded-sm font-mono text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground"
+                      >
+                        {r.id}
+                      </a>
+                      <span className="ml-1.5 text-muted-foreground">
+                        {relationLabel[r.rel]}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Row>
+            ) : null}
+
+            {item.source ? (
+              <Row label="Source">
+                <p className="max-w-[68ch] text-[12.5px] leading-relaxed text-muted-foreground/80">
+                  {item.source}
+                </p>
+              </Row>
+            ) : null}
+          </dl>
         </div>
       ) : null}
     </li>
