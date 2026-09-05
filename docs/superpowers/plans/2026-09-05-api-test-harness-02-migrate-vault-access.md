@@ -10,7 +10,21 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-05-in-process-api-test-harness-design.md`
 
-**Depends on:** `2026-09-05-api-test-harness-01-core.md` — `apitest.New`, `Options`, `(*Server).Client()`, `(*Server).Target()` and `Options.DenyDataAction` must all exist.
+**Depends on:** `2026-09-05-api-test-harness-01-core.md` — `apitest.New`, `Options`, `(*Server).Client()`, `(*Server).Target()` and `Options.DenyAccessPolicy` must all exist.
+
+> **Corrected 2026-09-05, after plan 01 shipped.** This plan originally used
+> `Options.DenyDataAction: model.ActionRoleAssignmentsWrite` for the
+> forbidden-path test. That cannot work and was proven not to: role-assignment
+> routes are `RouteUnmanaged`, so `PolicyMiddleware` never consults
+> `HasDataAction`, and `CanManageRoleAssignments` short-circuits to allow for
+> the global-admin caller the harness stubs
+> (`internal/services/authorization/vault_authz.go:67-69`). The request reaches
+> the handler and panics on an unregistered `AssignRole` instead of returning
+> 403. Plan 01's fix wave added `Options.DenyAccessPolicy`, which denies at
+> `(vaults, manage)` — the policy those routes actually resolve to — producing
+> a genuine 403 from `PolicyMiddleware` before any handler runs. Use it.
+> `DenyDataAction` remains correct for `RouteVaultData` routes (secrets, keys,
+> certificates data-plane), which is what plan 04's groups will need.
 
 ## Global Constraints
 
@@ -28,7 +42,7 @@
 - Modify: `cmd/vault-access/grant_remote_test.go`
 
 **Interfaces:**
-- Consumes: `apitest.New`, `Options{RoleAssignments, DenyDataAction}`, `(*Server).Client()`, `(*Server).Target()` from plan 01.
+- Consumes: `apitest.New`, `Options{RoleAssignments, DenyAccessPolicy}`, `(*Server).Client()`, `(*Server).Target()`, and `(*Server).TestContext()` from plan 01.
 - Produces: nothing importable. `remoteTestCmd` (already in this file) survives unchanged and is still shared by Task 2's files.
 
 - [ ] **Step 1: Replace the happy-path test's server**
@@ -82,8 +96,8 @@ func TestGrantRemote_ForbiddenIsReadable(t *testing.T) {
 	roleSvc := &testutils.MockRoleAssignmentService{}
 
 	srv := apitest.New(t, apitest.Options{
-		RoleAssignments: roleSvc,
-		DenyDataAction:  model.ActionRoleAssignmentsWrite,
+		RoleAssignments:  roleSvc,
+		DenyAccessPolicy: true,
 	})
 
 	cmd, _ := remoteTestCmd(t, "payments")
@@ -334,8 +348,10 @@ output rather than "verify it works".
 `*testutils.MockRoleAssignmentService`. `srv.Client()` returns
 `*vaultapi.Client` and `srv.Target()` returns `*cliclient.Target`, matching
 the second and third parameters of all three `runXRemote` functions as merged
-in `661a4d6`. `model.ActionRoleAssignmentsWrite` is the action the grant route
-requires (`model/azure_roles.go`).
+in `661a4d6`. `Options.DenyAccessPolicy` is a `bool`; the grant route resolves
+to the `(vaults, manage)` policy, which is what that flag denies — see the
+correction note at the top of this plan for why `DenyDataAction` does not work
+here.
 
 **Coverage deliberately relocated, not lost:** the old tests asserted the
 request path, HTTP method and `Authorization` header per test. Those move to
