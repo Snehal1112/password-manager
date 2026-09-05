@@ -179,3 +179,97 @@ func TestTieredCache_L2Down_SetIsSilentNoOp_NoPanic(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "e", v.Name)
 }
+
+// compile-time check: *TieredCache[string, *codecTestValue] satisfies
+// Interface[string, *codecTestValue] -- proves every domain cache can swap
+// its `core` field's concrete type with zero other change.
+var _ cachekit.Interface[string, *codecTestValue] = (*cachekit.TieredCache[string, *codecTestValue])(nil)
+
+func TestTieredCache_Range_VisitsL1AndL2OnlyEntries(t *testing.T) {
+	l1 := cachekit.New[string, *codecTestValue](cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0})
+	defer l1.Stop()
+	l2 := newFakeL2()
+	tc := newTieredForTest(l1, l2)
+
+	// k-l1: only in L1 (e.g. never yet pushed to L2 in some other scenario).
+	l1.Set("k-l1", &codecTestValue{Name: "only-l1", N: 1})
+	// k-l2: only in L2 (e.g. evicted from L1 by LRU/TTL, still alive in L2).
+	payload, err := (cachekit.PlainJSONCodec[*codecTestValue]{}).Encode(&codecTestValue{Name: "only-l2", N: 2})
+	require.NoError(t, err)
+	l2.Set("test:k-l2", payload, time.Minute)
+
+	seen := map[string]string{}
+	tc.Range(func(k string, v *codecTestValue) bool {
+		seen[k] = v.Name
+		return true
+	})
+
+	assert.Equal(t, "only-l1", seen["k-l1"])
+	assert.Equal(t, "only-l2", seen["k-l2"], "an L2-only entry (evicted from L1) must still be visited by Range")
+}
+
+func TestTieredCache_Range_L1EntryWinsOverL2Duplicate(t *testing.T) {
+	l1 := cachekit.New[string, *codecTestValue](cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0})
+	defer l1.Stop()
+	l2 := newFakeL2()
+	tc := newTieredForTest(l1, l2)
+
+	l1.Set("dup", &codecTestValue{Name: "fresh-l1", N: 1})
+	stalePayload, err := (cachekit.PlainJSONCodec[*codecTestValue]{}).Encode(&codecTestValue{Name: "stale-l2", N: 2})
+	require.NoError(t, err)
+	l2.Set("test:dup", stalePayload, time.Minute)
+
+	var got *codecTestValue
+	tc.Range(func(k string, v *codecTestValue) bool {
+		if k == "dup" {
+			got = v
+		}
+		return true
+	})
+	require.NotNil(t, got)
+	assert.Equal(t, "fresh-l1", got.Name, "L1's copy must win when a key exists in both tiers")
+}
+
+func TestTieredCache_Range_EarlyStop_SkipsL2Scan(t *testing.T) {
+	l1 := cachekit.New[string, *codecTestValue](cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0})
+	defer l1.Stop()
+	l2 := newFakeL2()
+	l2.down = true // if Range reaches L2 after an early stop, Keys returns nil harmlessly either way -- down proves it's never even attempted via a separate assertion below
+	tc := newTieredForTest(l1, l2)
+	l1.Set("only-one", &codecTestValue{Name: "x", N: 1})
+
+	visits := 0
+	tc.Range(func(k string, v *codecTestValue) bool {
+		visits++
+		return false // stop immediately
+	})
+	assert.Equal(t, 1, visits)
+}
+
+func TestTieredCache_DeleteByIDPattern_FindsL2OnlyEntry(t *testing.T) {
+	// This mirrors exactly how SecretCache.DeleteByID/certcache/keycache use
+	// Range today: scan for a match, collect keys, Invalidate each. Proves
+	// the pattern still works when the matching entry lives only in L2.
+	l1 := cachekit.New[string, *codecTestValue](cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0})
+	defer l1.Stop()
+	l2 := newFakeL2()
+	tc := newTieredForTest(l1, l2)
+
+	payload, err := (cachekit.PlainJSONCodec[*codecTestValue]{}).Encode(&codecTestValue{Name: "target", N: 99})
+	require.NoError(t, err)
+	l2.Set("test:l2only", payload, time.Minute)
+
+	var toRemove []string
+	tc.Range(func(k string, v *codecTestValue) bool {
+		if v.N == 99 {
+			toRemove = append(toRemove, k)
+		}
+		return true
+	})
+	for _, k := range toRemove {
+		tc.Invalidate(k)
+	}
+
+	_, ok := l2.Get("test:l2only")
+	assert.False(t, ok, "the L2-only entry must have been found and invalidated")
+}

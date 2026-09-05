@@ -1,6 +1,9 @@
 package cachekit
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // L2 is a network-backed second cache tier. Every method must degrade
 // gracefully on failure (network timeout, connection refused, malformed
@@ -102,4 +105,52 @@ func (t *TieredCache[K, V]) Stats() Stats {
 // spec) -- not here.
 func (t *TieredCache[K, V]) Stop() {
 	t.l1.Stop()
+}
+
+// Range visits every live entry across both tiers. It ranges L1 first
+// (unchanged semantics), then scans L2 for any wire key not already
+// visited via L1 -- this is what keeps SecretCache.DeleteByID and its
+// certcache/keycache analogs correct: they discover which scope-key(s)
+// hold a given ID by scanning every live entry, and an L1-only Range would
+// miss an entry evicted from L1 but still alive in L2 (see the design
+// spec's "Why Keys is required" note). L1's copy wins whenever a key
+// exists in both tiers, since it is guaranteed at least as fresh.
+func (t *TieredCache[K, V]) Range(fn func(key K, value V) bool) {
+	visited := make(map[string]struct{})
+	stopped := false
+	t.l1.Range(func(k K, v V) bool {
+		visited[t.wireKey(k)] = struct{}{}
+		if stopped {
+			return false
+		}
+		if !fn(k, v) {
+			stopped = true
+			return false
+		}
+		return true
+	})
+	if stopped {
+		return
+	}
+	for _, wireKey := range t.l2.Keys(t.prefix) {
+		if _, ok := visited[wireKey]; ok {
+			continue
+		}
+		shortKey := strings.TrimPrefix(wireKey, t.prefix)
+		k, ok := t.keys.FromWire(shortKey)
+		if !ok {
+			continue
+		}
+		payload, ok := t.l2.Get(wireKey)
+		if !ok {
+			continue
+		}
+		v, err := t.codec.Decode(payload)
+		if err != nil {
+			continue
+		}
+		if !fn(k, v) {
+			return
+		}
+	}
 }
