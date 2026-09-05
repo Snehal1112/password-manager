@@ -220,6 +220,7 @@ config but reserved for future use; no cache is wired up for those domains yet.
 - **RBACService**: global role permissions for vault and user management only
 - **AccessPolicyService**: explicit-deny override, evaluated before role grants
 - **RoleAssignmentService**: per-vault Azure role grants and the `HasDataAction` authorization decision
+- A global (`vault_id NULL`) `vaults:manage` allow is **create-and-list only** as of v4.6.0 — it no longer confers get/update/delete or role-assignment management on vaults it did not create. Vault-scoped decisions for a concrete vault go through `AccessPolicyService.CheckVaultScopedAccess`, where a `NULL`-scoped deny still matches every vault but a `NULL`-scoped allow matches none; the collection-level create/list decision still calls `CheckAccess`. See `docs/release-notes/v4.6.0-narrow-global-vault-manage.md`.
 - Vault data-plane routes are deny-by-default: see `docs/release-notes/v4.0.0-azure-rbac.md`
 
 ### CLI Authorization
@@ -227,7 +228,7 @@ config but reserved for future use; no cache is wired up for those domains yet.
 HTTP requests get their authorization check for free from middleware. CLI commands call the service layer directly and bypass that middleware entirely, so every resource command must reproduce the equivalent check itself — split along the same two tiers documented above:
 
 - **Per-vault data-plane operations** (`secrets`, `keys`, `certificates`): call `cmd/vaultcli.RequireDataAction` (which re-runs the identical two-stage check HTTP gets — `AccessPolicyService`'s explicit-deny override, then the deny-by-default role-assignment check) after resolving the target vault via `vaultcli.ResolveVaultID`.
-- **Vault-management operations** (`vaults` lifecycle: create/update/delete/recover/purge; `vault-access` role-assignment grant/revoke): call their own package-local helpers (`cmd/vaults/authz.go`, `cmd/vault-access/authz.go`), built on the shared `CanManageVault`/`CanPurgeVault`/`CanManageRoleAssignments` checks in `internal/services/authorization`.
+- **Vault-management operations** (`vaults` lifecycle: create/update/delete/recover/purge; `vault-access` role-assignment grant/revoke): call their own package-local helpers (`cmd/vaults/authz.go`, `cmd/vault-access/authz.go`), built on the shared `CanManageVault`/`CanPurgeVault`/`CanManageRoleAssignments` checks in `internal/services/authorization`. `CanManageVault`/`CanManageRoleAssignments` consult the vault-scoped check (`CheckVaultScopedAccess`) for a concrete vault and `CheckAccess` only for the `uuid.Nil` create/list decision — see the Authorization section above.
 - **Provisioning-grant management** (`vault-provisioning grant`/`revoke`/`list`): calls its own package-local helper, `cmd/vault-provisioning/authz.go`'s `requireGrantAdmin`. Unlike the `vaults` and `vault-access` helpers above, this one has no access-policy or role-assignment path at all — it checks only the global `admin` account role. This tier is admin-only and deliberately non-delegable: a principal able to amend its own provisioning grant could raise its own quota, and the bound the grant exists to impose would be decorative. See `docs/release-notes/v4.5.0-vault-provisioning.md`.
 
 A new CLI command that skips its tier's check bypasses authorization entirely — there is no other enforcement point on the CLI path.
