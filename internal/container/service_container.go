@@ -378,7 +378,11 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Certificate cache is always constructed: a real cache when enabled, a
 	// no-op one otherwise, so downstream code never nil-checks it.
-	c.certCache = certcache.NewCache(c.cacheConfig.Certificates, c.logger.Logger)
+	if c.rocketMemClient != nil {
+		c.certCache = certcache.NewCacheWithL2(c.cacheConfig.Certificates, c.logger.Logger, c.rocketMemClient, c.cacheConfig.Certificates.TTL)
+	} else {
+		c.certCache = certcache.NewCache(c.cacheConfig.Certificates, c.logger.Logger)
+	}
 
 	// Initialize retry service before any service that wraps with retry logic.
 	if c.viper != nil {
