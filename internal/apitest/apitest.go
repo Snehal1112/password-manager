@@ -5,9 +5,13 @@
 // The alternative -- an httptest.Server with a hand-written handler -- proves
 // nothing: a mock that agrees with the client stays green when the real API
 // renames a field. Everything below the service layer is stubbed, so this
-// harness catches response-shape drift, status codes, route existence and
-// auth-header plumbing, and nothing else. Business logic, persistence and
-// real authorization decisions are out of scope by design; see the spec.
+// harness catches status codes, route existence and auth-header plumbing
+// outright. Response-shape drift is only caught once a caller decodes
+// through its own independently-declared struct -- e.g. the vaultapi client
+// -- rather than a model type, since decoding into the same model type the
+// handler marshals from round-trips regardless of tag renames; see Task 2.
+// Business logic, persistence and real authorization decisions are out of
+// scope by design; see the spec.
 package apitest
 
 import (
@@ -110,9 +114,11 @@ func New(t *testing.T, opts Options) *Server {
 	}
 
 	router := mux.NewRouter()
-	// WithMetricsEnabled(false) is required, not cosmetic: enabling it
-	// registers a Prometheus collector, and a second New() in the same test
-	// binary would panic on duplicate registration.
+	// WithMetricsEnabled(false) keeps this a minimal harness by default.
+	// It is not required for safety: internal/metrics registers the
+	// Prometheus collector idempotently, tolerating duplicate registration
+	// across repeated New() calls in the same binary, so a future test that
+	// needs metrics can pass true here.
 	api.Init(
 		api.WithAPP(&app.App{ServiceContainer: tc.MockContainer, Logger: tc.Logger}),
 		api.WithRouter(router),
