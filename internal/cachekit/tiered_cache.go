@@ -12,6 +12,11 @@ import (
 // wire-string-keyed. Implemented by internal/rocketmemcache for the real
 // Rocket-mem backend (Plan 03); implemented by a fake in-memory double
 // here for tests.
+//
+// This interface carries no context.Context -- it does not propagate
+// cancellation. internal/rocketmemcache's implementation issues every RESP
+// call with context.Background() internally, so a caller cancelling its own
+// ctx has no way to abort an in-flight L2 round-trip; don't assume otherwise.
 type L2 interface {
 	Get(wireKey string) ([]byte, bool)
 	Set(wireKey string, payload []byte, ttl time.Duration)

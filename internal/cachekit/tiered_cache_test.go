@@ -17,9 +17,9 @@ import (
 // completely unreachable — every method degrades exactly as the spec
 // requires a real network failure to degrade.
 type fakeL2 struct {
-	mu        sync.Mutex
-	data      map[string][]byte
-	down      bool
+	mu         sync.Mutex
+	data       map[string][]byte
+	down       bool
 	keysCalled int
 }
 

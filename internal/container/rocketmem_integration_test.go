@@ -227,12 +227,17 @@ func TestRocketMem_CertCache_RoundTripsThroughRealContainer(t *testing.T) {
 // TestRocketMem_VaultCache_RoundTripsThroughRealContainer proves a genuine
 // cross-process cache hit: Set via containerA, Get via containerB, whose
 // fresh L1 has never seen this vault -- a hit there can only have come from
-// the shared L2.
+// the shared L2. Uses a per-run unique key with a t.Cleanup invalidation
+// (rather than a fixed key with a 5m TTL and no cleanup) so a re-run within
+// that TTL window can never pass on stale residue from a prior run even if
+// Set were broken.
 func TestRocketMem_VaultCache_RoundTripsThroughRealContainer(t *testing.T) {
 	containerA := newRocketMemEnabledContainer(t)
 	containerB := newRocketMemEnabledContainer(t)
-	containerA.GetVaultCache().Set("integration-vault", &model.Vault{Name: "integration-vault", Enabled: true})
-	got, ok := containerB.GetVaultCache().Get("integration-vault")
+	name := "integration-vault-" + uuid.New().String()
+	t.Cleanup(func() { containerA.GetVaultCache().Invalidate(name) })
+	containerA.GetVaultCache().Set(name, &model.Vault{Name: name, Enabled: true})
+	got, ok := containerB.GetVaultCache().Get(name)
 	require.True(t, ok)
-	require.Equal(t, "integration-vault", got.Name)
+	require.Equal(t, name, got.Name)
 }
