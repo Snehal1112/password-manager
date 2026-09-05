@@ -713,6 +713,7 @@ func TestNewServiceContainer_RocketMemDisabledByDefault_NoClientConstructed(t *t
 		Logger: newTestLogger(),
 	})
 	require.NoError(t, err)
+	assert.Nil(t, c.rocketMemClient, "rocketMemClient must stay nil when cache.rocket_mem is disabled")
 	assert.NotPanics(t, func() { _ = c.Close() }, "Close must be a no-op-safe even with rocket_mem disabled")
 }
 
@@ -732,6 +733,7 @@ func TestNewServiceContainer_RocketMemEnabled_ClientConstructedAndClosed(t *test
 		RocketMemConfig: &rmCfg,
 	})
 	require.NoError(t, err)
+	assert.NotNil(t, c.rocketMemClient, "rocketMemClient must be constructed when cache.rocket_mem.enabled is true")
 	// go-redis dials lazily, so constructing against an unreachable address
 	// (127.0.0.1:1) must not fail container construction -- only actual
 	// Get/Set calls degrade (proven in Plan 03's tests).
