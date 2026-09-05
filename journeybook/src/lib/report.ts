@@ -3,8 +3,10 @@ import type { Verdict } from "@/lib/run-state"
 
 /**
  * A plain-text summary a tester can paste straight into a defect ticket or a
- * standup message. Failures come first and carry the expected output, because
- * "A7 failed" is not a report -- "A7 failed, expected 403, got 200" is.
+ * standup message. Failures come first and carry the expected output, the
+ * mechanism and the verification command, because "A7 failed, expected 403,
+ * got 200, and here is why it should have been 403" is one somebody else can
+ * act on.
  */
 export function buildReport(verdictOf: (id: string) => Verdict): string {
   const pass = allCases.filter((c) => verdictOf(c.id) === "pass").length
@@ -33,6 +35,12 @@ export function buildReport(verdictOf: (id: string) => Verdict): string {
       lines.push(
         `  expected: ${c.expected.split("\n").slice(0, 3).join(" / ")}`
       )
+      if (c.why) {
+        lines.push(`  why:      ${c.why.replace(/\n/g, " ")}`)
+      }
+      if (c.verify?.command) {
+        lines.push(`  verify:   ${c.verify.command.split("\n")[0]}`)
+      }
       lines.push("")
     }
   }
