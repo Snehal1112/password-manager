@@ -1519,7 +1519,7 @@ rocketvault keys list --vault dev
 Error: remote mode (--server/ROCKETVAULT_ADDR/context "https://vault.prod.internal") is not yet supported for "rocketvault keys list"; unset it to run against the local instance
 ```
 
-`keys`, `certificate`, `vaults`, `vault-access`, `audit`, and the `users` *resource* commands have no remote adapter yet. The authority on what does is the `remoteCapableCommands` map in `cmd/root.go` — read that rather than this list, which has gone stale before. As of 2026-09-04 it holds `secrets` (all seven subcommands) and `users` (`login`, `logout`). With any context active, `persistentPreRun`'s remote-target guard refuses everything else rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.
+`keys`, `certificate`, `vaults`, `audit`, and the `users` *resource* commands have no remote adapter yet — `vault-access` no longer belongs on this list (see below). The authority on what does is the `remoteCapableCommands` map in `cmd/root.go` — read that rather than this list, which has gone stale before. As of 2026-09-04 it held `secrets` (all seven subcommands) and `users` (`login`, `logout`); `vault-access` (`grant`, `list`, `revoke`) has since joined them. `vault-access roles` has not, and is not going to — it reads compiled-in role definitions and never contacts a server, so it's handled separately by `isLocalOnlyCommand` rather than by this map. With any context active, `persistentPreRun`'s remote-target guard refuses everything else rather than guessing which instance she meant. This is real fail-closed behavior, not a documentation aspiration — confirmed against the built binary.
 
 **For the groups that do have an adapter, there is no such guard — and the danger that creates is real, even if not literally silent:**
 
@@ -1632,6 +1632,96 @@ rocketvault secrets list --server https://vault.staging.internal:8443
 ```
 
 `cliclient.ResolveTarget` checks, in order: the `--server` flag, then `ROCKETVAULT_ADDR`, then the active context. A context is the lowest-precedence, easiest-to-forget-about source of a target — which is exactly why it's the one that causes surprises days after it was set, not the one typed on the command line in front of you.
+
+### `vault-access` works remotely too
+
+Since `grant`, `list`, and `revoke` joined `remoteCapableCommands`, Priya can run
+the exact commands she'd use locally against `prod`, once authenticated the
+same way as any other remote command:
+
+```bash
+rocketvault context use prod
+rocketvault users login --username ops-oncall --password '<prod-password>' --totp-code 482913
+
+rocketvault vault-access grant daeho --role "Key Vault Reader" --vault prod
+# granted Key Vault Reader to daeho in vault (assignment <assignment-id>)
+
+rocketvault vault-access list --vault prod
+# ASSIGNMENT-ID                         ROLE                 PRINCIPAL-ID
+# <assignment-id>                       Key Vault Reader     <daeho-user-id>
+
+rocketvault vault-access revoke <assignment-id> --vault prod
+# revoked assignment <assignment-id>
+```
+
+Local and remote print through the same `Fprintf` format strings in
+`cmd/vault-access/{grant,list,revoke}.go` — there is no separate remote
+formatter, so this output is byte-identical to what the same commands print
+in local mode. A denial from the server surfaces the same way for all three:
+
+```
+Error: failed to grant a role: no role assignment in this vault grants the required action
+```
+
+(substitute `list role assignments` or `revoke a role assignment` for the
+other two.)
+
+`vault-access roles` did **not** join the map — as noted above, it's routed
+through `isLocalOnlyCommand` instead, because it only prints compiled-in role
+definitions and never contacts a server. An active context, local or remote,
+has no effect on it either way.
+
+### The `ROCKETVAULT_VAULT` divergence: `vault-access` reads it, `secrets` doesn't
+
+`vault-access grant/list/revoke` are the only three callers of
+`cliclient.ResolveRemoteVault` (`internal/cliclient/vault.go`), whose
+precedence is:
+
+```
+--vault flag (only when Flags().Changed) > ROCKETVAULT_VAULT >
+context's default vault > config "vault" key > "default"
+```
+
+The `secrets` remote adapters (`cmd/secrets/list.go:138-141` and its
+siblings) never call that function — they still resolve the vault the older
+way:
+
+```go
+vault, _ := cmd.Flags().GetString("vault")
+if vault == "" {
+    vault = target.Vault
+}
+```
+
+— flag, then the context's default vault, skipping `ROCKETVAULT_VAULT`
+entirely. Priya can reproduce the gap in one shell, under one context:
+
+```bash
+rocketvault context use prod          # prod's default vault is "prod"
+export ROCKETVAULT_VAULT=payments
+
+rocketvault vault-access list
+# acts on "payments" -- ResolveRemoteVault honors the env var
+
+rocketvault secrets list
+# acts on "prod" -- the secrets adapter never looks at ROCKETVAULT_VAULT,
+# and falls straight back to the context's default vault
+```
+
+Same shell, same exported variable, same active context — two different
+vaults, depending only on which command group she typed. It's worth QA
+catching precisely because it's reproducible and quiet: neither command
+errors, and neither prints which vault it resolved to.
+
+One more wrinkle before relying on `--vault` to sidestep this:
+`ResolveRemoteVault` checks `cmd.Flags().Changed("vault")`, not whether the
+value is non-empty. A `--vault` left at a non-empty *default* is not a
+deliberate choice on the caller's part and will not outrank an exported
+`ROCKETVAULT_VAULT` — only a flag she actually typed does.
+
+This resolves when plan 07 migrates the `secrets` remote adapters onto
+`ResolveRemoteVault` too. Until then, treat `ROCKETVAULT_VAULT` as a
+`vault-access`-only setting rather than a CLI-wide one.
 
 ---
 

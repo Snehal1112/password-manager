@@ -961,7 +961,7 @@ rocketvault context current`,
         expected: `Error: remote mode (--server/ROCKETVAULT_ADDR/context "https://vault.prod.internal") is not yet supported for "rocketvault keys list"; unset it to run against the local instance`,
         assert: "Refused rather than guessing which instance was meant",
         notes:
-          "The authority on what is remote-capable is the `remoteCapableCommands` map in `cmd/root.go` — read that, not a list in a document. As of 2026-09-04 it holds `secrets` (all seven subcommands) and `users` (`login`, `logout`).",
+          "The authority on what is remote-capable is the `remoteCapableCommands` map in `cmd/root.go` — read that, not a list in a document. As of 2026-09-04 it held `secrets` (all seven subcommands) and `users` (`login`, `logout`); `vault-access` (`grant`, `list`, `revoke`) has since joined them.",
       },
       {
         id: "T5",
@@ -1085,6 +1085,83 @@ rocketvault context list`,
 rocketvault secrets list --server https://vault.staging.internal:8443`,
         expected: "Targets staging, not prod.",
         assert: "Precedence: --server, then ROCKETVAULT_ADDR, then the context",
+      },
+      {
+        id: "T16",
+        title: "grant, list and revoke now work remotely, byte-identical to local",
+        surface: "cli",
+        gate: "none",
+        precondition:
+          "The prod context is active and authenticated as ops-oncall (see T6).",
+        command: `rocketvault vault-access grant daeho --role "Key Vault Reader" --vault prod
+rocketvault vault-access list --vault prod
+rocketvault vault-access revoke <assignment-id> --vault prod`,
+        expected: `granted Key Vault Reader to daeho in vault (assignment <assignment-id>)
+ASSIGNMENT-ID                         ROLE                 PRINCIPAL-ID
+<assignment-id>                       Key Vault Reader     <daeho-user-id>
+revoked assignment <assignment-id>`,
+        assert: "Same output as local mode — no separate remote formatter",
+        notes:
+          "Local and remote print through the same `Fprintf` format strings in `cmd/vault-access/{grant,list,revoke}.go`.",
+      },
+      {
+        id: "T17",
+        title: "A remote denial surfaces the same message as local for all three",
+        surface: "cli",
+        gate: "vault-role",
+        precondition:
+          "The prod context is active and authenticated as a principal with no role assignment in the vault.",
+        command: `rocketvault vault-access grant daeho --role "Key Vault Reader" --vault prod`,
+        expected: `Error: failed to grant a role: no role assignment in this vault grants the required action`,
+        assert: "Same denial text locally and remotely, for grant, list and revoke",
+        notes:
+          "Substitute `list role assignments` or `revoke a role assignment` for the other two — `cliclient.CLIError` wraps whichever operation name the adapter passed, but the wrapping and the underlying message are identical either way.",
+      },
+      {
+        id: "T18",
+        title: "vault-access roles stays local-only regardless of context",
+        surface: "cli",
+        gate: "none",
+        precondition: "The prod context is active.",
+        command: `rocketvault vault-access roles`,
+        expected:
+          "Prints the compiled-in role list; the active prod context has no effect.",
+        assert: "An active context, local or remote, has no effect on it",
+        notes:
+          "`vault-access roles` did not join `remoteCapableCommands` — it is routed through `isLocalOnlyCommand` instead, because it only prints compiled-in role definitions and never contacts a server.",
+      },
+      {
+        id: "T19",
+        title: "ROCKETVAULT_VAULT diverges: vault-access honors it, secrets doesn't",
+        surface: "cli",
+        gate: "none",
+        precondition:
+          "The prod context is active (its default vault is \"prod\").",
+        command: `export ROCKETVAULT_VAULT=payments
+
+rocketvault vault-access list
+rocketvault secrets list`,
+        expected: `vault-access list acts on "payments" -- ResolveRemoteVault honors the env var.
+secrets list acts on "prod" -- the secrets adapter never looks at ROCKETVAULT_VAULT and falls back to the context's default vault.`,
+        assert: "Same shell, same context — two different vaults",
+        flag: "trap",
+        notes:
+          "`vault-access grant/list/revoke` are the only three callers of `cliclient.ResolveRemoteVault`. The `secrets` remote adapters (`cmd/secrets/list.go:138-141` and its siblings) resolve `--vault` then `target.Vault` the older way, skipping `ROCKETVAULT_VAULT` entirely. Neither command errors and neither prints which vault it resolved to — reproducible and quiet.",
+      },
+      {
+        id: "T20",
+        title: "Only a --vault flag actually typed outranks ROCKETVAULT_VAULT",
+        surface: "cli",
+        gate: "none",
+        precondition:
+          "ROCKETVAULT_VAULT=payments exported, prod context active (see T19).",
+        command: `rocketvault vault-access list --vault prod`,
+        expected:
+          'Acts on "prod" -- the flag was actually typed, so it outranks ROCKETVAULT_VAULT this time.',
+        assert: "A typed flag wins; a non-empty default would not",
+        flag: "trap",
+        notes:
+          '`ResolveRemoteVault` checks `cmd.Flags().Changed("vault")`, not whether the value is non-empty. A `--vault` left at a non-empty *default* is not a deliberate choice on the caller\'s part and would not outrank an exported `ROCKETVAULT_VAULT` — only a flag actually typed does.',
       },
     ],
   },
