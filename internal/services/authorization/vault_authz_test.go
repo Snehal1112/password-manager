@@ -103,6 +103,54 @@ func TestCanManageVault_NonAdminDeniedOnNilService(t *testing.T) {
 	}
 }
 
+// TestCanManageVault_GlobalAllowNoLongerManagesAVault pins the headline
+// breaking change: a NULL-scoped vaults:manage allow used to satisfy every
+// vault-scoped check. It no longer does.
+func TestCanManageVault_GlobalAllowNoLongerManagesAVault(t *testing.T) {
+	// CheckAccess would say allowed (the global row matches); the vault-scoped
+	// check says fallback, because a NULL-scoped allow confers nothing here.
+	policies := &fakeAccessPolicyService{decision: AccessAllowed, scoped: AccessFallback, scopedSet: true}
+	if CanManageVault(context.Background(), nil, policies, uuid.New(), uuid.New()) {
+		t.Fatal("a global vaults:manage allow must no longer confer management of an arbitrary vault")
+	}
+}
+
+// TestCanManageVault_CollectionLevelStillUsesCheckAccess pins that create/list
+// (uuid.Nil) keep consulting the unnarrowed check -- that is the one thing a
+// global grant is still for.
+func TestCanManageVault_CollectionLevelStillUsesCheckAccess(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessAllowed, scoped: AccessFallback, scopedSet: true}
+	if !CanManageVault(context.Background(), nil, policies, uuid.New(), uuid.Nil) {
+		t.Fatal("a global vaults:manage allow must still permit the collection-level create/list decision")
+	}
+}
+
+// TestCanManageVault_ScopedAllowStillManages pins that the legitimate path --
+// a vault-scoped allow, which is what provisioned creators receive -- is
+// untouched.
+func TestCanManageVault_ScopedAllowStillManages(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessFallback, scoped: AccessAllowed, scopedSet: true}
+	if !CanManageVault(context.Background(), nil, policies, uuid.New(), uuid.New()) {
+		t.Fatal("a vault-scoped allow must still confer management of that vault")
+	}
+}
+
+// TestCanManageVault_GlobalDenyStillBlocks pins the asymmetry: deny widens.
+func TestCanManageVault_GlobalDenyStillBlocks(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessDenied, scoped: AccessDenied, scopedSet: true}
+	if CanManageVault(context.Background(), nil, policies, uuid.New(), uuid.New()) {
+		t.Fatal("a deny must still block")
+	}
+}
+
+// TestCanManageVault_AdminUnaffected pins that platform operators keep working.
+func TestCanManageVault_AdminUnaffected(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessFallback, scoped: AccessFallback, scopedSet: true}
+	if !CanManageVault(context.Background(), []string{string(model.RoleAdmin)}, policies, uuid.New(), uuid.New()) {
+		t.Fatal("the global admin role must short-circuit the narrowed check")
+	}
+}
+
 func TestCanPurgeVault_AdminAlwaysAllowed(t *testing.T) {
 	if !CanPurgeVault(context.Background(), []string{model.RoleAdmin}, nil, uuid.New(), uuid.New()) {
 		t.Fatal("admin must always be allowed to purge, even with a nil role-assignment service")
@@ -203,12 +251,57 @@ func TestCanManageRoleAssignments_MultiRoleAdminAmongOthersAllowed(t *testing.T)
 }
 
 func TestCanManageRoleAssignments_NonAdminAllowedByAccessPolicy(t *testing.T) {
+	// decision alone, with scopedSet false, makes the double answer AccessAllowed
+	// to both checks — so this is a vault-scoped allow on the concrete vault
+	// below, which is what still grants after the narrowing.
 	policies := &fakeAccessPolicyService{decision: AccessAllowed}
 	if !CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, nil, uuid.New(), uuid.New(), true) {
-		t.Fatal("an allow access-policy on (vaults, manage) must grant write, preserving today's documented behavior")
+		t.Fatal("a vault-scoped allow access-policy on (vaults, manage) must grant write")
 	}
 	if !CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, nil, uuid.New(), uuid.New(), false) {
-		t.Fatal("an allow access-policy on (vaults, manage) must also grant delete")
+		t.Fatal("a vault-scoped allow access-policy on (vaults, manage) must also grant delete")
+	}
+}
+
+// TestCanManageRoleAssignments_GlobalAllowCannotSelfAward is the escalation
+// path from the design doc's Problem section, pinned shut. Narrowing only
+// CanManageVault would leave this open: role-assignment management alone is
+// enough to award oneself Key Vault Administrator in any vault.
+func TestCanManageRoleAssignments_GlobalAllowCannotSelfAward(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessAllowed, scoped: AccessFallback, scopedSet: true}
+	// An empty role repo: the principal holds no assignment in the target
+	// vault, so nothing but the (now narrowed) policy could allow this.
+	roleSvc := newSvc(newFakeRoleRepo(), newFakePolicyRepo(), &fakeUserLookup{})
+	if CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, roleSvc, uuid.New(), uuid.New(), true) {
+		t.Fatal("a global vaults:manage allow must no longer permit awarding role assignments in an arbitrary vault")
+	}
+}
+
+// TestCanManageRoleAssignments_ScopedAllowStillManages pins that a vault-scoped
+// allow -- what a provisioned creator holds -- still manages that vault's roles.
+func TestCanManageRoleAssignments_ScopedAllowStillManages(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessFallback, scoped: AccessAllowed, scopedSet: true}
+	// nil roles is deliberate: an allow must short-circuit before the
+	// role-assignment check is ever consulted.
+	if !CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, nil, uuid.New(), uuid.New(), true) {
+		t.Fatal("a vault-scoped allow must still confer role-assignment management in that vault")
+	}
+}
+
+// TestCanManageRoleAssignments_GlobalDenyStillBeatsARoleGrant pins that the
+// deny-overrides invariant survives the narrowing.
+func TestCanManageRoleAssignments_GlobalDenyStillBeatsARoleGrant(t *testing.T) {
+	policies := &fakeAccessPolicyService{decision: AccessDenied, scoped: AccessDenied, scopedSet: true}
+	rr := newFakeRoleRepo()
+	principalID := uuid.New()
+	vaultID := uuid.New()
+	// A real Data Access Administrator grant, which would otherwise allow.
+	rr.rows[uuid.New()] = &model.RoleAssignment{
+		PrincipalID: principalID, VaultID: vaultID, Role: model.RoleKeyVaultDataAccessAdministrator,
+	}
+	roleSvc := newSvc(rr, newFakePolicyRepo(), &fakeUserLookup{})
+	if CanManageRoleAssignments(context.Background(), []string{model.RoleUser}, policies, roleSvc, principalID, vaultID, true) {
+		t.Fatal("an explicit deny must never be outvoted by a role grant")
 	}
 }
 
