@@ -340,7 +340,11 @@ func (c *ServiceContainer) initializeServices() error {
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
 	c.vaultService.SetGlobalPurgeProtection(c.globalPurgeProtection)
 	c.vaultService.SetTxBeginner(c.conn)
-	c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
+	if c.rocketMemClient != nil {
+		c.vaultCache = vaultcache.NewCacheWithL2(c.cacheConfig.Vaults, c.rocketMemClient, c.cacheConfig.Vaults.TTL)
+	} else {
+		c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
+	}
 	c.vaultService.SetVaultCache(c.vaultCache)
 	vaultWebhookRepo := repositories.NewVaultWebhookRepository(c.conn, c.logger)
 	c.vaultWebhookService = vaultServices.NewVaultWebhookService(vaultWebhookRepo, c.logger)
