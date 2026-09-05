@@ -2,12 +2,15 @@
 package keycache
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -54,6 +57,14 @@ func (f *fakeL2) Keys(prefix string) []string {
 var _ cachekit.L2 = (*fakeL2)(nil)
 
 func TestNewCacheWithL2_RoundTrip_AndCiphertextOnWire(t *testing.T) {
+	// Set up master key in viper for encryption.
+	key := make([]byte, 32)
+	_, err := rand.Read(key)
+	require.NoError(t, err)
+	masterKey := base64.StdEncoding.EncodeToString(key)
+	viper.Set("master_key", masterKey)
+	defer viper.Set("master_key", "")
+
 	l2 := newFakeL2()
 	c := NewCacheWithL2(cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0}, l2, time.Minute)
 	defer c.Stop()
@@ -68,10 +79,15 @@ func TestNewCacheWithL2_RoundTrip_AndCiphertextOnWire(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, entry.PrivateKey.(PEMKey).PEM, pemKey.PEM)
 
+	// Inspect what actually landed on the wire in L2 -- it must never
+	// contain the plaintext substring.
+	found := false
 	for wireKey, payload := range l2.data {
 		if strings.Contains(wireKey, "rocketvault:key:") {
+			found = true
 			assert.False(t, strings.Contains(string(payload), "SECRET"),
 				"key PEM plaintext must never appear in the L2 wire payload")
 		}
 	}
+	assert.True(t, found, "Set must have written something to L2 under the rocketvault:key: prefix")
 }
