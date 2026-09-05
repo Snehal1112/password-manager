@@ -302,7 +302,16 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 			ReadTimeout:  config.RocketMemConfig.ReadTimeout,
 			WriteTimeout: config.RocketMemConfig.WriteTimeout,
 			PoolSize:     config.RocketMemConfig.PoolSize,
+			Logger:       container.logger.Logger,
 		})
+		// One-shot, non-fatal reachability check: a fully-broken L2 (wrong
+		// TLS cert, bad ACL credentials, unreachable) must not abort
+		// startup -- the data plane always has L1 (or the DB) to fall back
+		// on -- but it must not look identical to a healthy L2 either, so
+		// log loudly here rather than only on the first real operation.
+		if err := container.rocketMemClient.Ping(); err != nil {
+			container.logger.WithError(err).Warn("rocket_mem cache tier enabled but unreachable at startup; continuing with L1-only caching until it recovers")
+		}
 	}
 
 	if err := container.initializeServices(); err != nil {
