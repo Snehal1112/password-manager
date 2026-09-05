@@ -120,3 +120,24 @@ func TestOptions_DenyDataAction_Produces403(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, vaultapi.KindForbidden, apiErr.Kind)
 }
+
+// TestOptions_DenyAccessPolicy_Produces403OnRoleAssignmentRoute proves the
+// lever DenyDataAction cannot provide: a real 403 on a role-assignment
+// route. DenyDataAction has no observable effect there (see its godoc and
+// TestOptions_DenyDataAction_Produces403's comment) because role-assignment
+// routes are RouteUnmanaged and CanManageRoleAssignments short-circuits to
+// true for the harness's global-admin caller before HasDataAction is ever
+// consulted. DenyAccessPolicy instead denies at PolicyMiddleware's
+// explicit-deny-override step, which runs before any handler and does not
+// distinguish RouteUnmanaged from RouteVaultData -- it travels the real
+// error path.
+func TestOptions_DenyAccessPolicy_Produces403OnRoleAssignmentRoute(t *testing.T) {
+	srv := New(t, Options{DenyAccessPolicy: true})
+
+	_, _, err := srv.Client().ListRoleAssignments(context.Background(), "payments", 0)
+
+	require.Error(t, err)
+	var apiErr *vaultapi.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, vaultapi.KindForbidden, apiErr.Kind)
+}
