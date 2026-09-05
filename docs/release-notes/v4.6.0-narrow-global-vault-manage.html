@@ -150,12 +150,44 @@ read its startup logs for <code>warnGlobalVaultManageGrants</code>
 everything listed under &quot;The breaking change&quot; above on this upgrade. For
 each principal it names, either:</p>
 <ul>
-<li>Issue a bounded provisioning grant instead —
+<li>
+<p>Issue a bounded provisioning grant instead —
 <code>rocketvault vault-provisioning grant &lt;principal&gt; --quota &lt;n&gt;</code> — if the
-principal only ever needed to create and manage its own vaults, or</li>
-<li>Add explicit vault-scoped <code>vaults:manage</code> access policies for the specific
+principal only ever needed to create and manage its own <strong>future</strong> vaults.
+This does not help with vaults it already created under v4.5.0: a
+provisioning grant only shapes what <code>vaults create</code> does going forward, and
+those pre-existing vaults got no creator-grant rows retroactively (creator
+grants on the global-policy path are new in this release — see &quot;Creator
+grants on the global-policy create path&quot; above). For those, use the next
+option instead.</p>
+</li>
+<li>
+<p>Add explicit vault-scoped <code>vaults:manage</code> access policies for the specific
 vaults it must keep managing, if it genuinely needs standing authority over
-vaults it did not create.</li>
+vaults it did not create (or already created under v4.5.0). The only
+mechanism for this is the admin-only <code>POST /api/v1/access-policies</code>
+(<code>api/access_policies.go</code>, gated by <code>requireAccessPolicyAdmin</code>) — there is
+<strong>no CLI command</strong> for access policies. For each vault, send a request
+shaped like:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">POST /api/v1/access-policies
+{
+  &quot;principal_id&quot;: &quot;&lt;principal uuid&gt;&quot;,
+  &quot;principal_type&quot;: &quot;user&quot;,
+  &quot;resource_type&quot;: &quot;vaults&quot;,
+  &quot;operation&quot;: &quot;manage&quot;,
+  &quot;effect&quot;: &quot;allow&quot;,
+  &quot;vault_id&quot;: &quot;&lt;vault uuid&gt;&quot;
+}
+</pre></div>
+<p><strong><code>rocketvault vault-access grant &lt;principal&gt; key-vault-administrator --vault &lt;vault&gt;</code> is not a substitute for this</strong>, even though it looks like
+the natural CLI equivalent. <code>ExpandRole</code> (<code>internal/services/authorization/ roles.go</code>) returns <code>nil, nil</code> for every Azure built-in role, including <code>Key Vault Administrator</code> — Azure roles are evaluated directly from
+<code>role_assignments</code> and deliberately never materialize <code>access_policies</code>
+rows (a second, derivable copy of the same grant that could drift). A role
+grant made this way satisfies data-plane checks
+(<code>RoleAssignmentService.HasDataAction</code>) but writes nothing <code>CanManageVault</code>
+can see, so it does not restore the ability to get/update/delete/recover
+that vault or manage its role assignments.</p>
+</li>
 </ul>
 <p>Existing vault-scoped grants (the common case for anyone who was already
 managing a bounded set of vaults deliberately) need no action — this release

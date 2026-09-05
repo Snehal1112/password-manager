@@ -460,11 +460,43 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		return nil, err
 	}
 	if s.log != nil {
-		detail := fmt.Sprintf("Vault created: %s", v.Name)
-		if quotaBounded {
+		// Three distinct callers reach vault creation, and each must be
+		// distinguishable in the audit log: an admin create never reaches this
+		// function (see the early return above) and is logged by CreateVault as
+		// "Vault created: %s"; a provisioning-grant create is quota-bounded; a
+		// global-policy create is neither admin nor quota-bounded, but -- unlike
+		// admin -- it awards the creator Key Vault Administrator on this vault,
+		// so it must not share admin's audit text.
+		var detail string
+		switch {
+		case quotaBounded:
 			detail = fmt.Sprintf("Vault created under provisioning grant: %s", v.Name)
+		case grantCreatorRights:
+			detail = fmt.Sprintf("Vault created under global vaults:manage grant (creator rights granted): %s", v.Name)
+		default:
+			// Unreachable: this function only runs when quotaBounded ||
+			// grantCreatorRights. Kept as a safe fallback rather than silently
+			// mislabeling an unexpected combination.
+			detail = fmt.Sprintf("Vault created: %s", v.Name)
 		}
 		s.log.LogAuditInfo(createdBy.String(), "create_vault", "success", detail)
+		// The creator-grant block above (CreatePolicyTx/CreateRoleTx) writes the
+		// Key Vault Administrator assignment directly against the transaction,
+		// bypassing RoleAssignmentService.AssignRole and the "assign_role" audit
+		// entry every other path to acquiring that role produces. Without this,
+		// a non-admin creator's self-acquired KVA over the vault it just made is
+		// invisible next to every other way of getting it. Logged here -- after
+		// withTx has already committed -- rather than inside the transaction
+		// closure: LogAuditInfo's persister writes through its own DB handle, not
+		// tx, so calling it from inside an open transaction risks lock
+		// contention with it on SQLite, and would log a "success" for a role
+		// grant that a future change to that closure could still roll back.
+		// This mirrors how CreateVaultProvisioned's own "create_vault" entry
+		// above, and RoleAssignmentService.AssignRole's "assign_role" entry, are
+		// both already logged: after the write is durable, never inside it.
+		s.log.LogAuditInfo(createdBy.String(), "assign_role", "success",
+			fmt.Sprintf("Role %q assigned to principal %s in vault %s (vault creator grant)",
+				model.RoleKeyVaultAdministrator, createdBy, v.ID))
 	}
 	return v, nil
 }
