@@ -3,7 +3,6 @@ package vaultaccess
 import (
 	"bytes"
 	"context"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -14,13 +13,8 @@ import (
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/internal/apitest"
-	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
-
-type staticToken string
-
-func (s staticToken) Token(context.Context) (string, error) { return string(s), nil }
 
 // remoteTestCmd builds a command whose --vault flag is *Set* rather than
 // defaulted. ResolveRemoteVault only reads the flag when Flags().Changed is
@@ -38,16 +32,6 @@ func remoteTestCmd(t *testing.T, vault string) (*cobra.Command, *bytes.Buffer) {
 	c.SetOut(out)
 	c.SetContext(context.Background())
 	return c, out
-}
-
-func remoteTestClient(t *testing.T, srv *httptest.Server) *vaultapi.Client {
-	t.Helper()
-	client, err := vaultapi.New(vaultapi.Config{
-		BaseURL: srv.URL, HTTPClient: srv.Client(),
-		Tokens: staticToken("tok"), DisableRetry: true,
-	})
-	require.NoError(t, err)
-	return client
 }
 
 func TestGrantRemote_PostsToTheVaultScopedRoute(t *testing.T) {
