@@ -29,6 +29,13 @@ func TestListRemote_PrintsSameColumnsAsLocal(t *testing.T) {
 
 	srv := apitest.New(t, apitest.Options{RoleAssignments: roleSvc})
 
+	var gotVault string
+	vs := srv.TestContext().MockVaultService
+	vs.ExpectedCalls = nil
+	vs.On("GetVault", mock.Anything, mock.Anything).
+		Run(func(a mock.Arguments) { gotVault = a.String(1) }).
+		Return(&model.Vault{ID: srv.TestContext().TestVaultID, Name: "payments", Enabled: true}, nil).Maybe()
+
 	cmd, out := remoteTestCmd(t, "payments")
 	require.NoError(t, runListRemote(cmd, srv.Client(), srv.Target()))
 
@@ -38,4 +45,5 @@ func TestListRemote_PrintsSameColumnsAsLocal(t *testing.T) {
 	assert.Contains(t, got, "PRINCIPAL-ID")
 	assert.Contains(t, got, assignment.ID.String())
 	assert.Contains(t, got, "Key Vault Administrator")
+	assert.Equal(t, "payments", gotVault, "--vault must reach the URL")
 }
