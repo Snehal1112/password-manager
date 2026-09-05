@@ -156,10 +156,13 @@ type txCapableCreateRepo interface {
 type VaultService interface {
 	CreateVault(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID) (*model.Vault, error)
 	// CreateVaultProvisioned creates a vault, enforcing the caller's
-	// provisioning quota when quotaBounded is true. quotaBounded is passed in
-	// by the caller, derived from authz.CreateRight -- this method does not
-	// re-derive the authorization decision.
-	CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded bool) (*model.Vault, error)
+	// provisioning quota when quotaBounded is true and granting the caller
+	// full management rights over the vault it creates when grantCreatorRights
+	// is true. Both are passed in by the caller, derived from
+	// authz.CreateRight -- this method does not re-derive the authorization
+	// decision. quotaBounded = right == CreateRightProvisioningGrant;
+	// grantCreatorRights = right != CreateRightAdmin.
+	CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded, grantCreatorRights bool) (*model.Vault, error)
 	GetVault(ctx context.Context, name string) (*model.Vault, error)
 	ListVaults(ctx context.Context, includeDeleted bool) ([]model.Vault, error)
 	// ListVaultsScoped returns every vault when all is true (the admin and
@@ -344,16 +347,22 @@ var ErrVaultQuotaExceeded = errors.New("vault provisioning quota exceeded")
 // ErrPurgeProtectionNotPermitted means a quota-bounded caller tried to set
 // purge_protection. Allowing it would let a grantee protect a vault,
 // soft-delete it, and hold the quota slot forever, since PurgeVault refuses a
-// protected vault and the purge scheduler honours the same flag.
-var ErrPurgeProtectionNotPermitted = errors.New("purge protection may only be set by an administrator")
+// protected vault and the purge scheduler honours the same flag. The guard is
+// on quotaBounded specifically, not on "non-admin": a global-policy holder,
+// who has no quota to pin, may still set purge_protection.
+var ErrPurgeProtectionNotPermitted = errors.New("purge protection may only be set on a create that is not quota-bounded")
 
 // CreateVaultProvisioned creates a vault, enforcing the caller's provisioning
-// quota when quotaBounded is true. quotaBounded comes from the caller's
-// authz.CreateRight: admins and global-policy holders pass false.
+// quota when quotaBounded is true and granting the caller full management
+// rights over the vault it creates when grantCreatorRights is true. Both come
+// from the caller's authz.CreateRight: admins pass both false; global-policy
+// holders pass quotaBounded=false, grantCreatorRights=true (their global allow
+// no longer covers the vault they just made -- see the design doc); a
+// provisioning grant holder passes both true.
 //
 // Quota enforcement runs INSIDE the transaction that inserts the vault. A
 // check outside it races the insert and the bound becomes advisory.
-func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded bool) (*model.Vault, error) {
+func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.CreateVaultRequest, createdBy uuid.UUID, quotaBounded, grantCreatorRights bool) (*model.Vault, error) {
 	if err := model.ValidateVaultName(req.Name); err != nil {
 		return nil, err
 	}
@@ -364,18 +373,23 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		return nil, ErrPurgeProtectionNotPermitted
 	}
 
-	// An unbounded caller (admin, global policy) needs no quota check --
-	// fall back to the pre-existing non-transactional create.
-	if !quotaBounded {
+	// An admin caller is neither quota-bounded nor in need of creator grants:
+	// the admin role short-circuits every authorization check, so grants for
+	// it would be dead rows. Fall back to the pre-existing non-transactional
+	// create, which needs no transaction wiring.
+	if !quotaBounded && !grantCreatorRights {
 		return s.CreateVault(ctx, req, createdBy)
 	}
-	// A quota-bounded caller MUST be checked. If the transactional deps are
-	// not wired we cannot check, so we refuse rather than silently creating
-	// an unbounded vault -- a guard that degrades to "no guard" on a wiring
-	// mistake is worse than no guard at all, because it looks like it is
-	// working.
-	if s.txBeginner == nil || s.grantLocker == nil {
-		return nil, fmt.Errorf("provisioning quota cannot be enforced: transaction support is not wired")
+	// Anything else touches more than one table and MUST be transactional. If
+	// the deps are not wired we refuse rather than silently creating a vault
+	// with no quota check or no creator rights -- a guard that degrades to "no
+	// guard" on a wiring mistake is worse than no guard at all, because it
+	// looks like it is working.
+	if s.txBeginner == nil {
+		return nil, fmt.Errorf("vault creation cannot be completed: transaction support is not wired")
+	}
+	if quotaBounded && s.grantLocker == nil {
+		return nil, fmt.Errorf("provisioning quota cannot be enforced: grant locking is not wired")
 	}
 
 	v := s.buildVault(req, createdBy)
@@ -387,27 +401,28 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 
 	var count, quota int
 	err := s.withTx(ctx, func(tx *db.Tx) error {
-		var err error
-		quota, err = s.grantLocker.LockAndReadQuotaTx(ctx, tx, createdBy)
-		if err != nil {
-			return err
-		}
-		count, err = txRepo.CountByCreatedBy(ctx, tx, createdBy)
-		if err != nil {
-			return err
-		}
-		if count >= quota {
-			return fmt.Errorf("%w: %d of %d used", ErrVaultQuotaExceeded, count, quota)
+		if quotaBounded {
+			var err error
+			quota, err = s.grantLocker.LockAndReadQuotaTx(ctx, tx, createdBy)
+			if err != nil {
+				return err
+			}
+			count, err = txRepo.CountByCreatedBy(ctx, tx, createdBy)
+			if err != nil {
+				return err
+			}
+			if count >= quota {
+				return fmt.Errorf("%w: %d of %d used", ErrVaultQuotaExceeded, count, quota)
+			}
 		}
 		if err := txRepo.CreateTx(ctx, tx, v); err != nil {
 			return err
 		}
 		if s.creatorGranter == nil {
-			// Creating a vault whose creator holds no rights over it -- and
-			// which permanently occupies a quota slot, since only a purge
-			// (which this creator cannot perform) frees one -- is worse than
-			// refusing the create outright. Fail closed, same posture as the
-			// txBeginner/grantLocker guard above.
+			// A vault whose creator holds no rights over it is worse than a
+			// refused create. For a quota-bounded caller it also permanently
+			// occupies a quota slot, since only a purge (which that caller
+			// cannot perform) frees one. Fail closed either way.
 			return fmt.Errorf("creator grants cannot be written: grant support is not wired")
 		}
 		// The creator becomes full manager of what it created: vault-scoped
@@ -445,8 +460,43 @@ func (s *vaultService) CreateVaultProvisioned(ctx context.Context, req model.Cre
 		return nil, err
 	}
 	if s.log != nil {
-		s.log.LogAuditInfo(createdBy.String(), "create_vault", "success",
-			fmt.Sprintf("Vault created under provisioning grant: %s", v.Name))
+		// Three distinct callers reach vault creation, and each must be
+		// distinguishable in the audit log: an admin create never reaches this
+		// function (see the early return above) and is logged by CreateVault as
+		// "Vault created: %s"; a provisioning-grant create is quota-bounded; a
+		// global-policy create is neither admin nor quota-bounded, but -- unlike
+		// admin -- it awards the creator Key Vault Administrator on this vault,
+		// so it must not share admin's audit text.
+		var detail string
+		switch {
+		case quotaBounded:
+			detail = fmt.Sprintf("Vault created under provisioning grant: %s", v.Name)
+		case grantCreatorRights:
+			detail = fmt.Sprintf("Vault created under global vaults:manage grant (creator rights granted): %s", v.Name)
+		default:
+			// Unreachable: this function only runs when quotaBounded ||
+			// grantCreatorRights. Kept as a safe fallback rather than silently
+			// mislabeling an unexpected combination.
+			detail = fmt.Sprintf("Vault created: %s", v.Name)
+		}
+		s.log.LogAuditInfo(createdBy.String(), "create_vault", "success", detail)
+		// The creator-grant block above (CreatePolicyTx/CreateRoleTx) writes the
+		// Key Vault Administrator assignment directly against the transaction,
+		// bypassing RoleAssignmentService.AssignRole and the "assign_role" audit
+		// entry every other path to acquiring that role produces. Without this,
+		// a non-admin creator's self-acquired KVA over the vault it just made is
+		// invisible next to every other way of getting it. Logged here -- after
+		// withTx has already committed -- rather than inside the transaction
+		// closure: LogAuditInfo's persister writes through its own DB handle, not
+		// tx, so calling it from inside an open transaction risks lock
+		// contention with it on SQLite, and would log a "success" for a role
+		// grant that a future change to that closure could still roll back.
+		// This mirrors how CreateVaultProvisioned's own "create_vault" entry
+		// above, and RoleAssignmentService.AssignRole's "assign_role" entry, are
+		// both already logged: after the write is durable, never inside it.
+		s.log.LogAuditInfo(createdBy.String(), "assign_role", "success",
+			fmt.Sprintf("Role %q assigned to principal %s in vault %s (vault creator grant)",
+				model.RoleKeyVaultAdministrator, createdBy, v.ID))
 	}
 	return v, nil
 }

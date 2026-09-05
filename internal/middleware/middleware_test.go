@@ -102,7 +102,7 @@ type stubVaultService struct {
 func (s *stubVaultService) CreateVault(context.Context, model.CreateVaultRequest, uuid.UUID) (*model.Vault, error) {
 	return nil, nil
 }
-func (s *stubVaultService) CreateVaultProvisioned(context.Context, model.CreateVaultRequest, uuid.UUID, bool) (*model.Vault, error) {
+func (s *stubVaultService) CreateVaultProvisioned(context.Context, model.CreateVaultRequest, uuid.UUID, bool, bool) (*model.Vault, error) {
 	return nil, nil
 }
 func (s *stubVaultService) GetVault(_ context.Context, _ string) (*model.Vault, error) {
@@ -936,6 +936,11 @@ type MockAccessPolicyService struct {
 }
 
 func (m *MockAccessPolicyService) CheckAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, op model.PolicyOperation, vaultID uuid.UUID) (authzServices.AccessDecision, error) {
+	args := m.Called(ctx, principalID, resourceType, op, vaultID)
+	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
+}
+
+func (m *MockAccessPolicyService) CheckVaultScopedAccess(ctx context.Context, principalID uuid.UUID, resourceType model.PolicyResourceType, op model.PolicyOperation, vaultID uuid.UUID) (authzServices.AccessDecision, error) {
 	args := m.Called(ctx, principalID, resourceType, op, vaultID)
 	return args.Get(0).(authzServices.AccessDecision), args.Error(1)
 }

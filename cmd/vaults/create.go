@@ -28,9 +28,10 @@ var createCmd = &cobra.Command{
 	Long: `Create a new vault: an isolated boundary for secrets, keys, and
 certificates, with its own access grants.
 
-Requires the admin account role, or an access-policy allow on (vaults,
-manage) scoped globally rather than to a specific vault, since the vault
-being created does not exist yet to scope the check to.
+Requires the admin account role, an access-policy allow on (vaults, manage)
+scoped globally rather than to a specific vault (since the vault being
+created does not exist yet to scope the check to), or a bounded vault
+provisioning grant.
 
 The vault name is the positional argument; this command has no --vault
 flag.
@@ -73,17 +74,19 @@ creation time.`,
 			req.RetentionDays = &rd
 		}
 
-		// Only a provisioning-grant holder is quota-bounded; admins and
-		// global-policy holders go through CreateVaultProvisioned's
-		// unbounded fallback to the pre-existing CreateVault behaviour.
+		// Only a provisioning grant is quota-bounded. Everyone except an admin
+		// receives creator grants over what they create: after the global-grant
+		// narrowing, a global-policy holder's instance-wide allow no longer
+		// covers the vault it just made.
 		vault, err := vaultService.CreateVaultProvisioned(ctx, req, userID,
-			right == authz.CreateRightProvisioningGrant)
+			right == authz.CreateRightProvisioningGrant,
+			right != authz.CreateRightAdmin)
 		if err != nil {
 			switch {
 			case errors.Is(err, vaultServices.ErrVaultQuotaExceeded):
 				return fmt.Errorf("failed to create vault: %w -- soft-deleting a vault does not free a quota slot; a slot is released only when the vault is purged, which requires an administrator or a Key Vault Purge Operator grant. Ask an administrator to purge a vault or raise your quota", err)
 			case errors.Is(err, vaultServices.ErrPurgeProtectionNotPermitted):
-				return fmt.Errorf("failed to create vault: %w -- only an administrator can set --purge-protection", err)
+				return fmt.Errorf("failed to create vault: %w -- a quota-bounded provisioning grant cannot set --purge-protection; an admin or a global vaults:manage holder can", err)
 			default:
 				return fmt.Errorf("failed to create vault: %w", err)
 			}

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>v4.6.0 — Narrow global vaults:manage to create-and-list — RocketVault Docs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="../assets/doc-theme.css"/>
+</head>
+<body>
+<header class="doc-header">
+  <a class="doc-back" href="../admin-manual.html">&larr; Admin Manual</a>
+  <div class="doc-brand">
+    <div class="doc-mark" aria-hidden="true"></div>
+    <span class="doc-kicker">RocketVault Docs</span>
+  </div>
+  <h1 class="doc-title">v4.6.0 — Narrow global vaults:manage to create-and-list</h1>
+  <div class="doc-meta"><span class="doc-chip">docs/release-notes/v4.6.0-narrow-global-vault-manage.md</span></div>
+  <hr/>
+</header>
+<nav class="doc-toc"><div class="doc-toc-label">On this page</div><ol><li><a href="#the-breaking-change">The breaking change</a></li><li><a href="#what-did-not-change">What did not change</a></li><li><a href="#creator-grants-on-the-global-policy-create-path">Creator grants on the global-policy create path</a></li><li><a href="#purge-protection-a-three-tier-distinction-not-a-widened-guard">Purge protection: a three-tier distinction, not a widened guard</a></li><li><a href="#upgrade-procedure">Upgrade procedure</a></li><li><a href="#rollback">Rollback</a></li></ol></nav>
+<main class="doc">
+<p>This is release 2 of the two-release self-service provisioning plan release 1
+started; full design:
+<code>docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md</code>.
+Release 1's note, <code>docs/release-notes/v4.5.0-vault-provisioning.md</code>, explained
+what a bounded provisioning grant is and ended with a forward notice
+promising exactly this change. This note is that promise kept.</p>
+<h2 id="the-breaking-change">The breaking change</h2>
+<p>A global (<code>vault_id</code> <code>NULL</code>) <code>vaults:manage</code> allow policy now confers
+<strong>create and list only</strong>. Its holder loses everything else it previously had
+over every vault on the instance, whether or not it created that vault —
+every one of the following is gated by <code>CanManageVault</code> or
+<code>CanManageRoleAssignments</code> against a concrete vault, and both now require a
+vault-scoped grant:</p>
+<ol>
+<li><strong>Get, update, and delete</strong> on any vault it does not hold a vault-scoped
+grant over (<code>internal/services/authorization.CanManageVault</code>,
+<code>api/vault.go</code>, <code>cmd/vaults/get.go</code>, <code>update.go</code>, <code>delete.go</code>).</li>
+<li><strong>Recover</strong> a soft-deleted vault (<code>CanManageVault</code>, <code>cmd/vaults/recover.go</code>)
+— CLI-only; there is no HTTP recover route.</li>
+<li><strong>Vault-webhook configuration</strong> — get, set, and delete
+(<code>CanManageVault</code>, <code>api/vault_webhook.go</code>, <code>cmd/vault-webhook/get.go</code>,
+<code>set.go</code>, <code>delete.go</code>).</li>
+<li><strong>Role-assignment management</strong> in any such vault
+(<code>CanManageRoleAssignments</code>) — which previously meant it could award
+itself <code>Key Vault Administrator</code>, or any other role, in a vault it had no
+other claim to.</li>
+</ol>
+<p>An operator whose automation relies on a global grant to configure webhooks
+or recover soft-deleted vaults, not just to manage the vault record itself,
+needs the same remediation as the &quot;Upgrade procedure&quot; section below
+describes — those two are not a separate case.</p>
+<p>Both functions were narrowed together, deliberately: narrowing only
+<code>CanManageVault</code> would have left the escalation open, since role-assignment
+management by itself is enough to self-award any role.</p>
+<p>The <code>admin</code> account role is <strong>unaffected</strong> — it still short-circuits both
+functions before either policy check runs, exactly as before.</p>
+<p>The mechanism is a new <code>AccessPolicyService.CheckVaultScopedAccess</code>
+(<code>internal/services/authorization/access_policy_service.go</code>), which the two
+functions now call whenever <code>vaultID != uuid.Nil</code>. It differs from
+<code>CheckAccess</code> in one respect: a <code>NULL</code>-scoped <strong>deny</strong> still matches (see
+below), but a <code>NULL</code>-scoped <strong>allow</strong> does not. The <code>vaultID == uuid.Nil</code>
+branch of <code>CanManageVault</code> — the real create/list decision — is untouched and
+still calls <code>CheckAccess</code>, so a global grant keeps working for what it is
+actually for. <code>CanManageRoleAssignments</code> has no such collection-level
+operation to serve — there is no &quot;manage role assignments across every
+vault&quot; — so its <code>uuid.Nil</code> branch always denies a non-admin caller (the
+<code>admin</code> account role still short-circuits above it, same as everywhere else
+in this function) rather than mirroring <code>CanManageVault</code>'s; every call site
+already passes a resolved vault ID, so this is a closed door against a
+future mistake, not a behavior change today.</p>
+<h2 id="what-did-not-change">What did not change</h2>
+<p>A global explicit <strong>deny</strong> on <code>(vaults, manage)</code> still blocks every vault,
+including ones the denied principal created — the asymmetry between deny and
+allow is deliberate, not an oversight. <code>CheckAccess</code> and <code>FindEffects</code> are
+<strong>untouched</strong> by this release: <code>PolicyMiddleware</code> and
+<code>cmd/vaultcli.RequireDataAction</code> share them for the secrets/keys/certificates
+data plane, and both rely on <code>FindEffects</code>' <code>(vault_id = ? OR vault_id IS NULL)</code> match to make a global explicit deny work. Narrowing those two
+functions would have silently disabled every global deny on the data plane.
+A test now runs the real <code>AccessPolicyService</code> over the real repository
+against a <code>NULL</code>-scoped deny row specifically to pin this, because every
+pre-existing deny test stubbed the policy service and so could not have
+caught a leak.</p>
+<h2 id="creator-grants-on-the-global-policy-create-path">Creator grants on the global-policy create path</h2>
+<p>Release 1 left this open explicitly: a global-policy holder creating a vault
+received none of the per-vault creator grants a provisioning-grant holder
+gets, because that was harmless while the global allow already covered every
+vault including the new one. It stops being harmless the moment the
+narrowing above lands — such a holder would create a vault it could no
+longer get, update, delete, or manage role assignments on.</p>
+<p><strong>This release resolves that open question.</strong>
+<code>VaultService.CreateVaultProvisioned</code> gained a <code>grantCreatorRights</code>
+parameter alongside the existing <code>quotaBounded</code> one. A global-policy holder
+now goes through the same transactional creator-granting path a
+provisioning grantee already uses — a vault-scoped <code>vaults:manage</code> access
+policy plus a <code>Key Vault Administrator</code> role assignment, written in the creation transaction — minus
+the quota check. The two booleans are derived from <code>authz.CreateRight</code> at
+every call site (<code>api/vault.go</code>, <code>cmd/vaults/create.go</code>):
+<code>quotaBounded = right == CreateRightProvisioningGrant</code>,
+<code>grantCreatorRights = right != CreateRightAdmin</code>. Admin creates are
+unchanged: the admin role short-circuits every authorization check, so
+creator grants for it would be dead rows, and it stays on the cheap
+non-transactional <code>CreateVault</code> path.</p>
+<h2 id="purge-protection-a-three-tier-distinction-not-a-widened-guard">Purge protection: a three-tier distinction, not a widened guard</h2>
+<p><code>ErrPurgeProtectionNotPermitted</code> and the CLI hint in <code>cmd/vaults/create.go</code>
+previously said purge protection &quot;may only be set by an administrator&quot;. That
+was already imprecise before this release and is now actively misleading,
+because the guard itself has always been <code>if quotaBounded &amp;&amp; ...</code> — it
+refuses only a <strong>quota-bounded</strong> create, not every non-admin one. Both
+messages have been reworded to name that predicate directly instead of
+&quot;administrator&quot;. The behavior is unchanged; only the wording was wrong.</p>
+<p>Concretely, three tiers now exist on the <strong>create</strong> path:</p>
+<ul>
+<li><strong>Admin</strong>: may set <code>purge_protection</code> on create. Unaffected by this
+release.</li>
+<li><strong>Global-policy holder</strong>: may also set it. It has no provisioning quota to
+pin, so the reason the restriction exists does not apply to it.</li>
+<li><strong>Provisioning grantee</strong>: refused <strong>at create time</strong>. A grantee who could
+set <code>purge_protection</code> at creation could soft-delete its own vault and hold
+its quota slot forever, since <code>PurgeVault</code> refuses to purge a protected
+vault and the slot is freed only by a purge.</li>
+</ul>
+<p>This distinction was not an explicit product decision prior to this note — it
+falls out of reading <code>quotaBounded</code>'s guard directly. It is recorded here
+deliberately, rather than left buried in an error string, so it can be
+reviewed and challenged rather than discovered by accident.</p>
+<p><strong>The create-time guard is a partial bound, not a full one.</strong> <code>UpdateVault</code>
+applies <code>req.PurgeProtection</code> with no <code>quotaBounded</code> predicate at all — it
+gates only on <code>CanManageVault</code> against the concrete vault. A provisioning
+grantee holds a vault-scoped <code>vaults:manage</code> allow over the vault it
+created (written by the creator-grant path this release adds), which
+satisfies <code>CanManageVault</code> for that vault. So a grantee refused
+<code>purge_protection</code> at <code>vaults create</code> can still reach it one command later:
+<code>vaults create</code> → <code>vaults update --purge-protection</code> → <code>vaults delete</code> — at
+which point the slot is held forever, exactly as the create-time guard
+exists to prevent, because <code>PurgeVault</code> refuses a protected vault for every
+caller including admin, and a soft-deleted vault still counts toward quota.
+This is a real, pre-existing defect — it shipped with release 1's quota
+enforcement, not with this release's narrowing, and is <strong>not fixed here</strong>;
+closing it means adding an equivalent guard to <code>UpdateVault</code>, which is
+follow-up work, tracked as <code>.claude/known-bugs.md</code> § B59.</p>
+<h2 id="upgrade-procedure">Upgrade procedure</h2>
+<p>Before upgrading, run the <strong>previous</strong> release (v4.5.0) at least once and
+read its startup logs for <code>warnGlobalVaultManageGrants</code>
+(<code>internal/db/db.go</code>) warnings — it names every principal holding a
+<code>NULL</code>-scoped <code>(vaults, manage, allow)</code> policy, and every one of them loses
+everything listed under &quot;The breaking change&quot; above on this upgrade. For
+each principal it names, either:</p>
+<ul>
+<li>
+<p>Issue a bounded provisioning grant instead —
+<code>rocketvault vault-provisioning grant &lt;principal&gt; --quota &lt;n&gt;</code> — if the
+principal only ever needed to create and manage its own <strong>future</strong> vaults.
+This does not help with vaults it already created under v4.5.0: a
+provisioning grant only shapes what <code>vaults create</code> does going forward, and
+those pre-existing vaults got no creator-grant rows retroactively (creator
+grants on the global-policy path are new in this release — see &quot;Creator
+grants on the global-policy create path&quot; above). For those, use the next
+option instead.</p>
+</li>
+<li>
+<p>Add explicit vault-scoped <code>vaults:manage</code> access policies for the specific
+vaults it must keep managing, if it genuinely needs standing authority over
+vaults it did not create (or already created under v4.5.0). The only
+mechanism for this is the admin-only <code>POST /api/v1/access-policies</code>
+(<code>api/access_policies.go</code>, gated by <code>requireAccessPolicyAdmin</code>) — there is
+<strong>no CLI command</strong> for access policies. For each vault, send a request
+shaped like:</p>
+<div class="codewrap"><div class="code-hd"><span class="code-lang">text</span><button class="copy-btn">Copy</button></div><pre class="code with-hd">POST /api/v1/access-policies
+{
+  &quot;principal_id&quot;: &quot;&lt;principal uuid&gt;&quot;,
+  &quot;principal_type&quot;: &quot;user&quot;,
+  &quot;resource_type&quot;: &quot;vaults&quot;,
+  &quot;operation&quot;: &quot;manage&quot;,
+  &quot;effect&quot;: &quot;allow&quot;,
+  &quot;vault_id&quot;: &quot;&lt;vault uuid&gt;&quot;
+}
+</pre></div>
+<p><strong><code>rocketvault vault-access grant &lt;principal&gt; key-vault-administrator --vault &lt;vault&gt;</code> is not a substitute for this</strong>, even though it looks like
+the natural CLI equivalent. <code>ExpandRole</code> (<code>internal/services/authorization/ roles.go</code>) returns <code>nil, nil</code> for every Azure built-in role, including <code>Key Vault Administrator</code> — Azure roles are evaluated directly from
+<code>role_assignments</code> and deliberately never materialize <code>access_policies</code>
+rows (a second, derivable copy of the same grant that could drift). A role
+grant made this way satisfies data-plane checks
+(<code>RoleAssignmentService.HasDataAction</code>) but writes nothing <code>CanManageVault</code>
+can see, so it does not restore the ability to get/update/delete/recover
+that vault or manage its role assignments.</p>
+</li>
+</ul>
+<p>Existing vault-scoped grants (the common case for anyone who was already
+managing a bounded set of vaults deliberately) need no action — this release
+does not touch scoped policy evaluation.</p>
+<h2 id="rollback">Rollback</h2>
+<p>Reverting this release's commits restores the old semantics: a global
+<code>vaults:manage</code> allow goes back to covering get, update, delete, recover,
+webhook configuration, and role-assignment management on every vault. No
+schema change is involved on either side of the upgrade, so no data
+migration is needed in either direction.</p>
+
+</main>
+<footer class="doc-footer"><a href="../admin-manual.html">&larr; Back to the Admin Manual</a></footer>
+<script src="../assets/doc-theme.js"></script>
+</body>
+</html>

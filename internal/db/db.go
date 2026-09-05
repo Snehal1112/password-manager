@@ -1186,18 +1186,21 @@ func (d *DBRepository) warnMismatchedRotationPolicyVaults(db *sql.DB) {
 // warnGlobalVaultManageGrants logs (never fails) every principal holding a
 // global -- vault_id IS NULL -- (vaults, manage, allow) access policy.
 //
-// Such a policy currently confers far more than the ability to create vaults.
-// accessPolicyRepository.FindEffects matches
-// "(vault_id = ? OR vault_id IS NULL)", so a NULL-scoped allow satisfies every
-// vault-scoped CheckAccess: it grants get/update/delete on every existing
-// vault via CanManageVault, and role-assignment management everywhere via
-// CanManageRoleAssignments -- which is enough to self-award Key Vault
-// Administrator in any vault.
+// As of v4.6.0, such a policy confers only the ability to create and list
+// vaults: CheckVaultScopedAccess (internal/services/authorization) is now used
+// by CanManageVault and CanManageRoleAssignments whenever a concrete vault ID
+// is in play, and it does not match a NULL-scoped allow the way CheckAccess
+// does. A NULL-scoped allow still satisfies the uuid.Nil (create/list) branch
+// of CanManageVault via CheckAccess/FindEffects -- that part is unchanged.
 //
-// A planned follow-up release narrows that to create-and-list only. This
-// diagnostic exists so operators can see, before upgrading, exactly which
-// principals will lose those two behaviours. Provisioning grants
-// (vault_provisioning_grants) are the bounded replacement.
+// This diagnostic exists so operators can see, on every boot, exactly which
+// principals had their authority narrowed by this release -- get/update/
+// delete, recover, webhook configuration, and role-assignment management on
+// vaults they did not create are all gone for a global-only holder. If one of
+// those principals genuinely needs standing authority over vaults it did not
+// create, that must now be granted vault-scoped explicitly; if it only ever
+// needed to create and manage its own vaults, a bounded provisioning grant
+// (vault_provisioning_grants) is the replacement.
 //
 // A query error here is expected and harmless on partially-built schemas (for
 // example a migrateSchema-only test fixture with no access_policies table), so
@@ -1226,7 +1229,7 @@ func (d *DBRepository) warnGlobalVaultManageGrants(db *sql.DB) {
 		d.log.WithFields(map[string]interface{}{
 			"principal_id":   principalID,
 			"principal_type": principalType,
-		}).Warn("Principal holds a global vaults:manage grant, which confers management of EVERY vault and role-assignment management everywhere; a future release narrows this to create-and-list only. Consider replacing it with a bounded vault provisioning grant.")
+		}).Warn("Principal holds a global vaults:manage grant, which since v4.6.0 confers vault create-and-list only; if it previously managed vaults it did not create, those grants must now be issued vault-scoped (see docs/release-notes/v4.6.0-narrow-global-vault-manage.md), or replaced with a bounded vault provisioning grant if it only ever needed to create and manage its own vaults.")
 	}
 	if err := rows.Err(); err != nil {
 		d.log.WithError(err).Warn("Failed to iterate global vaults:manage grants")

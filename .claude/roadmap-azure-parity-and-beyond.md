@@ -80,20 +80,22 @@ request volume, storage, billing) is still absent and belongs with the items bel
   `docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`.
 
   **What remains open after release 1:**
-  1. **The narrowing (release 2, not yet shipped).** A global `vaults:manage`
-     grant still confers get/update/delete on every existing vault (via
-     `CanManageVault`) and role-assignment management everywhere (via
-     `CanManageRoleAssignments`), exactly as described above — that has not
-     changed. `CheckVaultScopedAccess` and the narrowing of both checks to
-     create-and-list-only are deferred to release 2, gated on the startup
-     diagnostic (`warnGlobalVaultManageGrants`, `internal/db/db.go`, added in
-     release 1) reporting from a real deployment first. There is also an open
-     question release 2's planning still has to resolve: a global
-     `vaults:manage` holder receives no creator grants when it creates a
-     vault today (`VaultService.CreateVault`, the unbounded path) — harmless
-     now, since that policy already confers authority over every vault, but
-     it means such a holder would create a vault it then cannot manage once
-     the narrowing lands, unless that is addressed at the same time.
+  1. **The narrowing — shipped 2026-09-05 (release 2, v4.6.0).** A global
+     `vaults:manage` grant now confers create-and-list only:
+     `CanManageVault` and `CanManageRoleAssignments` both consult the new
+     `AccessPolicyService.CheckVaultScopedAccess` for a concrete vault (a
+     `NULL`-scoped deny still matches, a `NULL`-scoped allow no longer does),
+     and fall back to `CheckAccess` only for the `uuid.Nil` collection-level
+     create/list decision. `CheckAccess` and `FindEffects` themselves are
+     untouched, so the secrets/keys/certificates data plane's global explicit
+     deny still works exactly as before. Release 1's open question — what a
+     global-policy holder gets on the create path once the narrowing lands —
+     is **resolved, not deferred**: such a holder now receives the same
+     vault-scoped creator grants (`vaults:manage` policy + `Key Vault
+     Administrator` assignment) a provisioning grantee already gets, minus
+     the quota check (`VaultService.CreateVaultProvisioned`'s new
+     `grantCreatorRights` parameter). Full detail:
+     `docs/release-notes/v4.6.0-narrow-global-vault-manage.md`.
   2. **Name prefixes / namespacing.** Still deliberately deferred (design
      doc's Non-goals) — one MSP automation principal creates every vault
      today, so a grantee's vault names still share one flat namespace with

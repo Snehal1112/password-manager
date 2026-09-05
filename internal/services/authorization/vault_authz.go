@@ -16,10 +16,22 @@ import (
 )
 
 // CanManageVault reports whether principalID may perform vault-management
-// operations (create, list, get, update, delete) against vaultID: the global
-// admin account role, or an access-policy allow on (vaults, manage) scoped
-// to vaultID or global. A nil policies service, a service error, or any
-// decision other than AccessAllowed denies — this function fails closed.
+// operations against vaultID: the global admin account role, or an
+// access-policy allow on (vaults, manage).
+//
+// Which policy check applies depends on vaultID:
+//
+//   - vaultID == uuid.Nil is the COLLECTION-level decision (create, list).
+//     CheckAccess applies, so a global (vault_id NULL) allow satisfies it.
+//   - vaultID != uuid.Nil targets ONE vault (get, update, delete).
+//     CheckVaultScopedAccess applies, so a global allow does NOT satisfy it,
+//     though a global DENY still blocks it.
+//
+// That split is the narrowing: a global vaults:manage grant means "may create
+// and list vaults", never "may manage every vault on the instance".
+//
+// A nil policies service, a service error, or any decision other than
+// AccessAllowed denies — this function fails closed.
 func CanManageVault(ctx context.Context, accountRoles []string, policies AccessPolicyService, principalID, vaultID uuid.UUID) bool {
 	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
 		return true
@@ -27,7 +39,15 @@ func CanManageVault(ctx context.Context, accountRoles []string, policies AccessP
 	if policies == nil {
 		return false
 	}
-	decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID)
+	var (
+		decision AccessDecision
+		err      error
+	)
+	if vaultID == uuid.Nil {
+		decision, err = policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID)
+	} else {
+		decision, err = policies.CheckVaultScopedAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID)
+	}
 	if err != nil {
 		return false
 	}
@@ -55,21 +75,41 @@ func CanPurgeVault(ctx context.Context, accountRoles []string, roles RoleAssignm
 // CanManageRoleAssignments reports whether principalID may create
 // (write=true) or revoke/read (write=false) role assignments in vaultID: the
 // global admin account role, an access-policy allow on (vaults, manage)
-// scoped to vaultID or global (preserves the pre-existing documented
-// behavior), or a Key Vault Data Access Administrator role assignment held
-// in vaultID. A nil dependency, a service error, or no matching grant
-// denies — this function fails closed.
+// scoped to vaultID — a global (vault_id NULL) allow no longer suffices,
+// though a global deny still blocks — or a Key Vault Data Access
+// Administrator role assignment held in vaultID. A nil dependency, a service
+// error, or no matching grant denies — this function fails closed.
 //
 // An explicit access-policy DENY wins outright: it short-circuits false and is
 // never outvoted by a role grant, matching PolicyMiddleware's stated invariant
 // (see internal/middleware/middleware.go). Only AccessFallback (no matching
 // policy row) falls through to the role-assignment check.
+//
+// vaultID == uuid.Nil always denies a non-admin caller here, unlike
+// CanManageVault's identically shaped guard -- the admin account role still
+// short-circuits above and returns true regardless. CanManageVault's
+// uuid.Nil branch serves a real collection-level decision (create/list a
+// vault). Role assignments have no such collection level -- there is no
+// "manage role assignments across every vault" operation -- so this branch
+// has no real decision to serve. Routing it to CheckAccess anyway would
+// re-widen the exact thing this release narrows: a global vaults:manage
+// allow satisfying role-assignment management everywhere. Every call site
+// passes a resolved vault ID today, so this is dead code in practice; it
+// fails closed rather than mirroring CanManageVault so a future caller can't
+// accidentally reopen that widening by passing uuid.Nil.
 func CanManageRoleAssignments(ctx context.Context, accountRoles []string, policies AccessPolicyService, roles RoleAssignmentService, principalID, vaultID uuid.UUID, write bool) bool {
 	if common.HasAnyRole(accountRoles, string(model.RoleAdmin)) {
 		return true
 	}
+	if vaultID == uuid.Nil {
+		return false
+	}
 	if policies != nil {
-		decision, err := policies.CheckAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID)
+		// Role assignments always target one vault, so the vault-scoped check
+		// applies whenever vaultID is concrete. Narrowing CanManageVault alone
+		// would leave the escalation path open: role-assignment management by
+		// itself is enough to award oneself Key Vault Administrator anywhere.
+		decision, err := policies.CheckVaultScopedAccess(ctx, principalID, model.PolicyResourceVaults, model.OpManage, vaultID)
 		if err == nil {
 			if decision == AccessAllowed {
 				return true

@@ -222,7 +222,7 @@ func TestCreateVaultProvisioned_GrantsCreatorFullRights(t *testing.T) {
 	svc, granter := newProvisionedTestServiceWithGranter(t, quota(5), existingVaults(0))
 
 	v, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "acme-prod"}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "acme-prod"}, testPrincipal, true, true)
 	require.NoError(t, err)
 
 	require.Len(t, granter.policies, 1)
@@ -243,7 +243,7 @@ func TestCreateVaultProvisioned_RollsBackAllThreeWrites(t *testing.T) {
 	svc, _ := newProvisionedTestServiceWithFailingGranter(t, quota(5), existingVaults(0))
 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "doomed"}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "doomed"}, testPrincipal, true, true)
 	require.Error(t, err)
 
 	_, err = svc.GetVault(context.Background(), "doomed")
@@ -258,10 +258,70 @@ func TestCreateVaultProvisioned_RefusesAtQuota(t *testing.T) {
 	svc := newProvisionedTestService(t, quota(2), existingVaults(2))
 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "third"}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "third"}, testPrincipal, true, true)
 
 	require.True(t, errors.Is(err, vaults.ErrVaultQuotaExceeded),
 		"a create at quota must be refused, not merely logged")
+}
+
+// TestCreateVaultProvisioned_GlobalPolicyGetsCreatorGrants pins the fix for the
+// stranding problem the narrowing would otherwise create: a global-policy
+// holder is not quota-bounded, but must still receive vault-scoped rights over
+// what it creates, because its global allow no longer covers that vault.
+func TestCreateVaultProvisioned_GlobalPolicyGetsCreatorGrants(t *testing.T) {
+	// quota is irrelevant on this path -- it must never be consulted.
+	svc, granter := newProvisionedTestServiceWithGranter(t, quota(0), existingVaults(0))
+
+	v, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "customer-a"}, testPrincipal,
+		false /* quotaBounded */, true /* grantCreatorRights */)
+	require.NoError(t, err,
+		"a quota of 0 must not refuse an unbounded caller -- the quota check "+
+			"must be skipped entirely, not merely satisfied")
+
+	require.Len(t, granter.policies, 1)
+	require.Equal(t, model.PolicyResourceVaults, granter.policies[0].ResourceType)
+	require.Equal(t, model.OpManage, granter.policies[0].Operation)
+	require.Equal(t, model.PolicyEffectAllow, granter.policies[0].Effect)
+	require.NotNil(t, granter.policies[0].VaultID)
+	require.Equal(t, v.ID, *granter.policies[0].VaultID,
+		"the creator's manage policy must be scoped to the new vault, never global")
+
+	require.Len(t, granter.roles, 1)
+	require.Equal(t, model.RoleKeyVaultAdministrator, granter.roles[0].Role)
+	require.Equal(t, v.ID, granter.roles[0].VaultID)
+	require.Equal(t, testPrincipal, granter.roles[0].PrincipalID)
+}
+
+// TestCreateVaultProvisioned_AdminSkipsCreatorGrants pins that the admin path
+// stays on the cheap non-transactional create. Admin short-circuits every
+// authorization check, so grants for it would be dead rows.
+func TestCreateVaultProvisioned_AdminSkipsCreatorGrants(t *testing.T) {
+	svc, granter := newProvisionedTestServiceWithGranter(t, quota(0), existingVaults(0))
+
+	v, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "ops"}, testPrincipal,
+		false /* quotaBounded */, false /* grantCreatorRights */)
+	require.NoError(t, err)
+	require.NotNil(t, v)
+
+	require.Empty(t, granter.policies, "an admin create must write no creator policy")
+	require.Empty(t, granter.roles, "an admin create must write no creator role assignment")
+}
+
+// TestCreateVaultProvisioned_UnboundedGrantFailureLeavesNoVault pins that the
+// global-policy path fails closed the same way the quota-bounded path does: a
+// vault whose creator holds no rights over it is worse than no vault.
+func TestCreateVaultProvisioned_UnboundedGrantFailureLeavesNoVault(t *testing.T) {
+	svc, _ := newProvisionedTestServiceWithFailingGranter(t, quota(0), existingVaults(0))
+
+	_, err := svc.CreateVaultProvisioned(context.Background(),
+		model.CreateVaultRequest{Name: "doomed-global"}, testPrincipal, false, true)
+	require.Error(t, err)
+
+	_, err = svc.GetVault(context.Background(), "doomed-global")
+	require.ErrorIs(t, err, vaults.ErrVaultNotFound,
+		"a failed grant write must roll back the vault insert too")
 }
 
 func TestCreateVaultProvisioned_AllowsBelowQuota(t *testing.T) {
@@ -272,7 +332,7 @@ func TestCreateVaultProvisioned_AllowsBelowQuota(t *testing.T) {
 	svc, _ := newProvisionedTestServiceWithGranter(t, quota(2), existingVaults(1))
 
 	v, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "second"}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "second"}, testPrincipal, true, true)
 
 	require.NoError(t, err)
 	require.Equal(t, "second", v.Name)
@@ -290,7 +350,7 @@ func TestCreateVaultProvisioned_FailsClosedWhenCreatorGranterUnwired(t *testing.
 	svc := newProvisionedTestService(t, quota(5), existingVaults(0))
 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "no-granter"}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "no-granter"}, testPrincipal, true, true)
 	require.Error(t, err,
 		"a quota-bounded create must be refused when creator grants cannot be written")
 
@@ -305,11 +365,16 @@ func TestCreateVaultProvisioned_FailsClosedWhenCreatorGranterUnwired(t *testing.
 func TestCreateVaultProvisioned_UnboundedIgnoresQuota(t *testing.T) {
 	svc := newProvisionedTestService(t, quota(1), existingVaults(5))
 
-	// quotaBounded=false is the admin / global-policy path.
+	// grantCreatorRights=false is the admin sub-path of the unbounded case:
+	// admin needs no creator grants (they'd be dead rows), so this exercises
+	// the cheap CreateVault fallback with no CreatorGranter wired. The
+	// unbounded, grantCreatorRights=true sub-path -- a global-policy holder --
+	// is covered separately by TestCreateVaultProvisioned_GlobalPolicyGetsCreatorGrants,
+	// since it requires a CreatorGranter to be wired at all.
 	_, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "admin-made"}, testPrincipal, false)
+		model.CreateVaultRequest{Name: "admin-made"}, testPrincipal, false, false)
 
-	require.NoError(t, err, "admins and global-policy holders are not quota-bounded")
+	require.NoError(t, err, "an admin caller is not quota-bounded and needs no creator grants")
 }
 
 func TestCreateVaultProvisioned_RejectsPurgeProtectionFromGrantee(t *testing.T) {
@@ -317,7 +382,7 @@ func TestCreateVaultProvisioned_RejectsPurgeProtectionFromGrantee(t *testing.T) 
 	protect := true
 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "pinned", PurgeProtection: &protect}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "pinned", PurgeProtection: &protect}, testPrincipal, true, true)
 
 	require.ErrorIs(t, err, vaults.ErrPurgeProtectionNotPermitted,
 		"a grantee setting purge_protection could pin a quota slot permanently")
@@ -337,7 +402,7 @@ func TestCreateVaultProvisioned_RefusesWhenTransactionDepsUnwired(t *testing.T) 
 	svc := vaults.NewVaultService(vaultRepo, noopProvisionedCascade{}, nil)
 
 	_, err := svc.CreateVaultProvisioned(context.Background(),
-		model.CreateVaultRequest{Name: "unwired"}, testPrincipal, true)
+		model.CreateVaultRequest{Name: "unwired"}, testPrincipal, true, true)
 
 	require.Error(t, err,
 		"a quota-bounded caller must be refused, not silently fall back to the unchecked create path")

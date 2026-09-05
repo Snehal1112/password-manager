@@ -56,7 +56,7 @@ func TestVaultsCreate(t *testing.T) {
 	}
 	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.MatchedBy(func(r model.CreateVaultRequest) bool {
 		return r.Name == "my-vault"
-	}), tc.TestUserID, false).Return(created, nil)
+	}), tc.TestUserID, false, false).Return(created, nil)
 
 	cmd := &cobra.Command{Use: "create", RunE: createCmd.RunE}
 	cmd.Flags().Bool("purge-protection", false, "")
@@ -181,6 +181,9 @@ type mockAccessPolicyService struct {
 func (m *mockAccessPolicyService) CheckAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
 	return m.decision, nil
 }
+func (m *mockAccessPolicyService) CheckVaultScopedAccess(context.Context, uuid.UUID, model.PolicyResourceType, model.PolicyOperation, uuid.UUID) (authzServices.AccessDecision, error) {
+	return m.decision, nil
+}
 func (m *mockAccessPolicyService) CreatePolicy(context.Context, *model.AccessPolicy) error {
 	return nil
 }
@@ -220,7 +223,7 @@ func TestVaultsCreate_ForbiddenWithoutGlobalGrant(t *testing.T) {
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "permission denied")
-	tc.MockVaultService.AssertNotCalled(t, "CreateVaultProvisioned", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	tc.MockVaultService.AssertNotCalled(t, "CreateVaultProvisioned", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestVaultsCreate_QuotaExceededRefusesGrantHolder proves the CLI actually
@@ -248,7 +251,7 @@ func TestVaultsCreate_QuotaExceededRefusesGrantHolder(t *testing.T) {
 		grant: &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: tc.TestUserID, Quota: 1},
 	}
 
-	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, true).
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, true, true).
 		Return(nil, fmt.Errorf("%w: 1 of 1 used", vaultServices.ErrVaultQuotaExceeded))
 
 	cmd := &cobra.Command{Use: "create", Args: createCmd.Args, RunE: createCmd.RunE}
@@ -286,7 +289,7 @@ func TestVaultsCreate_PurgeProtectionRefusedForGrantHolder(t *testing.T) {
 		grant: &model.VaultProvisioningGrant{ID: uuid.New(), PrincipalID: tc.TestUserID, Quota: 5},
 	}
 
-	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, true).
+	tc.MockVaultService.On("CreateVaultProvisioned", mock.Anything, mock.Anything, tc.TestUserID, true, true).
 		Return(nil, vaultServices.ErrPurgeProtectionNotPermitted)
 
 	cmd := &cobra.Command{Use: "create", Args: createCmd.Args, RunE: createCmd.RunE}

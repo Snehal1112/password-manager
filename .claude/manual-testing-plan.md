@@ -4058,17 +4058,21 @@ ID                                    Name     Enabled  PurgeProtection  Retenti
    behavior, not a violated boundary; it is precisely what release 2
    removes.
 
-#### Release 2 has not shipped — this escalation path is still open
+#### Release 2 has since shipped — the escalation path above is now closed
 
-The narrowing that closes gotcha #6 is designed but **not implemented on
-this branch**. Today, a global `vaults:manage` allow policy is exactly as
-powerful as step 6 showed: full management of every vault and every
-role-assignment, everywhere, for as long as that policy exists. The startup
-diagnostic that fired in step 6 is the way to find affected principals
-*before* upgrading to the release that narrows this — it names the
-`principal_id` holding the policy, on every boot, so an operator can migrate
-each one onto a bounded provisioning grant ahead of time rather than
-discovering the change by having something break.
+Step 6 above showed a global `vaults:manage` allow policy at its old,
+unnarrowed strength: full management of every vault and every
+role-assignment, everywhere, for as long as that policy existed. That was
+true of the release this worked example was written against (release 1);
+it is **no longer true** — release 2 (v4.6.0) narrowed both `CanManageVault`
+and `CanManageRoleAssignments` to consult a vault-scoped check for a
+concrete vault, so a global allow now confers create-and-list only. Do not
+read step 6 above as current behavior; it documents the pre-narrowing state
+for historical/regression-comparison purposes. See the "Narrowed global
+`vaults:manage` (release 2)" subsection below (after this example's Teardown)
+for the current test procedure, and
+`docs/release-notes/v4.6.0-narrow-global-vault-manage.md` for the full
+account of what changed.
 
 For the design of the narrowing itself, see
 `docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`
@@ -4076,14 +4080,12 @@ For the design of the narrowing itself, see
 `CheckVaultScopedAccess` asymmetry: a global deny still blocks every vault, a
 global allow no longer reaches one the principal doesn't own) and §9
 ("Sequencing — two releases," which spells out why release 1 is additive and
-non-breaking, and what release 2 changes). Note that §9 only specifies the
-narrowing of `CanManageVault` and `CanManageRoleAssignments` — what release 2
-does with the `create`-and-`list` carve-out a global policy currently confers
-(`CreateRightGlobalPolicy`,
-`internal/services/authorization/vault_authz.go:106-108`) is not spelled out
-beyond the diagnostic's own wording ("narrows this to create-and-list only").
-Treat that as open, not decided — do not read step 6 above as evidence of
-what release 2 will do, only of what release 1 currently does.
+non-breaking, and what release 2 changes). §9's open question — what a
+global-policy holder gets on the create path once the narrowing lands — is
+now resolved too: such a holder receives the same vault-scoped creator
+grants (`vaults:manage` policy + `Key Vault Administrator` assignment) a
+provisioning grantee already gets, minus the quota check. See the release
+note's "Creator grants on the global-policy create path" section.
 
 #### Teardown
 
@@ -4094,6 +4096,29 @@ still owns `acme-prod` with `Key Vault Administrator` there; `acme-third` is
 purged; the global `vaults:manage` access policy created for `msp-bot` in
 step 6 is left in place, since it's harmless scratch state and is the live
 evidence the diagnostic warning is tied to.
+
+#### Narrowed global vaults:manage (release 2)
+
+- [ ] Give a non-admin principal a global `vaults:manage` allow
+      (`vault_id: null`, via the admin-only `createAccessPolicy` HTTP route --
+      there is no CLI for access policies).
+- [ ] That principal can still **create** a vault and **list** vaults.
+- [ ] It can manage the vault it just created -- get, update, role
+      assignments -- because the create now writes it vault-scoped creator
+      grants.
+- [ ] Against a vault it did **not** create: `vaults get`, `vaults update`,
+      `vaults delete` and `vault-access grant` all refuse. Before this release
+      all four succeeded. Check the HTTP API too, not just the CLI.
+- [ ] It cannot award itself `Key Vault Administrator` in another principal's
+      vault -- this is the escalation path the release closes.
+- [ ] A global `vaults:manage` **deny** still blocks that principal on every
+      vault, including ones it created.
+- [ ] A global **deny** on secrets still blocks reads and writes through both
+      the API and the CLI. This path was deliberately not touched; if it
+      regressed, the narrowing leaked into `CheckAccess`.
+- [ ] An `admin` account role is unaffected throughout.
+- [ ] A provisioning grantee is unaffected throughout -- its rights were
+      already vault-scoped.
 
 ## 6. Vault Access (RBAC) — Azure Role Assignments
 

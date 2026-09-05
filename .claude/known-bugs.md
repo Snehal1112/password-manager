@@ -3532,6 +3532,107 @@ assert on the actor recorded in the resulting audit log entry.
 
 ---
 
+### B59 — A provisioning grantee can set `purge_protection` via `vaults update`, one command after being refused it at create
+
+**Status**: Open, found 2026-09-05 (release 2 code review)
+**Severity**: Medium — not an authorization bypass in the access-control
+sense (`UpdateVault`'s `CanManageVault` check is honored correctly for the
+vault in question); the defect is that the *quota-pinning* protection
+`ErrPurgeProtectionNotPermitted` exists to provide is only enforced on one of
+the two paths that can set the flag, so the restriction it advertises is
+trivially bypassable by any provisioning grantee, not just a theoretical one.
+**Files**: `internal/services/vaults/vault_service.go:372-373` (the
+create-time guard), `:567-569` (`UpdateVault`, no equivalent guard),
+`:714-739` (`PurgeVault`, refuses a protected vault for every caller
+including admin); `cmd/vaults/update.go:43` and `api/vault.go:239` (both
+gate the update path on `CanManageVault` against the concrete vault, not on
+`quotaBounded`)
+
+**Symptom**: a provisioning grantee refused `purge_protection` at `vaults
+create` can set it one command later:
+
+```
+$ rocketvault vaults create acme-pinned --purge-protection
+Error: failed to create vault: purge protection may only be set on a create
+that is not quota-bounded -- a quota-bounded provisioning grant cannot set
+--purge-protection; an admin or a global vaults:manage holder can
+
+$ rocketvault vaults create acme-pinned
+<succeeds -- purge_protection defaults to false>
+
+$ rocketvault vaults update acme-pinned --purge-protection=true
+<succeeds -- CanManageVault is satisfied by the vault-scoped vaults:manage
+ policy the create path just wrote for this grantee>
+
+$ rocketvault vaults delete acme-pinned
+<succeeds -- soft-delete, still counts toward quota>
+
+$ rocketvault vaults purge acme-pinned
+Error: vault "acme-pinned" is protected from purge
+```
+
+The vault is now permanently soft-deleted, permanently occupies a quota
+slot, and cannot be purged by anyone, including an admin —
+`PurgeVault`'s `v.PurgeProtection` check (`vault_service.go:737-739`) applies
+uniformly to every caller, with no override. This is not permanent data
+pollution, though: an admin has a recovery path —
+`vaults recover` → `vaults update --purge-protection=false` → `vaults delete`
+→ `vaults purge` — since `RecoverVault` and `UpdateVault` are not subject to
+the same guard, so the slot can still be freed manually. It is a recoverable
+quota nuisance requiring an admin's intervention, not a permanently stuck
+vault.
+
+**Root cause**: the create-time guard
+(`if quotaBounded && req.PurgeProtection != nil && *req.PurgeProtection`,
+`vault_service.go:372`) exists on exactly one of the two write paths for
+`purge_protection`. `UpdateVault` applies `req.PurgeProtection` unconditionally
+whenever it is non-nil (`vault_service.go:567-569`) — there is no
+`quotaBounded` parameter on `UpdateVault` at all, and no analogous check of
+any kind. Both `cmd/vaults/update.go` and the HTTP `updateVault` handler
+(`api/vault.go`) gate the call on `CanManageVault(ctx, roles, policies,
+principalID, target.ID)` — an ordinary vault-scoped authorization check, not
+a quota-awareness check. A provisioning grantee holds a genuine, correctly
+vault-scoped `vaults:manage` access policy over the vault it created (written
+by the very creator-grant transaction release 2 added — `vault_service.go:433-443`),
+so `CanManageVault` legitimately returns true for it there. The check that
+refuses the grantee at create time has no counterpart asking the same
+question at update time.
+
+**Cross-reference**: this predates and is independent of release 2's
+narrowing of `CanManageVault`/`CanManageRoleAssignments`
+(`docs/release-notes/v4.6.0-narrow-global-vault-manage.md`) — it was
+reachable exactly the same way under release 1, since a provisioning
+grantee's creator grant (vault-scoped `vaults:manage`) already existed then.
+It was found during release 2's code review because that release's own
+purge-protection wording fix (`ErrPurgeProtectionNotPermitted`) prompted a
+closer look at what the guard actually covers.
+
+**Fix recipe**: give `UpdateVault` the same quota-awareness `CreateVaultProvisioned`
+has. The caller already knows whether the principal is quota-bounded
+(`authz.CreateRight` is computed at every call site for create; the
+equivalent read-only classification — "does this principal hold a
+provisioning grant" — is not currently computed for update/delete, and would
+need to be, probably via the same `GrantReader` this package already has).
+Concretely: thread a `quotaBounded bool` (or the full `CreateRight`) into
+`UpdateVault`, and refuse `req.PurgeProtection != nil && *req.PurgeProtection`
+with `ErrPurgeProtectionNotPermitted` when `quotaBounded` is true, mirroring
+the create-path guard exactly. **Do not** widen the guard to "non-admin" —
+that was explicitly ruled out during release 2's review, since it would
+incorrectly refuse a global-policy holder (who has no quota to pin and is
+not part of this defect) while still needing the precise `quotaBounded`
+predicate to close the actual hole.
+**Not implemented in release 2**: the branch narrows a global grant's
+vault-scoped authority; widening its scope to also patch an unrelated,
+pre-existing create/update-path asymmetry would make an already-breaking
+release harder to review. Filed here instead, per that release's own note.
+
+**Found**: manually, during code review of release 2
+(`docs/release-notes/v4.6.0-narrow-global-vault-manage.md`), while checking
+whether "provisioning grantee: refused, always" was actually true of
+`purge_protection` — it is true only at create time.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

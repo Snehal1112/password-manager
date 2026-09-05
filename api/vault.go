@@ -97,7 +97,8 @@ func createVault(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	vault, err := svc.CreateVaultProvisioned(r.Context(), *req, userID,
-		right == authzServices.CreateRightProvisioningGrant)
+		right == authzServices.CreateRightProvisioningGrant,
+		right != authzServices.CreateRightAdmin)
 	if err != nil {
 		switch {
 		case errors.Is(err, vaultServices.ErrVaultQuotaExceeded), errors.Is(err, vaultServices.ErrPurgeProtectionNotPermitted):
