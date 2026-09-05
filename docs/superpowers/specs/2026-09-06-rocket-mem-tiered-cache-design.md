@@ -63,8 +63,8 @@ Rocket-mem's own AOF.
 dependency-free in-process cache core), and should stay that way — it must
 not import `go-redis` or know anything about RESP. So `TieredCache[K, V]` is
 a new generic type in `internal/cachekit`, implementing the package's
-existing `Interface[K, V]`, but parameterized over a small `L2[K]` interface
-rather than a concrete client:
+existing `Interface[K, V]`, but built against a small `L2` interface rather
+than a concrete client:
 
 ```go
 // in cachekit — no go-redis import. Not generic over K: every operation is
@@ -106,7 +106,7 @@ still cover, but Plan B (below) must verify this against a live rocket-mem
 instance before relying on it, since "partial" was not fully enumerated
 during the initial audit.
 
-The actual Rocket-mem/go-redis-backed implementation of `L2[K]` lives in a
+The actual Rocket-mem/go-redis-backed implementation of `L2` lives in a
 new package, `internal/rocketmemcache`, which is the only place `go-redis`
 gets imported. `TieredCache` depends on the interface, not the package.
 
@@ -157,7 +157,12 @@ unchanged) and an L2 (a new Rocket-mem-backed client, described below):
 - `Invalidate(key)` / `InvalidateAll()`: evict from L1 **and** issue the
   equivalent eviction to L2 for the same key(s).
 - `Stats()` / `Stop()`: `Stats` reports L1 only (L2 has no equivalent local
-  concept); `Stop` also closes the L2 connection.
+  concept); `Stop` stops L1's background sweep only. The L2 connection is a
+  single shared client used by all four domains' `TieredCache`s (see
+  Configuration below), so its lifecycle is owned and closed exactly once by
+  the container, not by any individual `TieredCache.Stop()` — closing a
+  shared connection once per domain cache would be redundant at best and
+  order-dependent at worst.
 
 Because `TieredCache` satisfies the same `Interface[K,V]`, every domain
 package (`SecretCache`, `internal/keycache.Cache`, `internal/certcache.Cache`,
@@ -188,12 +193,17 @@ type Codec[V any] interface {
 
 Two implementations:
 
-- **`EncryptedJSONCodec`** (secrets, keys): JSON-marshal, then AEAD-encrypt
-  using the existing master-key `CryptographyService` — the same primitive
-  already used for DB-at-rest encryption. No new key to provision, rotate, or
-  back up. A master_key compromise would expose Rocket-mem's cached values
-  too, but it already exposes the database, so this does not widen the blast
-  radius.
+- **`EncryptedJSONCodec`** (secrets, keys): JSON-marshal to bytes, then
+  encrypt via two caller-supplied functions matching `common.EncryptSecret`/
+  `common.DecryptSecret`'s existing signatures (`func(string) (string,
+  error)` — both already operate on arbitrary byte content wrapped in a Go
+  string, base64-encoding the ciphertext). This reuses the exact master-key
+  AES-256-GCM primitive already used for DB-at-rest encryption directly, with
+  no new abstraction (no new AEAD interface, no dependency from `cachekit` on
+  `internal/crypto` or the service layer — it takes two plain functions).
+  No new key to provision, rotate, or back up. A master_key compromise would
+  expose Rocket-mem's cached values too, but it already exposes the
+  database, so this does not widen the blast radius.
 - **`PlainJSONCodec`** (certs, vaults): JSON-marshal, no encryption — matches
   their existing "nothing decrypted enters this cache" status. Certs still
   cache `PrivateKey` as ciphertext (unchanged, `GetCertificate` never
@@ -218,7 +228,7 @@ shared with another consumer.
   maintained, idiomatic choice. No existing Redis-adjacent dependency exists
   in `go.mod` today; this is a new dependency, and it is confined entirely to
   this one new package — `cachekit` and the domain cache packages depend only
-  on the `L2[K]` interface above.
+  on the `L2` interface above.
 - Constructed once at container startup, only when `cache.rocket_mem.enabled`.
 - **Every** L2 call (`Get`/`Set`/`Invalidate`) is wrapped so any error —
   network timeout, connection refused, encode/decode failure — is treated as
