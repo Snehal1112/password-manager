@@ -21,7 +21,11 @@ export function Terminal({
   className,
 }: {
   children: string
-  label: string
+  /**
+   * Omit inside a labelled layout -- the case panel puts the label in its own
+   * gutter column, and a second one here would say the same word twice.
+   */
+  label?: string
   copy?: boolean
   tone?: "command" | "output"
   className?: string
@@ -42,23 +46,25 @@ export function Terminal({
 
   return (
     <div className={cn("group/term", className)}>
-      <div className="label mb-1.5 flex items-center justify-between text-muted-foreground">
-        <span>{label}</span>
-        {copy ? (
-          <button
-            type="button"
-            onClick={onCopy}
-            className="focus-ring label inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-muted-foreground hover:text-foreground"
-          >
-            {copied ? (
-              <Check className="size-3" aria-hidden="true" />
-            ) : (
-              <Copy className="size-3" aria-hidden="true" />
-            )}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        ) : null}
-      </div>
+      {label || copy ? (
+        <div className="label mb-1.5 flex items-center justify-between text-muted-foreground">
+          <span>{label}</span>
+          {copy ? (
+            <button
+              type="button"
+              onClick={onCopy}
+              className="focus-ring label inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-muted-foreground hover:text-foreground"
+            >
+              {copied ? (
+                <Check className="size-3" aria-hidden="true" />
+              ) : (
+                <Copy className="size-3" aria-hidden="true" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <pre
         className={cn(
           // pre-wrap plus break-word means nothing should overflow, but an
