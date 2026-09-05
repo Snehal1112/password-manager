@@ -1,9 +1,15 @@
 import { journeysAF } from "./journeys-a-f"
 import { journeysGM } from "./journeys-g-m"
 import { journeysNU } from "./journeys-n-u"
+import { journeysVW } from "./journeys-v-w"
 import type { Case, Suite } from "./types"
 
-export const suites: Suite[] = [...journeysAF, ...journeysGM, ...journeysNU]
+export const suites: Suite[] = [
+  ...journeysAF,
+  ...journeysGM,
+  ...journeysNU,
+  ...journeysVW,
+]
 
 /** Every case, flattened, with its suite key attached for search and report. */
 export interface FlatCase extends Case {
@@ -24,5 +30,5 @@ export const caseCount = allCases.length
 export const source = {
   doc: "docs/VAULT_USER_ACCESS_JOURNEYS_v3.md",
   branch: "v-4.0.0",
-  asOf: "2026-09-04",
+  asOf: "2026-09-05",
 }

@@ -93,6 +93,7 @@ Global persistent flags available on every command: `--config`, `--username`, `-
 | `ci-payments-svc` | service account | OAuth2 client, REST only — never uses the CLI |
 | `checkout-api-svc` | service account | Same |
 | `noor` | **`certificate_manager`** | Must run `certificates create/update/delete/renew` from the CLI (Correction 8) |
+| `iris` | `user` | Platform automation. Holds a **global** (`vault_id` `NULL`) `(vaults, manage, allow)` access policy — not an account role. Journey W is entirely about what that does and no longer does |
 
 ---
 
@@ -1817,6 +1818,296 @@ rocketvault vault-webhook delete --vault prod
 
 ---
 
+## Journey V — Delegating Vault *Creation* Without Delegating the Instance
+
+**Actor**: Priya (`admin`) issues the grant; Wren (global role `user`) is the grantee
+
+Journey G handed Wren the right to manage access *inside* one vault. This journey hands her something different: the right to create vaults of her own, up to a fixed count, with no authority whatsoever over a vault she did not create. The group's own help text (`cmd/vault_provisioning.go`) frames it exactly that way — "the delegated alternative to a global `vaults:manage` policy, which additionally confers authority over every vault that already exists." Journey W is that other option. Read the two as a pair.
+
+### 1. Issue the grant — and note what comes back
+
+```bash
+# As Priya:
+rocketvault vault-provisioning grant wren --quota 3
+# Provisioning grant issued: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34 quota=3
+```
+
+The success line prints the **resolved principal UUID**, never the username you typed. `resolvePrincipal` parses the argument as a UUID first and falls back to a username lookup, and what is printed is the stored grant's `principal_id`. A QA case asserting the literal string `wren` in this output will fail on a correct build.
+
+A raw UUID is accepted directly and takes precedence over a username lookup, because an OAuth2 service account is an `oauth2_clients` row with no username to look up:
+
+```bash
+rocketvault vault-provisioning grant 3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a --quota 20
+# Provisioning grant issued: principal=3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a quota=20
+```
+
+Re-issuing for the same principal **changes the quota rather than stacking a second grant** — `principal_id` is `UNIQUE` and the repository upsert updates only the quota, leaving `id`, `created_by` and `created_at` as they were:
+
+```bash
+rocketvault vault-provisioning grant wren --quota 10
+# Provisioning grant issued: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34 quota=10
+```
+
+### 2. A zero or negative quota is refused, with the reason stated
+
+```bash
+rocketvault vault-provisioning grant wren --quota 0
+# Error: --quota must be a positive integer: a zero-quota grant is indistinguishable from no grant
+
+rocketvault vault-provisioning grant wren --quota -1
+# Error: --quota must be a positive integer: a zero-quota grant is indistinguishable from no grant
+```
+
+`--quota` is documented as required but is **not** registered with cobra's required-flag machinery — it is a plain `Int` flag defaulting to `0`. Omitting it entirely therefore produces the same message above, not cobra's `required flag(s) "quota" not set`.
+
+Note the ordering: the admin check runs **before** the quota check. A non-admin who types `--quota 0` sees the permission error in step 3, never this one.
+
+### 3. This tier is non-delegable — the point of the whole journey
+
+Every other CLI authorization tier in RocketVault has a delegation path. The data plane falls through to `vaultcli.RequireDataAction`; `vaults` and `vault-access` fall through to an access policy or a role assignment. `cmd/vault-provisioning/authz.go` has **neither**. `requireGrantAdmin` reads the caller's account roles and checks one thing: `common.HasAnyRole(roles, model.RoleAdmin)`.
+
+Wren holds `Key Vault Data Access Administrator` in `prod` — the one role that exists to delegate access management — and it buys her nothing here:
+
+```bash
+# As Wren:
+rocketvault vault-provisioning grant marcus --quota 5
+# Error: permission denied: managing vault provisioning grants requires the admin role
+
+rocketvault vault-provisioning revoke marcus
+# Error: permission denied: managing vault provisioning grants requires the admin role
+
+rocketvault vault-provisioning list
+# Error: permission denied: managing vault provisioning grants requires the admin role
+```
+
+Iris, holding a global `vaults:manage` access policy (Journey W), gets the identical three refusals. So does the grantee herself — a provisioning grant confers nothing over provisioning grants.
+
+> The code states its own reason, and it is worth quoting to anyone who asks for an exception: *"a principal able to amend grants could raise its own quota, and the bound the grant exists to impose would be decorative."* The same sentence appears in `cmd/vault-provisioning/authz.go`'s `requireGrantAdmin` doc comment, in the group `Long` text, and in the `internal/services/provisioning` package comment. It is a deliberate design position, not an oversight to be patched.
+
+### 4. `list` is instance-wide, not vault-scoped
+
+```bash
+# As Priya:
+rocketvault vault-provisioning list
+# PRINCIPAL-ID                           QUOTA    CREATED-AT
+# 4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34   10       2026-09-05T11:04:22Z
+# 3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a   20       2026-09-05T11:07:51Z
+```
+
+A grant is a global right to create vaults, not a right inside one, so this lists every grant on the instance. `--vault` is a root-level persistent flag, so it parses here and is then **ignored** — `runList` never reads it:
+
+```bash
+rocketvault vault-provisioning list --vault prod
+# identical output — same rows, no filtering
+```
+
+Two more shapes worth pinning in a test: the header row is emitted unconditionally, so a fresh instance with no grants prints the header and nothing else; and `--output json` is likewise ignored, because `runList` writes with `fmt.Fprintf` and never touches the output formatter. This is the opposite of `vaults list`, which does honour `--output`.
+
+### 5. What the grant actually buys — and where it stops
+
+```bash
+# As Wren, with quota 3:
+rocketvault vaults create tenant-a
+rocketvault vaults create tenant-b
+rocketvault vaults create tenant-c
+# each prints the create table: ID  Name  Enabled  PurgeProtection  RetentionDays  Created
+
+rocketvault vaults create tenant-d
+# Error: failed to create vault: vault provisioning quota exceeded: 3 of 3 used -- soft-deleting
+# a vault does not free a quota slot; a slot is released only when the vault is purged, which
+# requires an administrator or a Key Vault Purge Operator grant. Ask an administrator to purge a
+# vault or raise your quota
+```
+
+The quota check runs **inside** the insert transaction, so two concurrent creates cannot both pass a check-then-insert race.
+
+A quota-bounded create may not set purge protection — because a grantee who could would soft-delete a protected vault and hold its slot forever:
+
+```bash
+rocketvault vaults create tenant-e --purge-protection
+# Error: failed to create vault: purge protection may only be set on a create that is not
+# quota-bounded -- a quota-bounded provisioning grant cannot set --purge-protection; an admin
+# or a global vaults:manage holder can
+```
+
+The hint above is honest about the trap: Wren cannot free her own slot, because purge is gated on `CanPurgeVault`, and the creator grant she receives is `Key Vault Administrator`, which does not carry `ActionVaultPurge` (Journey J).
+
+```bash
+rocketvault vaults delete tenant-a       # succeeds — she manages what she created
+rocketvault vaults purge tenant-a
+# Error: permission denied: admin or Key Vault Purge Operator required for vault "tenant-a"
+
+rocketvault vaults get prod
+# Error: permission denied: admin or vaults/manage required for vault "prod"
+```
+
+### 6. Revoke stops future creates and cascades to nothing
+
+```bash
+# As Priya:
+rocketvault vault-provisioning revoke wren
+# Provisioning grant revoked: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34
+```
+
+Again a UUID, not `wren` — the same `resolvePrincipal` path as `grant`, and the same trap for a test asserting the typed argument.
+
+Revocation **does not cascade**. `cmd/vault-provisioning/revoke.go`'s help states it outright: it "leaves every vault the principal already created, and that vault's own access grants, untouched. Removing access to existing vaults is a separate operator action." Verify both halves:
+
+```bash
+# As Wren, after revocation:
+rocketvault vaults create tenant-f
+# Error: permission denied: admin, a global vaults/manage grant, or a vault provisioning grant
+#        required to create a vault
+
+rocketvault vaults get tenant-b          # still succeeds
+rocketvault secrets list --vault tenant-b   # still succeeds — Key Vault Administrator survives
+```
+
+That is the operationally important half. Revoking a grant is *not* offboarding. Offboarding means revoking the grant **and** removing the per-vault creator grants — the vault-scoped `vaults:manage` policy (HTTP only, see Journey W) and the `Key Vault Administrator` role assignment (`rocketvault vault-access revoke <assignment-id> --vault tenant-b`) — for every vault the principal created.
+
+### 7. The trail
+
+Both operations are logged with a named actor, taken from `requireGrantAdmin`'s return value — the CLI has no middleware to stamp one for it:
+
+```bash
+# As Priya:
+rocketvault audit logs --action issue_provisioning_grant --limit 20 --output json
+rocketvault audit logs --action revoke_provisioning_grant --limit 20 --output json
+```
+
+A create made under a grant is distinguishable from every other create in the same log: `Vault created under provisioning grant: <name>`, versus plain `Vault created: <name>` for an admin and `Vault created under global vaults:manage grant (creator rights granted): <name>` for Journey W's Iris.
+
+---
+
+## Journey W — The Global Grant That No Longer Means What It Used To
+
+**Actor**: Iris (global role `user`, plus a global `vaults:manage` access policy)
+
+As of v4.6.0 a global (`vault_id` `NULL`) `(vaults, manage, allow)` policy confers **create and list, and nothing else**. Its holder loses get, update, delete, recover, webhook configuration, and role-assignment management on every vault it does not hold a *vault-scoped* grant over. The whole journey turns on one contrast, and the two halves must not be run together: a vault Iris **created** stays reachable; a vault she **did not create** does not.
+
+### 1. Setup is HTTP-only
+
+There is no CLI command for access policies — the only mechanism is the admin-gated `POST /api/v1/access-policies` (`api/access_policies.go`, gated by `requireAccessPolicyAdmin`). This is the same constraint Journey I hit from the other direction.
+
+```bash
+# As Priya. Omitting vault_id is what makes the policy global — the field is a
+# STRING in CreateAccessPolicyRequest, and "an empty vault_id leaves the policy
+# global; a value scopes it to that vault".
+POLICY_ID=$(curl -s -X POST $BASE/access-policies \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"principal_id":"<iris-user-id>","principal_type":"user",
+       "resource_type":"vaults","operation":"manage","effect":"allow"}' | jq -r .id)
+
+curl -s $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN" | jq .
+# no vault_id field in the response — VaultID is `omitempty` and nil means GLOBAL
+```
+
+> `rocketvault vault-access grant iris --role "Key Vault Administrator" --vault prod` is **not** a CLI substitute for this, however much it looks like one. `ExpandRole` returns `nil, nil` for every Azure built-in role, so a role grant writes `role_assignments` rows and nothing `CanManageVault` can see. It satisfies data-plane checks and restores none of the vault-management rights this journey is about.
+
+### 2. Create and list still work
+
+```bash
+# As Iris:
+rocketvault vaults create tenant-x
+# ID  Name  Enabled  PurgeProtection  RetentionDays  Created
+
+rocketvault vaults list
+# every vault on the instance — dev, staging, prod, tenant-x, ...
+```
+
+The collection-level decision (`vaultID == uuid.Nil`) still calls `CheckAccess`, which a `NULL`-scoped allow satisfies. `vaults list` also treats her as an "all" lister, so she **sees** vaults she cannot touch. That asymmetry is the single most confusing thing about this release in practice, and it is intended: listing is not managing.
+
+Unlike Journey V's grantee, she has no quota to pin, so purge protection is open to her:
+
+```bash
+rocketvault vaults create tenant-y --purge-protection    # succeeds
+```
+
+Three tiers exist on the create path, and only the middle one is refused: admin may set purge protection, a global-policy holder may set it, a provisioning grantee may not.
+
+### 3. She can manage the vault she created — because creating it wrote her a scoped grant
+
+```bash
+# As Iris:
+rocketvault vaults get tenant-x
+rocketvault vaults update tenant-x --retention-days 14
+rocketvault vault-webhook get --vault tenant-x
+rocketvault vault-access list --vault tenant-x
+# all succeed
+```
+
+None of that comes from the global policy. `cmd/vaults/create.go` passes `right != authz.CreateRightAdmin` as `grantCreatorRights`, and `CreateVaultProvisioned` writes, in the same transaction as the vault row, a vault-scoped `vaults:manage` access policy **and** a `Key Vault Administrator` role assignment for the creator. Confirm the policy really is scoped, not global:
+
+```bash
+# As Priya:
+curl -s $BASE/access-policies/principal/<iris-user-id> \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.access_policies[] | {operation, effect, vault_id}'
+# one row with no vault_id (the global allow) plus one row per vault she created,
+# each carrying that vault's UUID
+```
+
+### 4. She cannot manage a vault she did not create — the actual breaking change
+
+```bash
+# As Iris, against prod, which Priya created in Journey A:
+rocketvault vaults get prod
+# Error: permission denied: admin or vaults/manage required for vault "prod"
+
+rocketvault vaults update prod --retention-days 7
+# Error: permission denied: admin or vaults/manage required for vault "prod"
+
+rocketvault vaults delete prod
+# Error: permission denied: admin or vaults/manage required for vault "prod"
+
+rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault
+# Error: permission denied: managing webhook config for vault "prod" requires admin or vaults/manage
+
+rocketvault vault-access grant iris --role "Key Vault Administrator" --vault prod
+# Error: permission denied: admin, vaults/manage, or Key Vault Data Access Administrator
+#        required for this vault
+```
+
+The mechanism is one function. A concrete vault ID routes `CanManageVault` and `CanManageRoleAssignments` to `CheckVaultScopedAccess` instead of `CheckAccess`; that method reuses the same `(vault_id = ? OR vault_id IS NULL)` lookup, then **discards `NULL`-scoped allow rows and keeps `NULL`-scoped deny rows**. Her global allow survives the query and is thrown away by the filter, so the decision falls through to `AccessFallback`, which is not `AccessAllowed`, and `CanManageVault` fails closed.
+
+That last command is why both functions were narrowed together. Role-assignment management is by itself enough to self-award `Key Vault Administrator` anywhere; narrowing only `CanManageVault` would have left the escalation wide open.
+
+### 5. The two things that did *not* change
+
+A global **deny** still blocks everything, including vaults the denied principal created — the asymmetry between deny and allow is deliberate:
+
+```bash
+# As Priya, the same POST with effect "deny" and no vault_id:
+curl -s -X POST $BASE/access-policies \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"principal_id":"<iris-user-id>","principal_type":"user",
+       "resource_type":"vaults","operation":"manage","effect":"deny"}' | jq -r .id
+
+# As Iris:
+rocketvault vaults get tenant-x
+# Error: permission denied: admin or vaults/manage required for vault "tenant-x"
+#        <-- the vault she created, now unreachable
+```
+
+And the `admin` account role is untouched: it short-circuits both functions before any policy check runs. Priya's behaviour anywhere in this document is unaffected by this release.
+
+### 6. Help text was corrected alongside the behaviour
+
+Worth one grep during a QA pass, because stale help is how a narrowed permission gets re-widened in someone's head. `cmd/vaults/{delete,get,recover,update}.go` and `cmd/vault-webhook/{delete,get,set}.go` previously said the operation required an allow "scoped to this vault or granted globally"; all six now say "scoped to this vault":
+
+```bash
+rocketvault vaults get --help | grep -A1 'access-policy allow'
+# Requires the admin account role, or an access-policy allow on (vaults,
+# manage) scoped to this vault.
+```
+
+`cmd/vaults/list.go` still says "granted globally" — correctly, and it is the only one that should. `cmd/vaults/create.go` goes further and says the allow must be "scoped globally rather than to a specific vault (since the vault being created does not exist yet to scope the check to)", which is the same fact from the other side: a vault-scoped grant does not let you create.
+
+### 7. If you are upgrading, not testing fresh
+
+Run v4.5.0 once first and read the startup log for `warnGlobalVaultManageGrants` (`internal/db/db.go`). It names every principal holding a `NULL`-scoped `(vaults, manage, allow)` row, and every one of them loses everything in step 4 on upgrade. For each, either issue a bounded provisioning grant (Journey V) if it only ever needed to create and manage its *own future* vaults, or add explicit vault-scoped policies via the HTTP call in step 1 with a real `vault_id`. A provisioning grant does **not** retroactively repair vaults created under v4.5.0: those rows got no creator grants, because creator grants on the global-policy path are new in this release.
+
+---
+
 ## CLI Quick Reference
 
 ### Command groups
@@ -1825,6 +2116,7 @@ rocketvault vault-webhook delete --vault prod
 rocketvault users        admin | create | get | list | update | delete | login | logout
 rocketvault vaults       create | list | get | update | delete | recover | purge | preview-migration
 rocketvault vault-access roles | grant | revoke | list
+rocketvault vault-provisioning grant | revoke | list
 rocketvault vault-webhook get | set | delete
 rocketvault keys         create | get | list | update | delete | rotate | sign | verify | wrap | unwrap
 rocketvault keys rotation-policy  get | set | delete
@@ -1853,6 +2145,9 @@ rocketvault master-key   rotate
 | Duplicate key name | Rejected only *after* RSA generation runs, with a raw unwrapped driver error (`UNIQUE constraint failed: keys.vault_id, keys.name` on SQLite) |
 | `secrets rotation --auto-rotate` | The scheduler **replaces the live value with a generated one**. Nothing outside RocketVault is told |
 | `--server` / `ROCKETVAULT_ADDR` | Not supported by every subcommand; some are local-only and will tell you to unset it |
+| `vault-provisioning grant --quota` | Documented as required but **not** registered required with cobra — it is a plain `Int` defaulting to `0`, so omitting it gives the positive-integer error, not `required flag(s) "quota" not set` |
+| `vault-provisioning grant/revoke` | Print the **resolved principal UUID**, never the username you typed. A test asserting the literal argument fails on a correct build |
+| `vault-provisioning list` | Ignores both `--vault` and `--output` — it writes with `fmt.Fprintf` and never reaches the output formatter, unlike `vaults list` |
 | HTTP `-HSM` type suffix | `buildKeyResponse` appends `-HSM` for PKCS#11-backed keys. `keys list --output json` still prints plain `RSA`/`ECDSA` — the suffix is added by the HTTP handler only |
 
 ### Which gate produced your error

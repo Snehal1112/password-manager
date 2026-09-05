@@ -1088,7 +1088,8 @@ rocketvault secrets list --server https://vault.staging.internal:8443`,
       },
       {
         id: "T16",
-        title: "grant, list and revoke now work remotely, byte-identical to local",
+        title:
+          "grant, list and revoke now work remotely, byte-identical to local",
         surface: "cli",
         gate: "none",
         precondition:
@@ -1106,14 +1107,16 @@ revoked assignment <assignment-id>`,
       },
       {
         id: "T17",
-        title: "A remote denial surfaces the same message as local for all three",
+        title:
+          "A remote denial surfaces the same message as local for all three",
         surface: "cli",
         gate: "vault-role",
         precondition:
           "The prod context is active and authenticated as a principal with no role assignment in the vault.",
         command: `rocketvault vault-access grant daeho --role "Key Vault Reader" --vault prod`,
         expected: `Error: failed to grant a role: no role assignment in this vault grants the required action`,
-        assert: "Same denial text locally and remotely, for grant, list and revoke",
+        assert:
+          "Same denial text locally and remotely, for grant, list and revoke",
         notes:
           "Substitute `list role assignments` or `revoke a role assignment` for the other two — `cliclient.CLIError` wraps whichever operation name the adapter passed, but the wrapping and the underlying message are identical either way.",
       },
@@ -1132,11 +1135,12 @@ revoked assignment <assignment-id>`,
       },
       {
         id: "T19",
-        title: "ROCKETVAULT_VAULT diverges: vault-access honors it, secrets doesn't",
+        title:
+          "ROCKETVAULT_VAULT diverges: vault-access honors it, secrets doesn't",
         surface: "cli",
         gate: "none",
         precondition:
-          "The prod context is active (its default vault is \"prod\").",
+          'The prod context is active (its default vault is "prod").',
         command: `export ROCKETVAULT_VAULT=payments
 
 rocketvault vault-access list
