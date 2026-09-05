@@ -13,6 +13,7 @@ import (
 
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/certcache"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/db"
 	"rocketvault/internal/keycache"
@@ -102,6 +103,7 @@ type ServiceContainerInterface interface {
 	GetCacheConfig() rvconfig.CacheConfig
 	GetCachedSecretService() secrets.SecretService
 	GetVaultCache() *vaultcache.Cache
+	GetCertificateCache() *certcache.Cache
 
 	// Retry service getters
 	GetRetryService() retryServices.RetryService
@@ -140,10 +142,12 @@ type ServiceContainer struct {
 	viper  *viper.Viper // Configuration manager
 
 	// Cache infrastructure
-	secretCache         *cache.SecretCache
-	cachedSecretService secrets.SecretService
-	cacheConfig         rvconfig.CacheConfig
-	vaultCache          *vaultcache.Cache
+	secretCache              *cache.SecretCache
+	cachedSecretService      secrets.SecretService
+	cacheConfig              rvconfig.CacheConfig
+	vaultCache               *vaultcache.Cache
+	certCache                *certcache.Cache
+	cachedCertificateService certServices.CertificateService
 
 	// globalPurgeProtection mirrors soft_delete.purge_protection: when true,
 	// every purge operation (secret, key, certificate, vault; manual or
@@ -336,6 +340,10 @@ func (c *ServiceContainer) initializeServices() error {
 	// no-op one otherwise, so downstream code never nil-checks it.
 	c.secretCache = cache.NewSecretCache(c.cacheConfig.Secrets, c.logger.Logger)
 	c.vaultService.SetSecretCacheFlusher(c.secretCache)
+
+	// Certificate cache is always constructed: a real cache when enabled, a
+	// no-op one otherwise, so downstream code never nil-checks it.
+	c.certCache = certcache.NewCache(c.cacheConfig.Certificates, c.logger.Logger)
 
 	// Initialize retry service before any service that wraps with retry logic.
 	if c.viper != nil {
@@ -619,12 +627,18 @@ func (c *ServiceContainer) initializeServices() error {
 	})
 
 	// Wrap with retry logic if retry service is available.
+	var retryEnabledCertificateService certServices.CertificateService
 	if c.retryService != nil {
-		c.certificateService = retryServices.NewRetryCertificateService(baseCertificateService, c.retryService)
+		retryEnabledCertificateService = retryServices.NewRetryCertificateService(baseCertificateService, c.retryService)
 		c.logger.Info("Retry logic enabled for certificate service")
 	} else {
-		c.certificateService = baseCertificateService
+		retryEnabledCertificateService = baseCertificateService
 	}
+
+	// Wrap with caching. c.certCache is always constructed (real-or-no-op
+	// internally), so this is safe unconditionally.
+	c.cachedCertificateService = certcache.NewCachedCertificateService(retryEnabledCertificateService, c.certCache, c.logger.Logger)
+	c.certificateService = c.cachedCertificateService
 
 	// Initialize certificate renewal service.
 	c.certRenewalService = certServices.NewCertificateRenewalService(certServices.RenewalServiceConfig{
@@ -856,6 +870,11 @@ func (c *ServiceContainer) GetVaultCache() *vaultcache.Cache {
 	return c.vaultCache
 }
 
+// GetCertificateCache returns the in-process certificate cache.
+func (c *ServiceContainer) GetCertificateCache() *certcache.Cache {
+	return c.certCache
+}
+
 // GetRetryService returns the retry service for handling retry logic.
 func (c *ServiceContainer) GetRetryService() retryServices.RetryService {
 	return c.retryService
@@ -886,6 +905,11 @@ func (c *ServiceContainer) Close() error {
 	// Stop the vault cache background sweeper.
 	if c.vaultCache != nil {
 		c.vaultCache.Stop()
+	}
+
+	// Stop the certificate cache background sweeper.
+	if c.certCache != nil {
+		c.certCache.Stop()
 	}
 
 	if c.keyProvider != nil {

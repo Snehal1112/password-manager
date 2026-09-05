@@ -41,6 +41,7 @@ import (
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
 	"rocketvault/internal/testutils"
+	"rocketvault/internal/certcache"
 	"rocketvault/internal/vaultcache"
 	"rocketvault/model"
 )
@@ -213,6 +214,9 @@ func (c *oauth2HTestContainer) GetCacheConfig() rvconfig.CacheConfig {
 
 func (c *oauth2HTestContainer) GetVaultCache() *vaultcache.Cache {
 	panic("unexpected call: GetVaultCache")
+}
+func (c *oauth2HTestContainer) GetCertificateCache() *certcache.Cache {
+	panic("unexpected call: GetCertificateCache")
 }
 func (c *oauth2HTestContainer) GetCachedSecretService() secretServices.SecretService {
 	panic("unexpected call: GetCachedSecretService")

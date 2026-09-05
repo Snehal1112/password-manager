@@ -118,6 +118,13 @@ rocketvault/
 
 ## Key Components Documentation
 
+### 🧠 AI Knowledge Base (`~/data/rocket/Nl-knowledge-base/rocketvault/`)
+- Local-machine, AI-maintained reference — not part of this repo, not committed, don't expect it on a fresh clone
+- 10 topic pages (overview, architecture, dev-workflow, database, testing, security-auth, multi-vault, release-process, known-issues-gotchas, glossary), each re-verified against source, not just transcribed from docs — see its `README.md` for the one-line index and last-verified commit per page
+- **Before implementing in a subsystem**, read that subsystem's page first (e.g. touching `internal/services/authorization/` → `security-auth.md`) — cheaper and more precise than re-deriving architecture from source each time
+- **Before debugging**, check `known-issues-gotchas.md` first — it's a grep-first catalogue of past incidents and filed bugs with root cause and fix, and often the bug is already documented
+- Refreshed via the `kb-refresh` skill (targeted diff since last verified commit, not a full rebuild) — if a page looks stale for the current HEAD, ask for a refresh rather than trusting it blindly
+
 ### 📘 [Administrator Manual](docs/admin-manual.html)
 - Single authoritative, operationally-focused handbook covering every feature
 - Getting started, identity & access, core resources, operations, integration

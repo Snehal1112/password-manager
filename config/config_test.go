@@ -246,7 +246,11 @@ func TestLoadCacheConfig_Defaults(t *testing.T) {
 	assert.Equal(t, time.Minute, cfg.Vaults.CleanupInterval)
 	assert.Equal(t, 500, cfg.Vaults.MaxEntries)
 
-	assert.False(t, cfg.Certificates.Enabled, "certificates has no consumer yet, must default off")
+	assert.True(t, cfg.Certificates.Enabled, "certificates has a consumer (internal/certcache), must default on")
+	assert.Equal(t, 5*time.Minute, cfg.Certificates.TTL)
+	assert.Equal(t, time.Minute, cfg.Certificates.CleanupInterval)
+	assert.Equal(t, 500, cfg.Certificates.MaxEntries)
+
 	assert.False(t, cfg.Users.Enabled, "users has no consumer yet, must default off")
 }
 
@@ -259,7 +263,7 @@ func TestLoadCacheConfig_OverridesRead(t *testing.T) {
 	viper.Set("cache.secrets.enabled", false)
 	viper.Set("cache.keys.ttl", "45s")
 	viper.Set("cache.vaults.max_entries", 999)
-	viper.Set("cache.certificates.enabled", true)
+	viper.Set("cache.certificates.enabled", false)
 
 	cfg, err := LoadCacheConfig()
 	require.NoError(t, err)
@@ -267,7 +271,7 @@ func TestLoadCacheConfig_OverridesRead(t *testing.T) {
 	assert.False(t, cfg.Secrets.Enabled)
 	assert.Equal(t, 45*time.Second, cfg.Keys.TTL)
 	assert.Equal(t, 999, cfg.Vaults.MaxEntries)
-	assert.True(t, cfg.Certificates.Enabled)
+	assert.False(t, cfg.Certificates.Enabled, "explicit override to false must win over the true default")
 }
 
 // ---------------------------------------------------------------------------

@@ -33,6 +33,28 @@ type Certificate struct {
 	NotBefore        *time.Time `json:"not_before,omitempty"`
 }
 
+// Clone returns a copy of c that shares no mutable state with the original:
+// the struct itself, its tag slice, its CACertID pointer, and every time
+// pointer are all independently copied. Used by internal/certcache so a
+// caller that mutates a fetched certificate before persisting an update can
+// never corrupt a cache entry or race a concurrent reader — same pattern as
+// Secret.Clone.
+func (c *Certificate) Clone() *Certificate {
+	cp := *c
+	if c.Tags != nil {
+		cp.Tags = append([]string(nil), c.Tags...)
+	}
+	if c.CACertID != nil {
+		id := *c.CACertID
+		cp.CACertID = &id
+	}
+	cp.DeletedAt = cloneTimePtr(c.DeletedAt)
+	cp.ScheduledPurgeAt = cloneTimePtr(c.ScheduledPurgeAt)
+	cp.ExpiresAt = cloneTimePtr(c.ExpiresAt)
+	cp.NotBefore = cloneTimePtr(c.NotBefore)
+	return &cp
+}
+
 // IsAccessible returns true when the certificate is enabled and within its validity window.
 func (c *Certificate) IsAccessible() bool {
 	if !c.Enabled {

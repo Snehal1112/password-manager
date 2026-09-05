@@ -255,7 +255,7 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key, value string, version
 	// Check cache using keyID and the real resolved version.
 	if entry, ok := s.keyCache.Get(key.ID, version); ok {
 		if pemKey, ok := entry.PrivateKey.(keycache.PEMKey); ok {
-			handle = pemKey.PEM
+			handle = string(pemKey.PEM)
 			cacheHit = true
 			return
 		}
@@ -270,7 +270,7 @@ func (s *cryptoService) resolveKeyMaterial(key *model.Key, value string, version
 
 	// Store decrypted PEM in cache for subsequent calls.
 	s.keyCache.Set(key.ID, version, &keycache.Entry{
-		PrivateKey: keycache.PEMKey{PEM: decrypted},
+		PrivateKey: keycache.PEMKey{PEM: []byte(decrypted)},
 		KeyType:    key.Type,
 		Version:    version,
 	})

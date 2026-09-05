@@ -14,7 +14,7 @@ import (
 
 func TestEntry_Clone_IndependentCopy(t *testing.T) {
 	e := &keycache.Entry{
-		PrivateKey: keycache.PEMKey{PEM: "original"},
+		PrivateKey: keycache.PEMKey{PEM: []byte("original")},
 		KeyType:    "RSA",
 		Version:    1,
 	}
@@ -22,17 +22,58 @@ func TestEntry_Clone_IndependentCopy(t *testing.T) {
 
 	clone.KeyType = "ECDSA"
 	assert.Equal(t, "RSA", e.KeyType, "mutating the clone must not affect the original")
-	assert.Equal(t, keycache.PEMKey{PEM: "original"}, clone.PrivateKey)
+	assert.Equal(t, keycache.PEMKey{PEM: []byte("original")}, clone.PrivateKey)
+}
+
+// TestEntry_Clone_PEMBytesAreIndependent proves Clone deep-copies the PEMKey
+// byte slice rather than sharing the original's backing array — required
+// because []byte is mutable, unlike the string PEMKey used to wrap: mutating
+// (or Zero()-ing) one clone must never corrupt another clone's view of the
+// same logical entry.
+func TestEntry_Clone_PEMBytesAreIndependent(t *testing.T) {
+	e := &keycache.Entry{
+		PrivateKey: keycache.PEMKey{PEM: []byte("original")},
+		PublicKey:  keycache.PEMKey{PEM: []byte("public")},
+	}
+	clone := e.Clone()
+
+	clonePriv := clone.PrivateKey.(keycache.PEMKey)
+	for i := range clonePriv.PEM {
+		clonePriv.PEM[i] = 'X'
+	}
+
+	origPriv := e.PrivateKey.(keycache.PEMKey)
+	assert.Equal(t, "original", string(origPriv.PEM), "mutating the clone's PEM bytes must not affect the original's backing array")
+
+	clone.Zero()
+	origPriv = e.PrivateKey.(keycache.PEMKey)
+	assert.Equal(t, "original", string(origPriv.PEM), "zeroing the clone must not affect the original")
 }
 
 func TestEntry_Zero_ClearsKeyMaterial(t *testing.T) {
 	e := &keycache.Entry{
-		PrivateKey: keycache.PEMKey{PEM: "secret"},
-		PublicKey:  keycache.PEMKey{PEM: "public"},
+		PrivateKey: keycache.PEMKey{PEM: []byte("secret")},
+		PublicKey:  keycache.PEMKey{PEM: []byte("public")},
 	}
 	e.Zero()
 	assert.Nil(t, e.PrivateKey)
 	assert.Nil(t, e.PublicKey)
+}
+
+// TestEntry_Zero_OverwritesPEMBytes proves Zero() scrubs the underlying byte
+// slice in place — not just drops the Entry's reference to it — so a
+// separate holder of the same backing array (e.g. a concurrent reader that
+// captured the PEMKey before eviction) sees the plaintext overwritten rather
+// than merely unreachable from this Entry.
+func TestEntry_Zero_OverwritesPEMBytes(t *testing.T) {
+	pemBytes := []byte("top-secret-private-key-pem")
+	e := &keycache.Entry{PrivateKey: keycache.PEMKey{PEM: pemBytes}}
+
+	e.Zero()
+
+	for i, b := range pemBytes {
+		assert.Equal(t, byte(0), b, "byte %d of the original backing array must be zeroed, not just dereferenced", i)
+	}
 }
 
 // TestMemoryCache_InvalidateAll verifies that InvalidateAll clears every entry.

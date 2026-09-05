@@ -8,9 +8,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// PEMKey wraps a raw PEM string stored as decrypted key material in the cache.
-// Using a named type prevents accidental misinterpretation as a parsed crypto.PrivateKey.
-type PEMKey struct{ PEM string }
+// PEMKey wraps raw PEM bytes stored as decrypted key material in the cache.
+// Using a named type prevents accidental misinterpretation as a parsed
+// crypto.PrivateKey. Backed by []byte (not string) specifically so Zero()
+// can overwrite the underlying bytes in place — a Go string is immutable, so
+// a string-backed PEMKey could only ever drop the reference, not scrub it.
+type PEMKey struct{ PEM []byte }
 
 // Entry holds parsed key material for one (keyID, version) pair.
 type Entry struct {
@@ -20,18 +23,47 @@ type Entry struct {
 	Version    int
 }
 
-// Clone returns a shallow copy of e. Safe because PrivateKey/PublicKey hold
-// either nil or a PEMKey{PEM: string} — Go strings are immutable, so copying
-// the interface value copies a read-only reference, not mutable state.
+// clonePEMKeyField returns an independent copy of v: a deep copy of its
+// backing byte slice if v holds a PEMKey (the only concrete type production
+// code ever stores here), or v unchanged for nil/anything else. Needed
+// because []byte is a mutable, shared backing array — unlike the string it
+// replaced, copying the PEMKey struct alone would still alias the same
+// bytes, so Zero() on one clone would corrupt every other clone's view.
+func clonePEMKeyField(v any) any {
+	pk, ok := v.(PEMKey)
+	if !ok {
+		return v
+	}
+	cp := make([]byte, len(pk.PEM))
+	copy(cp, pk.PEM)
+	return PEMKey{PEM: cp}
+}
+
+// Clone returns a copy of e that shares no mutable state with the original.
 func (e *Entry) Clone() *Entry {
 	cp := *e
+	cp.PrivateKey = clonePEMKeyField(e.PrivateKey)
+	cp.PublicKey = clonePEMKeyField(e.PublicKey)
 	return &cp
+}
+
+// zeroPEMKeyField overwrites v's underlying bytes with zeroes if v holds a
+// PEMKey, so the plaintext does not linger in freed heap memory waiting on
+// GC.
+func zeroPEMKeyField(v any) {
+	if pk, ok := v.(PEMKey); ok {
+		for i := range pk.PEM {
+			pk.PEM[i] = 0
+		}
+	}
 }
 
 // Zero clears key material in place. Called by cachekit after an entry is
 // removed (TTL expiry, LRU eviction, invalidation) to shrink the in-memory
 // exposure window rather than waiting for GC.
 func (e *Entry) Zero() {
+	zeroPEMKeyField(e.PrivateKey)
+	zeroPEMKeyField(e.PublicKey)
 	e.PrivateKey = nil
 	e.PublicKey = nil
 }

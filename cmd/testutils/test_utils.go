@@ -15,6 +15,7 @@ import (
 	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/certcache"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
@@ -355,6 +356,10 @@ func (m *MockServiceContainer) GetCacheConfig() rvconfig.CacheConfig {
 }
 
 func (m *MockServiceContainer) GetVaultCache() *vaultcache.Cache {
+	return nil
+}
+
+func (m *MockServiceContainer) GetCertificateCache() *certcache.Cache {
 	return nil
 }
 

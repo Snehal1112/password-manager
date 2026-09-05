@@ -37,3 +37,9 @@ func TestSecret_Clone_NilPointerFieldsStayNil(t *testing.T) {
 	assert.Nil(t, clone.DeletedAt)
 	assert.Nil(t, clone.ScheduledPurgeAt)
 }
+
+func TestSecret_Zero_ClearsValue(t *testing.T) {
+	s := &model.Secret{ID: uuid.New(), Name: "x", Value: "top-secret-plaintext"}
+	s.Zero()
+	assert.Empty(t, s.Value, "Zero must clear the decrypted value")
+}

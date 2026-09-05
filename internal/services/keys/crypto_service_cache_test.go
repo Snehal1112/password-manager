@@ -163,7 +163,7 @@ func TestCacheHit_ReducesDecryptCalls(t *testing.T) {
 	// Version 1: currentVersionNumber resolves a never-rotated key (no
 	// key_versions rows) to the implicit version 1, not the old hardcoded 0.
 	cachedEntry := &keycache.Entry{
-		PrivateKey: keycache.PEMKey{PEM: privateKeyPEM},
+		PrivateKey: keycache.PEMKey{PEM: []byte(privateKeyPEM)},
 		KeyType:    "RSA",
 		Version:    1,
 	}

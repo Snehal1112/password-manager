@@ -166,6 +166,7 @@ func TestGetters_ZeroValueContainer(t *testing.T) {
 	assert.Zero(t, c.GetCacheConfig(), "GetCacheConfig")
 	assert.Nil(t, c.GetCachedSecretService(), "GetCachedSecretService")
 	assert.Nil(t, c.GetVaultCache(), "GetVaultCache")
+	assert.Nil(t, c.GetCertificateCache(), "GetCertificateCache")
 
 	// Retry
 	assert.Nil(t, c.GetRetryService(), "GetRetryService")
@@ -320,6 +321,7 @@ func TestNewServiceContainer_Success_CacheDisabled(t *testing.T) {
 	assert.NotNil(t, container.GetCachedSecretService(), "GetCachedSecretService must always be non-nil (real or no-op)")
 	assert.NotZero(t, container.GetCacheConfig().Secrets.TTL, "GetCacheConfig should return a populated config")
 	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache must always be non-nil (real or no-op)")
+	assert.NotNil(t, container.GetCertificateCache(), "GetCertificateCache must always be non-nil (real or no-op)")
 
 	// Signing / key / metrics
 	assert.NotNil(t, container.GetSigningProvider(), "GetSigningProvider")
@@ -368,6 +370,7 @@ func TestNewServiceContainer_Success_CacheEnabled(t *testing.T) {
 	assert.NotNil(t, container.GetCachedSecretService(), "GetCachedSecretService must be non-nil when cache is enabled")
 	assert.NotZero(t, container.GetCacheConfig().Secrets.TTL, "GetCacheConfig should return a populated config")
 	assert.NotNil(t, container.GetVaultCache(), "GetVaultCache")
+	assert.NotNil(t, container.GetCertificateCache(), "GetCertificateCache")
 }
 
 // ---------------------------------------------------------------------------

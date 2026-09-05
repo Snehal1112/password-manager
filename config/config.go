@@ -139,14 +139,16 @@ func loadCacheDomainConfig(prefix string, def cachekit.Config) cachekit.Config {
 
 // LoadCacheConfig reads cache.<domain>.* settings from Viper for all five
 // domains, falling back to safe per-domain defaults, and validates each one.
-// certificates/users default Enabled: false — no cache wrapper consumes them
-// yet (see docs/superpowers/specs/2026-08-14-generic-cache-config-design.md).
+// users defaults Enabled: false — no cache wrapper consumes it yet (see
+// docs/superpowers/specs/2026-08-14-generic-cache-config-design.md).
+// Certificates defaults Enabled: true as of internal/certcache's
+// CachedCertificateService, mirroring Secrets/Keys/Vaults.
 func LoadCacheConfig() (CacheConfig, error) {
 	cfg := CacheConfig{
 		Secrets:      loadCacheDomainConfig("cache.secrets", cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 1000}),
 		Keys:         loadCacheDomainConfig("cache.keys", cachekit.Config{Enabled: true, TTL: 60 * time.Second, CleanupInterval: 30 * time.Second, MaxEntries: 500}),
 		Vaults:       loadCacheDomainConfig("cache.vaults", cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 500}),
-		Certificates: loadCacheDomainConfig("cache.certificates", cachekit.Config{Enabled: false, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 500}),
+		Certificates: loadCacheDomainConfig("cache.certificates", cachekit.Config{Enabled: true, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 500}),
 		Users:        loadCacheDomainConfig("cache.users", cachekit.Config{Enabled: false, TTL: 5 * time.Minute, CleanupInterval: time.Minute, MaxEntries: 500}),
 	}
 

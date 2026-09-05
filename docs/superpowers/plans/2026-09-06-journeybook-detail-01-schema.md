@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: `Relation`, `Related`, `Verify` types, `Case.why`, `Case.verify`, `Case.after`, `Case.related`, `Case.source`, and `Suite.context`. Task 2's merge script emits TypeScript matching these exactly; plan 02's panel reads all of them; plans 04–08 have subagents author JSON that maps onto them.
 
-- [ ] **Step 1: Add the three new types above `Case`**
+- [x] **Step 1: Add the three new types above `Case`**
 
 In `journeybook/src/data/types.ts`, insert immediately after the `Surface`
 type alias and before `export interface Case {`:
@@ -75,7 +75,7 @@ export interface Verify {
 }
 ```
 
-- [ ] **Step 2: Add the five fields to `Case`**
+- [x] **Step 2: Add the five fields to `Case`**
 
 In the same file, inside `export interface Case`, after the existing `flag`
 field and before the closing brace:
@@ -104,7 +104,7 @@ field and before the closing brace:
   source?: string
 ```
 
-- [ ] **Step 3: Add `context` to `Suite`**
+- [x] **Step 3: Add `context` to `Suite`**
 
 In the same file, inside `export interface Suite`, after `premise` and before
 `cases`:
@@ -118,13 +118,13 @@ In the same file, inside `export interface Suite`, after `premise` and before
   context?: string[]
 ```
 
-- [ ] **Step 4: Verify nothing broke**
+- [x] **Step 4: Verify nothing broke**
 
 Run: `cd journeybook && bun run typecheck && bun run lint`
 Expected: both exit 0. Every field is optional, so all 245 existing cases
 still satisfy `Case` unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -156,7 +156,7 @@ work a script does correctly every time and a human does correctly most of the
 time. It also means five subagents can produce data concurrently without ever
 opening the same file.
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 Create `journeybook/scripts/apply-enrichment.mjs`:
 
@@ -376,7 +376,7 @@ if (!dryRun && applied.size > 0) {
 }
 ```
 
-- [ ] **Step 2: Prove it works on a fixture, and prove it refuses to run twice**
+- [x] **Step 2: Prove it works on a fixture, and prove it refuses to run twice**
 
 The point of this step is that a script nobody has watched fail is a script
 nobody can trust. Run it against one real case in dry-run, then for real, then
@@ -420,7 +420,7 @@ Expected: exits 1 with `A8 already has a "why" property. Refusing to apply
 twice.` If it instead applies a second copy, the guard is broken — fix it
 before continuing, because plan 09 re-runs this script over every group.
 
-- [ ] **Step 3: Revert the fixture and commit only the script**
+- [x] **Step 3: Revert the fixture and commit only the script**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -457,7 +457,7 @@ that can dangle. There is no test runner in `journeybook/`, and
 wired — so this follows the established shape of `scripts/check-contrast.mjs`
 instead: a standalone script that reads the source directly and exits non-zero.
 
-- [ ] **Step 1: Write the checker**
+- [x] **Step 1: Write the checker**
 
 Create `journeybook/scripts/check-links.mjs`:
 
@@ -510,7 +510,7 @@ console.log(
 )
 ```
 
-- [ ] **Step 2: Add the npm script**
+- [x] **Step 2: Add the npm script**
 
 In `journeybook/package.json`, add to `"scripts"` after `"typecheck"`:
 
@@ -518,7 +518,7 @@ In `journeybook/package.json`, add to `"scripts"` after `"typecheck"`:
     "check:links": "bun scripts/check-links.mjs",
 ```
 
-- [ ] **Step 3: Run it, and prove it catches a bad link**
+- [x] **Step 3: Run it, and prove it catches a bad link**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -535,7 +535,7 @@ Expected: exits 1 with `A8: related id "ZZ9" does not exist`. Then
 
 A checker that has only ever printed success has not been tested.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault

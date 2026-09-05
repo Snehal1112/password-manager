@@ -290,6 +290,22 @@
   * {
     @apply border-border outline-ring;
   }
+  /*
+   * Every journey link on the page is a plain `<a href="#suite-K">`, in the
+   * rail and in the run strip, so the browser owns that scroll and the only
+   * place to ask for it to be animated is here. Without this the page hard
+   * cuts, which on a document this tall reads as a different page rather than
+   * a move within one -- there is no shared landmark between check 12 and
+   * check 190 to tell you which way you went.
+   *
+   * The reduced-motion block at the end of this file resets it to `auto`, so
+   * this is the one motion declaration on the page that needs no guard of its
+   * own. Section targets carry their own `scroll-mt`, which already clears the
+   * pinned masthead, so no `scroll-padding-top` belongs here.
+   */
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     @apply bg-background text-foreground font-sans;
     /*

@@ -76,6 +76,16 @@ func (s *Secret) Clone() *Secret {
 	return &cp
 }
 
+// Zero clears the decrypted value in place. Called by cachekit after an
+// entry is removed (TTL expiry, LRU eviction, invalidation) to shrink the
+// in-memory exposure window rather than waiting for GC. Go strings are
+// immutable, so this drops the reference rather than overwriting the
+// underlying bytes — the same best-effort guarantee as
+// internal/vaultapi/secretvalue.go's SecretValue.Zero().
+func (s *Secret) Zero() {
+	s.Value = ""
+}
+
 // cloneTimePtr copies an optional timestamp, preserving nil. Shared by
 // Secret.Clone and Vault.Clone (Task 6).
 func cloneTimePtr(t *time.Time) *time.Time {
