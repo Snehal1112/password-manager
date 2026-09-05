@@ -114,6 +114,19 @@
   --untested: oklch(0.78 0.006 225);
 
   /*
+   * How much of the masthead stays standing once it pins -- its run strip and
+   * figures, everything above them having scrolled away. Written here by
+   * `usePinnedReadout` in masthead.tsx, and read by everything that has to
+   * clear it: the checks toolbar, the rail, and every `scroll-mt` anchor.
+   *
+   * 0px is the honest default rather than a guess at the real figure. It is
+   * what holds for one frame before the layout effect measures, and what
+   * holds for good below sm, where the masthead does not pin. A guess here
+   * would push every anchor down by a band that is not there.
+   */
+  --pin-h: 0px;
+
+  /*
    * Shell transcripts. These used to be inverted -- a near-black block in
    * light mode, on the argument that a tester is comparing them against a real
    * terminal. In practice it was the one thing on the page that did not belong

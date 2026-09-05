@@ -46,22 +46,32 @@ function scrollBehavior(): ScrollBehavior {
 
 const SHORTCUTS_KEY = "journeybook-shortcuts"
 
-/** Fields a search query is matched against. Ids are included so "A7" works. */
-function haystack(c: FlatCase) {
-  return [
+/**
+ * Fields a search query is matched against, keyed by case id. Ids are included
+ * so "A7" works.
+ *
+ * Joined once at module load rather than inside the filter: the cases never
+ * change after import, and building them per call meant assembling 245 strings
+ * out of eight fields each on every character typed into the search box.
+ */
+const haystacks = new Map<string, string>(
+  allCases.map((c) => [
     c.id,
-    c.title,
-    c.assert,
-    c.command,
-    c.expected,
-    c.precondition,
-    c.notes,
-    c.suiteTitle,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-}
+    [
+      c.id,
+      c.title,
+      c.assert,
+      c.command,
+      c.expected,
+      c.precondition,
+      c.notes,
+      c.suiteTitle,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase(),
+  ])
+)
 
 export default function App() {
   const { run, setVerdict, reset, verdictOf } = useRunState()
@@ -109,7 +119,7 @@ export default function App() {
   const matches = React.useCallback(
     (c: FlatCase) => {
       if (filter !== "all" && verdictOf(c.id) !== filter) return false
-      if (q && !haystack(c).includes(q)) return false
+      if (q && !(haystacks.get(c.id) ?? "").includes(q)) return false
       return true
     },
     [filter, q, verdictOf]
@@ -117,6 +127,21 @@ export default function App() {
 
   /** The cases currently on screen, in document order -- j/k walk this. */
   const visible = React.useMemo(() => allCases.filter(matches), [matches])
+
+  /**
+   * The same list, cut into journeys. Each section takes its share from this
+   * one filtered pass; it used to re-filter its own cases, so a keystroke ran
+   * the predicate over all 245 cases twenty-four times rather than once.
+   */
+  const visibleBySuite = React.useMemo(() => {
+    const bySuite = new Map<string, FlatCase[]>()
+    for (const c of visible) {
+      const shown = bySuite.get(c.suiteKey)
+      if (shown) shown.push(c)
+      else bySuite.set(c.suiteKey, [c])
+    }
+    return bySuite
+  }, [visible])
 
   const toggleOpen = React.useCallback((id: string) => {
     setOpen((prev) => {
@@ -141,12 +166,44 @@ export default function App() {
     })
   }, [])
 
+  // The two handlers every row gets. They take the id back from the row rather
+  // than closing over it, so all 245 rows share one pair and CaseRow's memo
+  // holds through a keystroke, a focus move, or a scroll into a new journey.
+  const recordVerdict = React.useCallback(
+    (id: string, v: Verdict) => {
+      setVerdict(id, v)
+      setFocusId(id)
+    },
+    [setVerdict]
+  )
+
+  const toggleCase = React.useCallback(
+    (id: string) => {
+      toggleOpen(id)
+      setFocusId(id)
+    },
+    [toggleOpen]
+  )
+
+  /*
+   * nextTodo reads the focus through a ref instead of the state it mirrors.
+   * It is a prop of the memoised Rail, and taking `focusId` as a dependency
+   * gave it a new identity on every j/k press -- which re-rendered the rail,
+   * and its 23 tick strips, on each one. The keydown handler below still reads
+   * `focusId` directly, because it genuinely has to re-subscribe.
+   */
+  const focusRef = React.useRef(focusId)
+  React.useEffect(() => {
+    focusRef.current = focusId
+  }, [focusId])
+
   const nextTodo = React.useCallback(() => {
-    const from = focusId ? allCases.findIndex((c) => c.id === focusId) + 1 : 0
+    const at = focusRef.current
+    const from = at ? allCases.findIndex((c) => c.id === at) + 1 : 0
     const order = [...allCases.slice(from), ...allCases.slice(0, from)]
     const target = order.find((c) => verdictOf(c.id) === "todo")
     if (target) focusCase(target.id)
-  }, [focusId, verdictOf, focusCase])
+  }, [verdictOf, focusCase])
 
   const copyReport = React.useCallback(async () => {
     try {
@@ -270,14 +327,19 @@ export default function App() {
       >
         Skip to the checks
       </a>
-      <Masthead summary={summary} theme={theme} setTheme={setTheme} />
+      <Masthead
+        summary={summary}
+        activeSuite={activeSuite}
+        theme={theme}
+        setTheme={setTheme}
+      />
 
       <div className="mx-auto max-w-[92rem] px-5 py-6 md:px-8 md:py-8">
         <GateDiagram />
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-10">
           <Rail
-            verdictOf={verdictOf}
+            groups={summary.groups}
             activeSuite={activeSuite}
             onNextTodo={nextTodo}
             onReset={clearRun}
@@ -298,7 +360,11 @@ export default function App() {
 
             <div
               id="checks"
-              className="sticky top-0 z-10 flex scroll-mt-4 flex-wrap items-center gap-3 bg-background/95 py-3 backdrop-blur"
+              // --pin-h is the masthead's standing height, published by its
+              // own measurement, and 0px below sm where it does not pin. So
+              // this parks under the masthead rather than behind it without
+              // either file having to know the other's dimensions.
+              className="sticky top-[var(--pin-h)] z-10 flex scroll-mt-[calc(var(--pin-h)+1rem)] flex-wrap items-center gap-3 bg-background/95 py-3 backdrop-blur"
             >
               <div className="relative basis-full sm:min-w-[13rem] sm:flex-1 sm:basis-auto">
                 <Search
@@ -349,24 +415,21 @@ export default function App() {
               </p>
             ) : (
               <div className="space-y-8">
-                {suites.map((s) => {
-                  const shown = s.cases.filter((c) =>
-                    matches({ ...c, suiteKey: s.key, suiteTitle: s.title })
-                  )
-                  if (!shown.length) return null
-                  const p = s.cases.filter(
-                    (c) => verdictOf(c.id) === "pass"
-                  ).length
-                  const f = s.cases.filter(
-                    (c) => verdictOf(c.id) === "fail"
-                  ).length
+                {suites.map((s, i) => {
+                  const shown = visibleBySuite.get(s.key)
+                  if (!shown?.length) return null
+                  // summarise() walks the same `suites` array in order, so the
+                  // tally at this index is this journey's.
+                  const tally = summary.groups[i]
 
                   return (
                     <section
                       key={s.key}
                       id={`suite-${s.key}`}
                       aria-labelledby={`suite-${s.key}-heading`}
-                      className="scroll-mt-20"
+                      // Clears both standing bands: the masthead's readout,
+                      // plus the ~56px checks toolbar under it, and some air.
+                      className="scroll-mt-[calc(var(--pin-h)+4.5rem)]"
                     >
                       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                         {/* The letter is inside the heading, not beside it,
@@ -382,12 +445,12 @@ export default function App() {
                           <span className="min-w-0">{s.title}</span>
                         </h2>
                         <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">
-                          {f > 0 ? (
+                          {tally.fail > 0 ? (
                             <span className="mr-2 text-destructive">
-                              {f} failed
+                              {tally.fail} failed
                             </span>
                           ) : null}
-                          {p}/{s.cases.length}
+                          {tally.pass}/{tally.count}
                         </span>
                       </div>
                       <p className="mt-1 pl-[1.6rem] text-[13px] text-muted-foreground">
@@ -401,21 +464,11 @@ export default function App() {
                         {shown.map((c) => (
                           <CaseRow
                             key={c.id}
-                            item={{
-                              ...c,
-                              suiteKey: s.key,
-                              suiteTitle: s.title,
-                            }}
-                            verdict={verdictOf(c.id) as Verdict}
-                            onVerdict={(v) => {
-                              setVerdict(c.id, v)
-                              setFocusId(c.id)
-                            }}
+                            item={c}
+                            verdict={verdictOf(c.id)}
+                            onVerdict={recordVerdict}
                             open={open.has(c.id)}
-                            onToggle={() => {
-                              toggleOpen(c.id)
-                              setFocusId(c.id)
-                            }}
+                            onToggle={toggleCase}
                             focused={focusId === c.id}
                           />
                         ))}

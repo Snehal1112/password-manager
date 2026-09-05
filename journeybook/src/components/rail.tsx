@@ -1,9 +1,8 @@
 import { Check, ChevronRight, Copy, RotateCcw, SkipForward } from "lucide-react"
 import * as React from "react"
 import type { ComponentType, ReactNode } from "react"
-import { suites } from "@/data"
 import { cn } from "@/lib/utils"
-import type { Verdict } from "@/lib/run-state"
+import type { SuiteTally } from "@/lib/summary"
 import { useStoredFlag } from "@/lib/stored-flag"
 import { TickStrip } from "@/components/verdict"
 import { Button } from "@/components/ui/button"
@@ -147,8 +146,16 @@ function RailButton({
   )
 }
 
-export function Rail({
-  verdictOf,
+/**
+ * The run controls, the journey list, and the two reference panels.
+ *
+ * Takes the tallies `summarise` already produced rather than a `verdictOf` it
+ * would have to re-tally 245 cases through. Memoised on top of that: nothing
+ * here reads the search box, the filter, or which row holds focus, so App's
+ * most frequent re-renders no longer redraw 23 tick strips.
+ */
+export const Rail = React.memo(function Rail({
+  groups,
   activeSuite,
   onNextTodo,
   onReset,
@@ -157,7 +164,7 @@ export function Rail({
   shortcuts,
   onToggleShortcuts,
 }: {
-  verdictOf: (id: string) => Verdict
+  groups: SuiteTally[]
   activeSuite: string | null
   onNextTodo: () => void
   onReset: () => void
@@ -190,7 +197,9 @@ export function Rail({
   return (
     <nav
       aria-label="Journeys and run controls"
-      className="flex flex-col gap-5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pb-4"
+      // The masthead's standing height plus the 16px the rail always kept
+      // above itself; the max-height gives that same total back at the bottom.
+      className="flex flex-col gap-5 lg:sticky lg:top-[calc(var(--pin-h)+1rem)] lg:max-h-[calc(100vh-var(--pin-h)-2rem)] lg:overflow-y-auto lg:pb-4"
     >
       <div className="rounded-lg border border-border bg-card p-3.5">
         <h2 className="label text-muted-foreground">Your run</h2>
@@ -230,65 +239,57 @@ export function Rail({
           />
         </div>
         <ul className={cn(compact ? "p-1" : "p-1.5")}>
-          {suites.map((s) => {
-            const ticks = s.cases.map((c) => ({
-              id: c.id,
-              verdict: verdictOf(c.id),
-            }))
-            const pass = ticks.filter((t) => t.verdict === "pass").length
-            const fail = ticks.filter((t) => t.verdict === "fail").length
-            return (
-              <li key={s.key}>
-                <a
-                  href={`#suite-${s.key}`}
-                  aria-current={activeSuite === s.key ? "location" : undefined}
-                  className={cn(
-                    "block rounded-md px-2 transition-colors hover:bg-accent",
-                    compact ? "py-1" : "py-1.5",
-                    activeSuite === s.key && "bg-accent"
-                  )}
-                >
-                  <span className="flex items-baseline gap-2">
-                    <span className="w-3 shrink-0 font-mono text-[12px] text-muted-foreground">
-                      {s.key}
-                    </span>
-                    {/* truncate, not line-clamp-1: a single-line clamp still
-                        reserves the taller line box of a block clamp, which
-                        would give back a third of what compact just saved. */}
-                    <span
-                      className={cn(
-                        "min-w-0 flex-1 text-[13px] leading-snug",
-                        compact ? "truncate" : "line-clamp-2"
-                      )}
-                      title={compact ? s.title : undefined}
-                    >
-                      {s.title}
-                    </span>
-                    {/* The ratio counts passes, so it stays neutral even when
-                        the journey has failures -- tinting it red would read
-                        as "8 of 12 is bad". The strip below carries the red. */}
-                    <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">
-                      {fail > 0 ? (
-                        <span
-                          className="text-destructive"
-                          title={`${fail} failed`}
-                        >
-                          ✕{fail}{" "}
-                        </span>
-                      ) : null}
-                      {pass}/{s.cases.length}
-                    </span>
+          {groups.map((g) => (
+            <li key={g.key}>
+              <a
+                href={`#suite-${g.key}`}
+                aria-current={activeSuite === g.key ? "location" : undefined}
+                className={cn(
+                  "block rounded-md px-2 transition-colors hover:bg-accent",
+                  compact ? "py-1" : "py-1.5",
+                  activeSuite === g.key && "bg-accent"
+                )}
+              >
+                <span className="flex items-baseline gap-2">
+                  <span className="w-3 shrink-0 font-mono text-[12px] text-muted-foreground">
+                    {g.key}
                   </span>
-                  {/* Dropped in compact: the masthead's run strip already
-                      draws all 208 ticks grouped by journey, and the ✕n and
-                      ratio above state the same thing in figures. */}
-                  {compact ? null : (
-                    <TickStrip ticks={ticks} className="mt-1.5 ml-5" />
-                  )}
-                </a>
-              </li>
-            )
-          })}
+                  {/* truncate, not line-clamp-1: a single-line clamp still
+                      reserves the taller line box of a block clamp, which
+                      would give back a third of what compact just saved. */}
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 text-[13px] leading-snug",
+                      compact ? "truncate" : "line-clamp-2"
+                    )}
+                    title={compact ? g.title : undefined}
+                  >
+                    {g.title}
+                  </span>
+                  {/* The ratio counts passes, so it stays neutral even when
+                      the journey has failures -- tinting it red would read
+                      as "8 of 12 is bad". The strip below carries the red. */}
+                  <span className="shrink-0 font-mono text-[11.5px] text-muted-foreground tabular-nums">
+                    {g.fail > 0 ? (
+                      <span
+                        className="text-destructive"
+                        title={`${g.fail} failed`}
+                      >
+                        ✕{g.fail}{" "}
+                      </span>
+                    ) : null}
+                    {g.pass}/{g.count}
+                  </span>
+                </span>
+                {/* Dropped in compact: the masthead's run strip already
+                    draws all 208 ticks grouped by journey, and the ✕n and
+                    ratio above state the same thing in figures. */}
+                {compact ? null : (
+                  <TickStrip ticks={g.ticks} className="mt-1.5 ml-5" />
+                )}
+              </a>
+            </li>
+          ))}
         </ul>
       </div>
 
@@ -380,4 +381,4 @@ export function Rail({
       </CollapsiblePanel>
     </nav>
   )
-}
+})

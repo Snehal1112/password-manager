@@ -89,7 +89,9 @@ function Panel({
     <section
       id={id}
       aria-labelledby={`${id}-heading`}
-      className="scroll-mt-24 rounded-lg border border-border bg-card"
+      // Same clearance the journey sections use: two standing bands overhead,
+      // the masthead's readout and the checks toolbar.
+      className="scroll-mt-[calc(var(--pin-h)+4.5rem)] rounded-lg border border-border bg-card"
     >
       {collapsible ? (
         <button
