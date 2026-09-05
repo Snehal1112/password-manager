@@ -1,6 +1,7 @@
 package apitest
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
+	authServices "rocketvault/internal/services/auth"
 	"rocketvault/model"
 )
 
@@ -49,4 +51,48 @@ func TestNew_ServesTheRealHandler(t *testing.T) {
 	assert.Equal(t, assignment.ID.String(), decoded.RoleAssignments[0].ID)
 	assert.Equal(t, "payments", decoded.RoleAssignments[0].VaultName,
 		"VaultName is set by the handler, not the service -- if this is empty the real handler did not run")
+}
+
+// TestServer_ClientSendsBearerToken proves the harness client's token reaches
+// AuthenticationMiddleware -- the auth-header plumbing is covered, not assumed.
+// It also proves the shape guard the package comment promises: the assertion
+// on RoleAssignment.VaultName below decodes through vaultapi's own
+// independently-declared roleAssignmentWire (internal/vaultapi/access.go),
+// not through the model type the handler marshals from, so a tag rename on
+// the model side leaves the wire struct stale and the decode empty -- see
+// the CONTROLLER AMENDMENT proof recorded in task-2-report.md.
+func TestServer_ClientSendsBearerToken(t *testing.T) {
+	var gotToken string
+
+	assignment := &model.RoleAssignment{
+		ID:            uuid.New(),
+		PrincipalID:   uuid.New(),
+		PrincipalType: model.PrincipalTypeUser,
+		Role:          "Key Vault Secrets User",
+	}
+
+	roleSvc := &testutils.MockRoleAssignmentService{}
+	roleSvc.On("ListAssignments", mock.Anything, mock.Anything).
+		Return([]*model.RoleAssignment{assignment}, nil)
+	roleSvc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(true, nil).Maybe()
+
+	srv := New(t, Options{RoleAssignments: roleSvc})
+
+	// Re-register ValidateSession to capture what the middleware received.
+	srv.tc.MockAuthService.ExpectedCalls = nil
+	srv.tc.MockAuthService.On("ValidateSession", mock.Anything, mock.Anything).
+		Run(func(args mock.Arguments) { gotToken = args.String(1) }).
+		Return(&authServices.JWTClaims{
+			UserID: srv.tc.TestUserID, Username: "testuser", Roles: []string{model.RoleAdmin},
+		}, nil)
+
+	assignments, _, err := srv.Client().ListRoleAssignments(context.Background(), "payments", 0)
+	require.NoError(t, err)
+	assert.Equal(t, testToken, gotToken, "the client's bearer token must reach the auth middleware")
+	require.Len(t, assignments, 1)
+	assert.Equal(t, "payments", assignments[0].VaultName,
+		"decoded via vaultapi's own wire struct -- a stale tag here yields an empty VaultName")
+
+	assert.Equal(t, srv.URL(), srv.Target().Server)
 }
