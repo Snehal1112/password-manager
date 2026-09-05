@@ -32,7 +32,7 @@ one (on creation or with --rotate-secret), and is not retrievable
 afterward — store it before moving on.
 
 Requires the admin role, or an access-policy grant of manage on vaults
-scoped to this vault (or granted globally). Acts on the vault named by
+scoped to this vault. Acts on the vault named by
 --vault, defaulting to "default".`,
 		Example: `  # Point a vault's webhook at a receiver
   rocketvault vault-webhook set --vault prod \

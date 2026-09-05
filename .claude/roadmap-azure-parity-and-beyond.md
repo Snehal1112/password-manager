@@ -80,7 +80,7 @@ request volume, storage, billing) is still absent and belongs with the items bel
   `docs/superpowers/specs/2026-09-03-self-service-vault-provisioning-design.md`.
 
   **What remains open after release 1:**
-  1. ***The narrowing — shipped 2026-09-05 (release 2, v4.6.0).*** A global
+  1. **The narrowing — shipped 2026-09-05 (release 2, v4.6.0).** A global
      `vaults:manage` grant now confers create-and-list only:
      `CanManageVault` and `CanManageRoleAssignments` both consult the new
      `AccessPolicyService.CheckVaultScopedAccess` for a concrete vault (a

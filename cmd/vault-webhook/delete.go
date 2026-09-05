@@ -20,7 +20,7 @@ func InitVaultWebhookDelete(parent *cobra.Command) {
 configured still succeeds — this command is idempotent.
 
 Requires the admin role, or an access-policy grant of manage on vaults
-scoped to this vault (or granted globally). Acts on the vault named by
+scoped to this vault. Acts on the vault named by
 --vault, defaulting to "default".`,
 		Example: `  # Delete the webhook configuration for the default vault
   rocketvault vault-webhook delete
