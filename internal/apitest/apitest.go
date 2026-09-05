@@ -12,9 +12,23 @@
 // -- rather than a model type, since decoding into the same model type the
 // handler marshals from round-trips regardless of tag renames.
 // TestServer_ClientSendsBearerToken exercises this: it decodes through
-// vaultapi.RoleAssignment and fails if a model-side JSON tag drifts.
+// vaultapi's own roleAssignmentWire, then maps into the exported
+// vaultapi.RoleAssignment, and fails if a model-side JSON tag drifts.
 // Business logic, persistence and real authorization decisions are out of
 // scope by design; see the spec.
+//
+// # Extending this harness
+//
+// Add one Options field per newly-stubbed service, register its container
+// getter with .Maybe() so an unexercised route doesn't panic on an
+// unregistered call, and check the corresponding cmd/testutils getter is not
+// a hardcoded nil before relying on it. Certificates are the known case:
+// MockServiceContainer.GetCertificateService() (cmd/testutils/test_utils.go)
+// returns nil unconditionally, so Context.certSvc() returns nil without
+// setting an error and certificate handlers silently no-op into an empty
+// 200 -- no panic, no log, just a bare client-side EOF. The fix is to
+// convert that getter to a settable field the way VaultService already is;
+// this pass only documents the gap, it does not close it.
 package apitest
 
 import (
@@ -54,12 +68,41 @@ func (s staticToken) Token(context.Context) (string, error) { return string(s), 
 type Options struct {
 	// RoleAssignments stubs the role-assignment service. Nil leaves the
 	// MockServiceContainer default in place, which allows every data action.
+	// A non-nil value REPLACES that allow-all default outright, not merges
+	// with it: it must itself stub HasDataAction (and any other method the
+	// exercised route calls) for every action the test's route needs, or an
+	// unregistered call panics. This has teeth on a data-plane route -- e.g.
+	// a keys test that supplies RoleAssignments and hits ListKeys will panic
+	// on an unregistered HasDataAction unless its stub covers that action.
 	RoleAssignments authzServices.RoleAssignmentService
 
 	// DenyDataAction, when non-empty, makes the authorization stub deny that
 	// one action so a test can assert the CLI's 403 mapping. Empty allows
-	// everything. Wired in Task 3.
+	// everything.
+	//
+	// This only has an observable effect on RouteVaultData routes, as
+	// classified by MapRouteToDataAction -- vault data-plane routes (secrets,
+	// keys, certificates), which PolicyMiddleware gates unconditionally via
+	// HasDataAction with no admin bypass. It does nothing on vault-management
+	// or role-assignment routes: the harness's stubbed caller is a global
+	// admin (see New's ValidateSession stub), and both CanManageVault and
+	// CanManageRoleAssignments (internal/services/authorization/vault_authz.go)
+	// short-circuit to true for a global admin before HasDataAction is ever
+	// consulted. Use DenyAccessPolicy for those routes instead.
 	DenyDataAction model.DataAction
+
+	// DenyAccessPolicy, when true, makes the access-policy stub return an
+	// explicit deny on (vaults, manage) so a test can assert a real 403 on
+	// vault-management and role-assignment routes -- the routes
+	// DenyDataAction cannot reach. resolvePolicy
+	// (internal/middleware/middleware.go) maps every "/vaults/..." path,
+	// including "/vaults/{name}/role-assignments", to (PolicyResourceVaults,
+	// OpManage) regardless of method, and PolicyMiddleware checks that
+	// access-policy decision before the request ever reaches a handler
+	// (middleware.go's explicit-deny-override step), so this denial travels
+	// the real error path rather than asserting against a hand-written 403.
+	// It has no effect on RouteVaultData routes; use DenyDataAction for those.
+	DenyAccessPolicy bool
 }
 
 // Server is a running in-process API. It is closed via t.Cleanup; callers do
@@ -82,6 +125,18 @@ func (s *Server) Client() *vaultapi.Client { return s.client }
 func (s *Server) Target() *cliclient.Target {
 	return &cliclient.Target{Server: s.http.URL}
 }
+
+// TestContext returns the stubbed service context backing this server, so a
+// consumer outside this package can override a stub New already registered
+// (ValidateSession, GetVault, ValidateEndpointAccess, ...) -- testify
+// returns the first matching expectation, and New's own stubs are
+// registered before this returns, so an override must either clear
+// ExpectedCalls on the relevant mock first or otherwise ensure it matches
+// before New's default. This exists to stub services only: never use it to
+// hand-write an HTTP response or otherwise bypass the real router and
+// middleware chain -- doing so defeats the entire purpose of this package,
+// which is to serve production handlers over the real route table.
+func (s *Server) TestContext() *testutils.TestContext { return s.tc }
 
 // New starts an in-process server backed by the real route table and
 // middleware chain. It fails the test outright on any construction error: a
@@ -107,14 +162,23 @@ func New(t *testing.T, opts Options) *Server {
 	// unregistered testify call panics -- so a request to /vaults/payments/...
 	// would blow up inside the middleware. Accept any name. The earlier,
 	// more specific "default" expectation still matches first.
+	//
+	// This catch-all always returns Name: "test", regardless of the name
+	// requested, and its registration-order precedence over a test-specific
+	// expectation on the SAME name means the vault-not-found 404 and
+	// vault-disabled 403 paths are unreachable through this stub as-is -- a
+	// cmd/vaults test asserting an echoed vault name back from the API would
+	// see "test", not the name it requested.
 	tc.MockVaultService.On("GetVault", mock.Anything, mock.Anything).
 		Return(&model.Vault{ID: tc.TestVaultID, Name: "test", Enabled: true}, nil).Maybe()
 
 	// AuthenticationMiddleware calls GetAuditService() after a successful
 	// ValidateSession, to record an audit event. NewTestContext does not
 	// register this call, so it panics as an unexpected mock invocation.
-	// Returning nil is handled explicitly by MockServiceContainer.GetAuditService,
-	// which falls back to logger-based audit logging.
+	// MockServiceContainer.GetAuditService returning nil here is safe on its
+	// own (cmd/testutils/test_utils.go): AuthenticationMiddleware
+	// (internal/middleware/middleware.go) checks for a nil audit service and
+	// falls back to logger-based audit logging instead of calling into it.
 	tc.MockContainer.On("GetAuditService").Return(nil).Maybe()
 
 	// AuthorizationMiddleware calls ValidateEndpointAccess for every route to
@@ -151,6 +215,26 @@ func New(t *testing.T, opts Options) *Server {
 			Return(false, nil).Maybe()
 		svc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(true, nil).Maybe()
+	}
+
+	if opts.DenyAccessPolicy {
+		svc, ok := tc.MockContainer.AccessPolicyService.(*testutils.MockAccessPolicyService)
+		if !ok {
+			t.Fatalf("apitest: DenyAccessPolicy needs a *testutils.MockAccessPolicyService, got %T",
+				tc.MockContainer.AccessPolicyService)
+		}
+		// Clear the allow-everything default from NewTestContext, then deny
+		// (vaults, manage) -- the resource/operation pair resolvePolicy
+		// (internal/middleware/middleware.go) maps every vault-management and
+		// role-assignment route to -- and allow every other resource/op pair.
+		// This also drops any expectations the test registered on this same
+		// mock instance before calling New -- such a test must register
+		// those after New returns.
+		svc.ExpectedCalls = nil
+		svc.On("CheckAccess", mock.Anything, mock.Anything, model.PolicyResourceVaults, model.OpManage, mock.Anything).
+			Return(authzServices.AccessDenied, nil).Maybe()
+		svc.On("CheckAccess", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(authzServices.AccessAllowed, nil).Maybe()
 	}
 
 	router := mux.NewRouter()
@@ -190,6 +274,12 @@ func New(t *testing.T, opts Options) *Server {
 // groups add harness-backed tests the shared budget would eventually be the
 // thing that fails -- a slow-building landmine rather than an honest failure.
 // The limiter itself is exercised by internal/middleware's own tests.
+//
+// This mutates process-global viper state and restores it via t.Cleanup, not
+// a lock. A test calling t.Parallel() alongside another New()-backed test in
+// the same package (or process) races on these same keys: one test's
+// Cleanup can reset a key while the other still expects it relaxed. Do not
+// combine this harness with t.Parallel() until that's addressed.
 func relaxRateLimits(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"rate_limit.default", "rate_limit.auth", "rate_limit.per_vault"} {
