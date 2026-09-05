@@ -369,7 +369,11 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Secret cache is always constructed: a real cache when enabled, a
 	// no-op one otherwise, so downstream code never nil-checks it.
-	c.secretCache = cache.NewSecretCache(c.cacheConfig.Secrets, c.logger.Logger)
+	if c.rocketMemClient != nil {
+		c.secretCache = cache.NewSecretCacheWithL2(c.cacheConfig.Secrets, c.logger.Logger, c.rocketMemClient, c.cacheConfig.Secrets.TTL)
+	} else {
+		c.secretCache = cache.NewSecretCache(c.cacheConfig.Secrets, c.logger.Logger)
+	}
 	c.vaultService.SetSecretCacheFlusher(c.secretCache)
 
 	// Certificate cache is always constructed: a real cache when enabled, a
