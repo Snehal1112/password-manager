@@ -599,7 +599,11 @@ func (c *ServiceContainer) initializeServices() error {
 	c.secretService = c.cachedSecretService
 
 	// Key cache is always constructed via the unified cache.keys.* config.
-	c.keyCache = keycache.NewCache(c.cacheConfig.Keys)
+	if c.rocketMemClient != nil {
+		c.keyCache = keycache.NewCacheWithL2(c.cacheConfig.Keys, c.rocketMemClient, c.cacheConfig.Keys.TTL)
+	} else {
+		c.keyCache = keycache.NewCache(c.cacheConfig.Keys)
+	}
 
 	// Initialize Prometheus metrics for crypto operations.
 	c.cryptoMetrics = metrics.NewDefaultPrometheusCryptoMetrics()
