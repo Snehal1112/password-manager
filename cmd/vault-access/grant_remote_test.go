@@ -3,18 +3,19 @@ package vaultaccess
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"rocketvault/internal/cliclient"
+	"rocketvault/cmd/testutils"
+	"rocketvault/internal/apitest"
 	"rocketvault/internal/vaultapi"
+	"rocketvault/model"
 )
 
 type staticToken string
@@ -50,51 +51,42 @@ func remoteTestClient(t *testing.T, srv *httptest.Server) *vaultapi.Client {
 }
 
 func TestGrantRemote_PostsToTheVaultScopedRoute(t *testing.T) {
-	var gotPath, gotAuth string
-	var gotBody vaultapi.GrantRoleRequest
+	created := &model.RoleAssignment{
+		ID:            uuid.New(),
+		PrincipalID:   uuid.New(),
+		PrincipalType: model.PrincipalTypeUser,
+		Role:          "Key Vault Administrator",
+	}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		gotAuth = r.Header.Get("Authorization")
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+	roleSvc := &testutils.MockRoleAssignmentService{}
+	roleSvc.On("AssignRole", mock.Anything, mock.Anything).Return(created, nil)
+	roleSvc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(true, nil).Maybe()
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"id":                 uuid.New().String(),
-			"principal_id":       uuid.New().String(),
-			"principal_username": "alice",
-			"principal_type":     "user",
-			"role":               "Key Vault Administrator",
-			"vault_name":         "payments",
-			"created_at":         "2026-09-03T10:00:00Z",
-		})
-	}))
-	defer srv.Close()
+	srv := apitest.New(t, apitest.Options{RoleAssignments: roleSvc})
 
 	cmd, out := remoteTestCmd(t, "payments")
 
-	err := runGrantRemote(cmd, remoteTestClient(t, srv), &cliclient.Target{Server: srv.URL},
+	err := runGrantRemote(cmd, srv.Client(), srv.Target(),
 		"alice", "Key Vault Administrator", "user")
 	require.NoError(t, err)
 
-	assert.Equal(t, "/api/v1/vaults/payments/role-assignments", gotPath)
-	assert.Equal(t, "Bearer tok", gotAuth)
-	assert.Equal(t, "alice", gotBody.Principal)
-	assert.Equal(t, "Key Vault Administrator", gotBody.Role)
-	assert.Equal(t, "user", gotBody.PrincipalType)
 	assert.Contains(t, out.String(), "granted Key Vault Administrator to alice")
+	assert.Contains(t, out.String(), created.ID.String(),
+		"the assignment id must come back through the real response shape")
 }
 
 func TestGrantRemote_ForbiddenIsReadable(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	defer srv.Close()
+	roleSvc := &testutils.MockRoleAssignmentService{}
+
+	srv := apitest.New(t, apitest.Options{
+		RoleAssignments:  roleSvc,
+		DenyAccessPolicy: true,
+	})
 
 	cmd, _ := remoteTestCmd(t, "payments")
 
-	err := runGrantRemote(cmd, remoteTestClient(t, srv), &cliclient.Target{Server: srv.URL},
+	err := runGrantRemote(cmd, srv.Client(), srv.Target(),
 		"alice", "Key Vault Administrator", "user")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "role assignment")
