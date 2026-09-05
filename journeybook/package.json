@@ -10,6 +10,7 @@
     "lint:fix": "biome lint --write --error-on-warnings",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc -b --noEmit",
+    "check:links": "bun scripts/check-links.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
