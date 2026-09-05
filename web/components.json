@@ -22,6 +22,6 @@
   "menuColor": "default-translucent",
   "menuAccent": "subtle",
   "registries": {
-    "@rocketvault": "http://localhost:5173/r/{name}.json"
+    "@rocketvault": "http://localhost:5173/app/r/{name}.json"
   }
 }

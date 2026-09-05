@@ -43,6 +43,7 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
 
@@ -70,9 +71,9 @@ X.509 certificates. This single binary is both the server that stores them
 
 Commands run in local mode against the instance described by
 .rocketvault.yaml; --config selects a different file. Remote mode (--server,
-ROCKETVAULT_ADDR, or an active context) is implemented only for the context
-group — every other command refuses to run while a remote target is set,
-rather than silently falling back to the local instance.
+ROCKETVAULT_ADDR, or an active context) is supported by the commands that
+have a remote adapter; every other command refuses to run while a remote
+target is set, rather than silently falling back to the local instance.
 
 Log in once with 'rocketvault users login'. The session is cached under
 ~/.rocketvault/sessions and refreshed automatically, so everyday commands need
@@ -158,6 +159,12 @@ func init() {
 	rootCmd.PersistentFlags().String("ca-cert", "", "Path to an additional CA certificate to trust for remote server connections (or set ROCKETVAULT_CA_CERT)")
 	rootCmd.PersistentFlags().Bool("insecure-skip-verify", false, "Disable TLS certificate verification for remote server connections (unsafe — dev/test only)")
 
+	// Persistent flags for unattended remote authentication.
+	rootCmd.PersistentFlags().String("client-id", "",
+		"Service-account client ID for unattended remote auth (or set ROCKETVAULT_CLIENT_ID)")
+	rootCmd.PersistentFlags().String("client-secret", "",
+		"Service-account client secret for unattended remote auth (or set ROCKETVAULT_CLIENT_SECRET)")
+
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
@@ -216,27 +223,48 @@ func isLocalOnlyCommand(cmd *cobra.Command) bool {
 	return cmd.Name() == "generate-password" && cmd.Parent() != nil && cmd.Parent().Name() == "secrets"
 }
 
-// remoteCapableSecretsCommands are the "secrets" subcommands with their own
-// remote-mode adapter in internal/cliclient/secrets.go — see
+// remoteCapableCommands maps a command group to the subcommands within it
+// that have their own remote-mode adapter. Everything else still goes
+// through the remote-target guard until its group's adapter plan lands, so
+// adding a group here without writing its adapter exposes a command that
+// will fail at the first API call.
+//
+// The "secrets" adapters live in internal/cliclient/secrets.go — see
 // docs/superpowers/specs/2026-08-17-cli-remote-server-support-design.md's
-// Command Support Matrix. Other resource groups (keys, certificates,
-// vaults, vault-access, users, audit) still go through the remote-target
-// guard until each gets its own adapter.
-var remoteCapableSecretsCommands = map[string]bool{
-	"list":   true,
-	"get":    true,
-	"create": true,
-	"update": true,
-	"delete": true,
-	"export": true,
-	"import": true,
+// Command Support Matrix. Groups still guarded: keys, certificates, vaults,
+// audit, and the users resource commands.
+//
+// "vault-access roles" is deliberately absent: it reads compiled-in role
+// definitions and never contacts a server, so isLocalOnlyCommand handles it.
+var remoteCapableCommands = map[string]map[string]bool{
+	"secrets": {"list": true, "get": true, "create": true, "update": true,
+		"delete": true, "export": true, "import": true},
+	"users": {"login": true, "logout": true},
+	"vault-access": {
+		"grant": true, "list": true, "revoke": true,
+	},
 }
 
 // isRemoteCapableCommand reports whether cmd has its own remote-mode
 // adapter and should be let through the remote-target guard instead of
 // being rejected by it.
 func isRemoteCapableCommand(cmd *cobra.Command) bool {
-	return cmd.Parent() != nil && cmd.Parent().Name() == "secrets" && remoteCapableSecretsCommands[cmd.Name()]
+	if cmd.Parent() == nil {
+		return false
+	}
+	return remoteCapableCommands[cmd.Parent().Name()][cmd.Name()]
+}
+
+// isRemoteUnauthenticatedCommand reports whether cmd is remote-capable but
+// must not be authenticated by the pre-run. "login" is what creates the
+// session, so requiring one first is circular -- that circularity is B54.
+// "logout" only deletes a cached session file and must keep working even
+// when that session is expired or broken.
+func isRemoteUnauthenticatedCommand(cmd *cobra.Command) bool {
+	if cmd.Parent() == nil || cmd.Parent().Name() != "users" {
+		return false
+	}
+	return cmd.Name() == "login" || cmd.Name() == "logout"
 }
 
 // isSystemCommand reports whether cmd is exempt from persistentPreRun's
@@ -399,102 +427,138 @@ func resolveAuthentication(cmd *cobra.Command, authSvc authServices.Authenticati
 	}, nil
 }
 
-// resolveRemoteAuthentication is resolveAuthentication's remote-mode
-// counterpart: same three-tier precedence (fresh login > cached session for
-// an explicit --username > whichever session is "current"), but every call
-// goes to target.Server over HTTP instead of the local service container.
+// clientCredentials returns the service-account credentials for remote mode,
+// preferring flags over the environment. Both values must be present for the
+// service-account path to be selected; a half-configured pair is treated as
+// unset so the caller can report it as a usage error rather than silently
+// falling back to an interactive session.
+func clientCredentials(cmd *cobra.Command) (string, string) {
+	id, _ := cmd.Flags().GetString("client-id")
+	if id == "" {
+		id = os.Getenv("ROCKETVAULT_CLIENT_ID")
+	}
+	secret, _ := cmd.Flags().GetString("client-secret")
+	if secret == "" {
+		secret = os.Getenv("ROCKETVAULT_CLIENT_SECRET")
+	}
+	return id, secret
+}
+
+// unauthenticatedSource is the token source for a client that must not send
+// a bearer token: the credential-login bootstrap below, and the users
+// login/logout pre-run branch in 02b. vaultapi.Config requires a non-nil
+// Tokens (internal/vaultapi/client.go:82-84), and Client.Login is the one
+// method that never consults it (login.go:53-66, pinned by
+// TestClientLogin_SendsNoAuthorizationHeader). Any other call on such a
+// client fails here loudly rather than sending an empty Authorization
+// header.
+type unauthenticatedSource struct{}
+
+func (unauthenticatedSource) Token(context.Context) (string, error) {
+	return "", errors.New("this command runs unauthenticated; run 'rocketvault users login' first")
+}
+
+// resolveRemoteTokenSource picks how the CLI authenticates against target.
+//
+// Three tiers, in precedence order:
+//
+//  1. Service-account credentials -- the unattended CI path. Writes nothing
+//     to disk.
+//  2. An explicit --username/--password -- the user asking to re-authenticate.
+//     Caches the resulting session, exactly as the pre-vaultapi code did.
+//  3. The cached CLI session, which refreshes itself through
+//     vaultapi.SessionSource.
 //
 // The "current" session pointer is global across servers (see
-// common/session.go), so when no --username is given, a cached current
-// session is only used if it actually belongs to this target -- otherwise a
-// different server's token could leak into a request against this one.
-func resolveRemoteAuthentication(cmd *cobra.Command, target *cliclient.Target, httpClient *http.Client) (*authServices.AuthenticationResult, error) {
+// common/session.go), so a cached current session is only accepted when it
+// belongs to this target -- otherwise a different server's token could leak
+// into a request against this one.
+func resolveRemoteTokenSource(
+	cmd *cobra.Command,
+	target *cliclient.Target,
+	httpClient *http.Client,
+) (vaultapi.TokenSource, error) {
+	clientID, clientSecret := clientCredentials(cmd)
+	switch {
+	case clientID != "" && clientSecret != "":
+		return vaultapi.NewServiceAccountSource(vaultapi.ServiceAccountConfig{
+			BaseURL:      target.Server,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			HTTPClient:   httpClient,
+		})
+	case clientID != "":
+		return nil, fmt.Errorf("--client-id given without --client-secret (or ROCKETVAULT_CLIENT_SECRET)")
+	case clientSecret != "":
+		return nil, fmt.Errorf("--client-secret given without --client-id (or ROCKETVAULT_CLIENT_ID)")
+	}
+
+	serverKey := common.SanitizeServerKey(target.Server)
 	username, _ := cmd.Flags().GetString("username")
-	password, _ := cmd.Flags().GetString("password")
-	totpCode, _ := cmd.Flags().GetString("totp-code")
 	if username == "" {
 		username = target.Username // context's default username, if any
 	}
 
-	serverKey := common.SanitizeServerKey(target.Server)
+	if password, _ := cmd.Flags().GetString("password"); username != "" && password != "" {
+		totpCode, _ := cmd.Flags().GetString("totp-code")
+		client, err := vaultapi.New(vaultapi.Config{
+			BaseURL:    target.Server,
+			HTTPClient: httpClient,
+			Tokens:     unauthenticatedSource{},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to build login client: %w", err)
+		}
+		// viper.GetDuration is 0 when no config file is loaded, which is
+		// normal in remote mode; LoginOptions falls back to its own default
+		// for exactly that case, so the session is not born expired.
+		src, _, err := client.Login(cmd.Context(), username, password, totpCode, vaultapi.LoginOptions{
+			Expiry:      viper.GetDuration("jwt.expiry"),
+			SaveSession: common.SaveSession,
+		})
+		return src, err
+	}
 
-	if username != "" && password != "" {
-		result, err := cliclient.LoginRemote(cmd.Context(), httpClient, target.Server, username, password, totpCode)
+	load := func() (*common.SessionCache, error) {
+		if username != "" {
+			return common.LoadSessionForServer(serverKey, username)
+		}
+		cached, err := common.LoadCurrentSession()
 		if err != nil {
 			return nil, err
 		}
-		if saveErr := common.SaveSession(&common.SessionCache{
-			Token:        result.Token,
-			RefreshToken: result.RefreshToken,
-			UserID:       result.UserID,
-			Username:     result.Username,
-			Roles:        result.Roles,
-			ExpiresAt:    time.Now().Add(viper.GetDuration("jwt.expiry")),
-			ServerKey:    serverKey,
-		}); saveErr != nil {
-			logrus.WithError(saveErr).Warn("failed to cache remote CLI session")
-		}
-		return result, nil
-	}
-
-	var cached *common.SessionCache
-	var err error
-	if username != "" {
-		cached, err = common.LoadSessionForServer(serverKey, username)
-	} else {
-		cached, err = common.LoadCurrentSession()
 		if cached != nil && cached.ServerKey != serverKey {
-			cached = nil
+			return nil, fmt.Errorf(
+				"the current session belongs to a different server; run 'rocketvault users login' against %s or pass --username",
+				target.Server)
 		}
+		return cached, nil
 	}
+
+	// SessionConfig.SaveSession is left nil deliberately: its default is
+	// common.SaveSession, which is what the pre-vaultapi code called after a
+	// refresh.
+	src, err := vaultapi.NewSessionSource(vaultapi.SessionConfig{
+		BaseURL:     target.Server,
+		HTTPClient:  httpClient,
+		LoadSession: load,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read cached session: %w", err)
+		if errors.Is(err, vaultapi.ErrNoSession) {
+			return nil, fmt.Errorf(
+				"no cached session for server %s; run 'rocketvault users login' or pass --username/--password/--totp-code or --client-id/--client-secret",
+				target.Server)
+		}
+		return nil, err
 	}
-	if cached == nil {
-		return nil, fmt.Errorf("no credentials provided and no cached session found for server %s; pass --username/--password/--totp-code", target.Server)
-	}
-
-	if time.Now().Before(cached.ExpiresAt) {
-		return &authServices.AuthenticationResult{
-			Token:        cached.Token,
-			RefreshToken: cached.RefreshToken,
-			UserID:       cached.UserID,
-			Username:     cached.Username,
-			Roles:        cached.Roles,
-		}, nil
-	}
-
-	refreshed, err := cliclient.RefreshRemote(cmd.Context(), httpClient, target.Server, cached.RefreshToken)
-	if err != nil {
-		return nil, fmt.Errorf("cached session expired and refresh failed: %w", err)
-	}
-
-	if saveErr := common.SaveSession(&common.SessionCache{
-		Token:        refreshed.Token,
-		RefreshToken: refreshed.RefreshToken,
-		UserID:       refreshed.UserID,
-		Username:     refreshed.Username,
-		Roles:        refreshed.Roles,
-		ExpiresAt:    refreshed.ExpiresAt,
-		ServerKey:    serverKey,
-	}); saveErr != nil {
-		logrus.WithError(saveErr).Warn("failed to cache refreshed remote CLI session")
-	}
-
-	return &authServices.AuthenticationResult{
-		Token:        refreshed.Token,
-		RefreshToken: refreshed.RefreshToken,
-		UserID:       refreshed.UserID,
-		Username:     refreshed.Username,
-		Roles:        refreshed.Roles,
-	}, nil
+	return src, nil
 }
 
 // remotePersistentPreRun is the remote-mode counterpart of persistentPreRun
 // for commands with their own remote adapter (see isRemoteCapableCommand).
 // It never boots the local DB or service container: it configures a TLS
-// trust-aware HTTP client, authenticates against target.Server, and stashes
-// the token/target/client in the command's context for the adapter to use.
+// trust-aware HTTP client, picks a token source, and stashes a vaultapi
+// client in the command's context for the adapter to use.
 func remotePersistentPreRun(cmd *cobra.Command, target *cliclient.Target) error {
 	caCertPath, _ := cmd.Flags().GetString("ca-cert")
 	if caCertPath == "" {
@@ -509,29 +573,80 @@ func remotePersistentPreRun(cmd *cobra.Command, target *cliclient.Target) error 
 		return fmt.Errorf("failed to configure remote TLS trust: %w", err)
 	}
 
-	authResult, err := resolveRemoteAuthentication(cmd, target, httpClient)
+	// login is what produces a session, so requiring one first is circular;
+	// logout only deletes a cached one. Both get a client with no usable
+	// token source rather than being pre-authenticated.
+	//
+	// Tokens is not optional -- vaultapi.New rejects a nil token source --
+	// and unauthenticatedSource is the right value: Client.Login never
+	// consults it, so login works while any other call on this client fails
+	// loudly instead of sending an empty Authorization header.
+	//
+	// RemoteHTTPClientKey is set here because the OIDC exchange needs this
+	// CA-aware transport. That use must outlive plan 08's removal of the
+	// key, or be converted to a vaultapi method at that point.
+	if isRemoteUnauthenticatedCommand(cmd) {
+		client, err := vaultapi.New(vaultapi.Config{
+			BaseURL:    target.Server,
+			HTTPClient: httpClient,
+			Tokens:     unauthenticatedSource{},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to build remote API client: %w", err)
+		}
+		ctx := context.WithValue(cmd.Context(), common.RemoteTargetKey, target)
+		ctx = context.WithValue(ctx, common.RemoteClientKey, client)
+		ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+		cmd.SetContext(ctx)
+		return nil
+	}
+
+	tokens, err := resolveRemoteTokenSource(cmd, target, httpClient)
 	if err != nil {
 		cmd.PrintErrln("Error: remote authentication failed -", err.Error())
 		return errors.New("remote authentication failed")
 	}
 
-	ctx := context.WithValue(cmd.Context(), common.TokenKey, authResult.Token)
-	ctx = context.WithValue(ctx, common.UserIDKey, authResult.UserID)
-	ctx = context.WithValue(ctx, common.RemoteTargetKey, target)
-	ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+	client, err := vaultapi.New(vaultapi.Config{
+		BaseURL:    target.Server,
+		HTTPClient: httpClient,
+		Tokens:     tokens,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to build remote API client: %w", err)
+	}
 
 	outputFlag, _ := cmd.Flags().GetString("output")
 	fmtr, fmtrErr := formatter.New(formatter.Format(outputFlag))
 	if fmtrErr != nil {
 		return fmt.Errorf("invalid --output value %q: must be table, json, or yaml", outputFlag)
 	}
+
+	ctx := context.WithValue(cmd.Context(), common.RemoteTargetKey, target)
+	ctx = context.WithValue(ctx, common.RemoteClientKey, client)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, fmtr)
+
+	// Transitional: cmd/secrets/*.go still call cliclient.*SecretsRemote,
+	// which needs a bearer token and a bare http.Client rather than the
+	// vaultapi client above. Plan 08 migrates those adapters and removes
+	// both keys from this function.
+	//
+	// For the service-account tier this Token call performs the
+	// client-credentials POST here in the pre-run. That is the same network
+	// call the first API request would otherwise make, not an extra one.
+	ctx = context.WithValue(ctx, common.RemoteHTTPClientKey, httpClient)
+	token, tokErr := tokens.Token(cmd.Context())
+	if tokErr != nil {
+		cmd.PrintErrln("Error: remote authentication failed -", tokErr.Error())
+		return errors.New("remote authentication failed")
+	}
+	ctx = context.WithValue(ctx, common.TokenKey, token)
+
 	cmd.SetContext(ctx)
 
 	logrus.WithFields(logrus.Fields{
 		"command": cmd.Short,
 		"server":  target.Server,
-		"user":    authResult.Username,
 	}).Info("Authenticated against remote server")
 	return nil
 }

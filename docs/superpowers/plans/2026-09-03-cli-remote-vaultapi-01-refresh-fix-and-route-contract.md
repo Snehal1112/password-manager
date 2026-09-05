@@ -1,5 +1,14 @@
 # CLI Remote Refresh Fix and Route Contract — Implementation Plan
 
+> **Status: COMPLETE (2026-09-04).** Tasks 2 and 3 shipped on `v-4.0.0` in
+> commits `ab42b05` / `2b5e1f1` (route-contract test) and `0924ba5` (the refresh
+> path fix). Task 1 was **superseded, not skipped** — see its note below.
+>
+> Verified on 2026-09-04: `go build ./...` clean; `./api/`,
+> `./internal/cliclient/` and `./cmd/` all pass; and the contract test was
+> confirmed to still bite by temporarily re-adding the wrong
+> `POST /api/v1/refresh` entry, which failed as intended before being removed.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the CLI's broken remote session refresh, and add a route-contract test that would have caught it.
@@ -20,7 +29,17 @@
 
 ---
 
-### Task 1: Register the full route table in the test seam
+### Task 1: Register the full route table in the test seam — SUPERSEDED, NOT DONE
+
+> **Not implemented, deliberately.** This task assumed a test could not build
+> the real route table without a service container. That stopped being true:
+> `WalkRoutes` and the `routerWalkContainer` stub landed with the
+> route-inventory work (`c3dc191`, `4c1aa69`), so `api/route_contract_test.go`
+> walks the router built by the *production* `Init` itself. That is strictly
+> stronger than walking a test-only seam, because it cannot drift from `Init`.
+> `InitForTest` therefore still registers only `/config` (`api/api.go:177-190`),
+> which is correct — no consumer needs more. Its steps are left unticked below
+> as a record that they were considered and dropped.
 
 `api.InitForTest` (`api/api.go:177`) wires "a minimal API onto router for unit tests (no middleware, no auth)" but registers only `/config`. Task 2's contract test needs the real route table without the middleware chain, which `api.Init` (`api/api.go:58`) cannot provide because it dereferences `api.App.ServiceContainer` to build middleware.
 
@@ -128,7 +147,7 @@ to Init alone."
 - Consumes: `api.InitForTest` from Task 1.
 - Produces: nothing importable — this is a test-only guard.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `api/route_contract_test.go`:
 
@@ -252,12 +271,12 @@ func TestClientPathsAreRegistered(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it to verify the harness works**
+- [x] **Step 2: Run it to verify the harness works**
 
 Run: `go test ./api/ -run TestClientPathsAreRegistered -v`
 Expected: PASS for all six entries. The list above already names the *correct* refresh path, so this test is green before the fix — it proves the harness works.
 
-- [ ] **Step 3: Add the entry that fails**
+- [x] **Step 3: Add the entry that fails**
 
 Temporarily add the path `cliclient` actually calls today, to prove the test catches it:
 
@@ -265,16 +284,16 @@ Temporarily add the path `cliclient` actually calls today, to prove the test cat
 {http.MethodPost, "/api/v1/refresh", "cliclient.RefreshRemote (WRONG PATH — proves the test bites)"},
 ```
 
-- [ ] **Step 4: Run it to verify it fails**
+- [x] **Step 4: Run it to verify it fails**
 
 Run: `go test ./api/ -run TestClientPathsAreRegistered -v`
 Expected: FAIL — `cliclient.RefreshRemote (WRONG PATH ...) calls POST /api/v1/refresh but the server registers no such path`.
 
-- [ ] **Step 5: Remove the temporary entry**
+- [x] **Step 5: Remove the temporary entry**
 
 Delete the line added in Step 3. The test returns to green and now guards the real contract.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add api/route_contract_test.go
@@ -299,7 +318,7 @@ call against it."
 - Consumes: nothing new.
 - Produces: `cliclient.RefreshRemote` unchanged in signature, corrected in path.
 
-- [ ] **Step 1: Correct the two path assertions to the real route**
+- [x] **Step 1: Correct the two path assertions to the real route**
 
 In `internal/cliclient/auth_test.go:65` and `cmd/root_test.go:692`, change:
 
@@ -313,12 +332,12 @@ to:
 require.Equal(t, "/api/v1/users/refresh", r.URL.Path)
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `go test ./internal/cliclient/ -run TestRefreshRemote_Success -v && go test ./cmd/ -run TestResolveRemoteAuthentication_ExpiredCache_RefreshesTransparently -v`
 Expected: both FAIL — the client still posts to `/api/v1/refresh`, so the assertion sees the old path.
 
-- [ ] **Step 3: Fix the client**
+- [x] **Step 3: Fix the client**
 
 In `internal/cliclient/auth.go`, line 67:
 
@@ -334,12 +353,12 @@ And correct the doc comment on line 60:
 // subrouter (api/users.go), not at the API root.
 ```
 
-- [ ] **Step 4: Run them to verify they pass**
+- [x] **Step 4: Run them to verify they pass**
 
 Run: `go test ./internal/cliclient/... ./cmd/... ./api/...`
 Expected: PASS.
 
-- [ ] **Step 5: Verify against a real server**
+- [x] **Step 5: Verify against a real server** *(done when the fix shipped in `0924ba5`; not re-run during the 2026-09-04 status pass, which covered the automated tests only)*
 
 ```bash
 go build -o rocketvault . && ./rocketvault serve &
@@ -352,7 +371,7 @@ go build -o rocketvault . && ./rocketvault serve &
 
 Expected: the command succeeds without re-prompting for credentials. Before this fix it failed with `cached session expired and refresh failed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/cliclient/auth.go internal/cliclient/auth_test.go cmd/root_test.go

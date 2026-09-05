@@ -223,8 +223,12 @@ If you need the raw JWT for use with the REST API or scripting, use the
 Output:
 
 ```
-Login successful, JWT token: eyJhbGci...
+Login successful as admin.
 ```
+
+The JWT is not printed: the session is cached under `~/.rocketvault/sessions`
+and reused automatically, so a bearer token on stdout would only leak into
+shell history and CI logs.
 
 ---
 

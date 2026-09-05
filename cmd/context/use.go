@@ -10,11 +10,11 @@ func InitContextUse(parent *cobra.Command) *cobra.Command {
 	useCmd := &cobra.Command{
 		Use:   "use <name>",
 		Short: "Set the current server context",
-		Long: `Mark a saved context as current, so 'rocketvault context current' and
-'rocketvault context list' report it as active. Fails if the name was not
-previously saved with 'rocketvault context add'. As of this release, no
-other command yet acts on the current context: remote mode is rejected
-outside the context group ("remote mode ... is not yet supported").`,
+		Long: `Mark a saved context as current, so later commands target its server.
+
+Commands with a remote adapter act on it directly. Every other command
+refuses to run while a context is current, rather than silently operating
+on the local instance -- run 'context unset' to return to local mode.`,
 		Example: `  # Switch to a saved context
   rocketvault context use <name>`,
 		Args: cobra.ExactArgs(1),

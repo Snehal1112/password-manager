@@ -7,9 +7,30 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/common"
+	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
+	"rocketvault/internal/vaultapi"
 	"rocketvault/model"
 )
+
+// runRevokeRemote revokes one role assignment on a remote server.
+// DeleteRoleAssignment rejects a non-UUID argument before issuing a request,
+// since one principal can hold several roles in a vault and a name is
+// ambiguous.
+func runRevokeRemote(
+	cmd *cobra.Command,
+	client *vaultapi.Client,
+	target *cliclient.Target,
+	assignmentID string,
+) error {
+	vault := cliclient.ResolveRemoteVault(cmd, target)
+
+	if err := client.DeleteRoleAssignment(cmd.Context(), vault, assignmentID); err != nil {
+		return cliclient.CLIError("revoke a role assignment", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "revoked assignment %s\n", assignmentID) //nolint:errcheck
+	return nil
+}
 
 // InitVaultAccessRevoke registers the revoke command, which removes a role assignment.
 func InitVaultAccessRevoke(parent *cobra.Command) {
@@ -36,6 +57,12 @@ assignment did not exist.`,
 				return fmt.Errorf("invalid assignment id: %w", err)
 			}
 			ctx := cmd.Context()
+			// After the parse above, so the local "invalid assignment id"
+			// check also guards remote input.
+			if client, ok := ctx.Value(common.RemoteClientKey).(*vaultapi.Client); ok && client != nil {
+				target, _ := ctx.Value(common.RemoteTargetKey).(*cliclient.Target)
+				return runRevokeRemote(cmd, client, target, id.String())
+			}
 			sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
 			if !ok || sc == nil {
 				return fmt.Errorf("service container not available in context")
