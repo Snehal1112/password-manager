@@ -46,7 +46,16 @@ func NewSecretCache(cfg cachekit.Config, logger *logrus.Logger) *SecretCache {
 // ever reaching l2 (see the design spec's Problem Statement table: this is
 // the mandatory case, never PlainJSONCodec). Used only when
 // cache.rocket_mem is enabled; NewSecretCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewSecretCache path instead of building a live
+// TieredCache -- an operator's cache.secrets.enabled: false must not be
+// silently overridden by cache.rocket_mem.enabled: true.
 func NewSecretCacheWithL2(cfg cachekit.Config, logger *logrus.Logger, l2 cachekit.L2, l2TTL time.Duration) *SecretCache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewSecretCache(cfg, logger)
+	}
 	l1 := cachekit.NewFromConfig[string, *model.Secret](cfg)
 	codec := cachekit.EncryptedJSONCodec[*model.Secret]{
 		Encrypt: common.EncryptSecret,

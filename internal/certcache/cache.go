@@ -147,7 +147,16 @@ func (c *Cache) Stop() {
 // ciphertext), so nothing decrypted ever reaches this cache, matching this
 // package's existing "no Zero() needed" rationale. Used only when
 // cache.rocket_mem is enabled; NewCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewCache path instead of building a live TieredCache --
+// an operator's cache.certificates.enabled: false must not be silently
+// overridden by cache.rocket_mem.enabled: true.
 func NewCacheWithL2(cfg cachekit.Config, logger *logrus.Logger, l2 cachekit.L2, l2TTL time.Duration) *Cache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewCache(cfg, logger)
+	}
 	l1 := cachekit.NewFromConfig[string, *model.Certificate](cfg)
 	var codec cachekit.PlainJSONCodec[*model.Certificate]
 	keys := cachekit.KeyCodec[string]{

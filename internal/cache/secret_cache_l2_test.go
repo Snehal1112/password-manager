@@ -60,14 +60,59 @@ func (f *fakeL2) Keys(prefix string) []string {
 
 var _ cachekit.L2 = (*fakeL2)(nil)
 
+// panicL2 fails the test the instant any method is invoked. Used to prove a
+// disabled domain cache never touches L2 at all, even when rocket_mem itself
+// is enabled -- see TestNewSecretCacheWithL2_Disabled_NeverTouchesL2.
+type panicL2 struct{ t *testing.T }
+
+func (p panicL2) Get(wireKey string) ([]byte, bool) {
+	p.t.Fatalf("L2.Get must not be called when the domain cache is disabled (wireKey=%q)", wireKey)
+	return nil, false
+}
+func (p panicL2) Set(wireKey string, _ []byte, _ time.Duration) {
+	p.t.Fatalf("L2.Set must not be called when the domain cache is disabled (wireKey=%q)", wireKey)
+}
+func (p panicL2) Invalidate(wireKey string) {
+	p.t.Fatalf("L2.Invalidate must not be called when the domain cache is disabled (wireKey=%q)", wireKey)
+}
+func (p panicL2) Keys(prefix string) []string {
+	p.t.Fatalf("L2.Keys must not be called when the domain cache is disabled (prefix=%q)", prefix)
+	return nil
+}
+
+var _ cachekit.L2 = panicL2{}
+
+// TestNewSecretCacheWithL2_Disabled_NeverTouchesL2 proves the Critical fix:
+// cache.secrets.enabled: false must not be silently overridden by
+// cache.rocket_mem.enabled: true. Get/Set behave exactly like the plain
+// NewSecretCache (disabled) path -- Set is a no-op, Get always misses -- and
+// L2 is never touched (panicL2 would fail the test otherwise).
+func TestNewSecretCacheWithL2_Disabled_NeverTouchesL2(t *testing.T) {
+	c := NewSecretCacheWithL2(
+		cachekit.Config{Enabled: false, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0},
+		logrus.New(), panicL2{t: t}, time.Minute,
+	)
+	defer c.Stop()
+
+	ctx := context.Background()
+	vaultID, secretID := uuid.New(), uuid.New()
+	scope := model.NewVaultScope(vaultID, uuid.New())
+	secret := &model.Secret{ID: secretID, VaultID: vaultID, Name: "n", Value: "irrelevant", Version: 1, CreatedAt: time.Now(), Enabled: true}
+
+	require.NoError(t, c.Set(ctx, secret, scope))
+	_, ok := c.Get(ctx, secretID, scope)
+	assert.False(t, ok, "a disabled cache must never yield a hit")
+}
+
 func TestNewSecretCacheWithL2_RoundTrip_AndCiphertextOnWire(t *testing.T) {
 	// Set up master key in viper for encryption.
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
 	require.NoError(t, err)
 	masterKey := base64.StdEncoding.EncodeToString(key)
+	origMasterKey := viper.GetString("master_key")
 	viper.Set("master_key", masterKey)
-	defer viper.Set("master_key", "")
+	defer viper.Set("master_key", origMasterKey)
 
 	l2 := newFakeL2()
 	c := NewSecretCacheWithL2(

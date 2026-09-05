@@ -47,7 +47,16 @@ func (c *Cache) Stop() {
 // entry lifetime). Uses PlainJSONCodec -- model.Vault carries no secret
 // material (see the design spec). Used only when cache.rocket_mem is
 // enabled; NewCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewCache path instead of building a live TieredCache --
+// an operator's cache.vaults.enabled: false must not be silently overridden
+// by cache.rocket_mem.enabled: true.
 func NewCacheWithL2(cfg cachekit.Config, l2 cachekit.L2, l2TTL time.Duration) *Cache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewCache(cfg)
+	}
 	l1 := cachekit.NewFromConfig[string, *model.Vault](cfg)
 	var codec cachekit.PlainJSONCodec[*model.Vault]
 	keys := cachekit.KeyCodec[string]{

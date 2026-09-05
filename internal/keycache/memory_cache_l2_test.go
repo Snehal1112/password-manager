@@ -56,14 +56,53 @@ func (f *fakeL2) Keys(prefix string) []string {
 
 var _ cachekit.L2 = (*fakeL2)(nil)
 
+// panicL2 fails the test the instant any method is invoked. Used to prove a
+// disabled domain cache never touches L2 at all, even when rocket_mem itself
+// is enabled -- see TestNewCacheWithL2_Disabled_NeverTouchesL2.
+type panicL2 struct{ t *testing.T }
+
+func (p panicL2) Get(wireKey string) ([]byte, bool) {
+	p.t.Fatalf("L2.Get must not be called when the domain cache is disabled (wireKey=%q)", wireKey)
+	return nil, false
+}
+func (p panicL2) Set(wireKey string, _ []byte, _ time.Duration) {
+	p.t.Fatalf("L2.Set must not be called when the domain cache is disabled (wireKey=%q)", wireKey)
+}
+func (p panicL2) Invalidate(wireKey string) {
+	p.t.Fatalf("L2.Invalidate must not be called when the domain cache is disabled (wireKey=%q)", wireKey)
+}
+func (p panicL2) Keys(prefix string) []string {
+	p.t.Fatalf("L2.Keys must not be called when the domain cache is disabled (prefix=%q)", prefix)
+	return nil
+}
+
+var _ cachekit.L2 = panicL2{}
+
+// TestNewCacheWithL2_Disabled_NeverTouchesL2 proves the Critical fix:
+// cache.keys.enabled: false must not be silently overridden by
+// cache.rocket_mem.enabled: true. Set is a no-op, Get always misses -- and L2
+// is never touched (panicL2 would fail the test otherwise).
+func TestNewCacheWithL2_Disabled_NeverTouchesL2(t *testing.T) {
+	c := NewCacheWithL2(cachekit.Config{Enabled: false, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0}, panicL2{t: t}, time.Minute)
+	defer c.Stop()
+
+	keyID := uuid.New()
+	entry := &Entry{PrivateKey: PEMKey{PEM: []byte("irrelevant")}, KeyType: "RSA", Version: 1}
+	c.Set(keyID, 1, entry)
+
+	_, ok := c.Get(keyID, 1)
+	assert.False(t, ok, "a disabled cache must never yield a hit")
+}
+
 func TestNewCacheWithL2_RoundTrip_AndCiphertextOnWire(t *testing.T) {
 	// Set up master key in viper for encryption.
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
 	require.NoError(t, err)
 	masterKey := base64.StdEncoding.EncodeToString(key)
+	origMasterKey := viper.GetString("master_key")
 	viper.Set("master_key", masterKey)
-	defer viper.Set("master_key", "")
+	defer viper.Set("master_key", origMasterKey)
 
 	l2 := newFakeL2()
 	c := NewCacheWithL2(cachekit.Config{Enabled: true, TTL: time.Minute, CleanupInterval: time.Second, MaxEntries: 0}, l2, time.Minute)

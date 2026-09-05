@@ -34,7 +34,16 @@ func NewCache(cfg cachekit.Config) Cache {
 // Entry's interface-typed PrivateKey/PublicKey fields round-trip correctly
 // -- see l2_codec.go. Used only when cache.rocket_mem is enabled;
 // NewCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewCache path instead of building a live TieredCache --
+// an operator's cache.keys.enabled: false must not be silently overridden by
+// cache.rocket_mem.enabled: true.
 func NewCacheWithL2(cfg cachekit.Config, l2 cachekit.L2, l2TTL time.Duration) Cache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewCache(cfg)
+	}
 	l1 := cachekit.NewFromConfig[keyCacheKey, *Entry](cfg)
 	codec := entryCodec{encrypt: common.EncryptSecret, decrypt: common.DecryptSecret}
 	return &cacheImpl{
