@@ -136,6 +136,23 @@ func New(t *testing.T, opts Options) *Server {
 		tc.MockContainer.RoleAssignmentService = opts.RoleAssignments
 	}
 
+	if opts.DenyDataAction != "" {
+		svc, ok := tc.MockContainer.RoleAssignmentService.(*testutils.MockRoleAssignmentService)
+		if !ok {
+			t.Fatalf("apitest: DenyDataAction needs a *testutils.MockRoleAssignmentService, got %T",
+				tc.MockContainer.RoleAssignmentService)
+		}
+		// Clear the allow-everything default from NewTestContext, then deny
+		// the named action and allow every other. This also drops any
+		// expectations the test registered on this same mock instance before
+		// calling New -- such a test must register those after New returns.
+		svc.ExpectedCalls = nil
+		svc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, opts.DenyDataAction).
+			Return(false, nil).Maybe()
+		svc.On("HasDataAction", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			Return(true, nil).Maybe()
+	}
+
 	router := mux.NewRouter()
 	// WithMetricsEnabled(false) keeps this a minimal harness by default.
 	// It is not required for safety: internal/metrics registers the
