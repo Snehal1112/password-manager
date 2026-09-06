@@ -16,8 +16,8 @@ export const journeysGM: Suite[] = [
         command: `rocketvault vault-access grant wren --role "Key Vault Data Access Administrator" --vault prod`,
         expected: "The assignment is created.",
         assert: "Granted — note Wren's global role is only `user`",
-        notes:
-          "`vault-access` commands check no global role at all, which is why a bare `user` is enough here.",
+        why: "`vault-access` commands check no global role at all — that is why a bare `user` role is enough for Wren to hold and use this grant.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G",
       },
       {
         id: "G2",
@@ -28,6 +28,7 @@ export const journeysGM: Suite[] = [
         expected:
           "granted Key Vault Secrets User to marcus in vault (assignment 8516e7fd-...)",
         assert: "Grant succeeds and returns an assignment id",
+        related: [{ id: "G1", rel: "depends" }],
       },
       {
         id: "G3",
@@ -37,6 +38,9 @@ export const journeysGM: Suite[] = [
         command: `rocketvault secrets list --vault prod`,
         expected: "Error: forbidden: no role grants ... in this vault",
         assert: "Denied — she just granted this to someone else",
+        why: "`Key Vault Data Access Administrator` only lets Wren manage role assignments. It carries no data-plane permission of its own, so holding it grants her no access to secrets, keys or certificates.",
+        related: [{ id: "G2", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G (lines 521-527)",
       },
       {
         id: "G4",
@@ -57,6 +61,8 @@ export const journeysGM: Suite[] = [
         expected:
           "Error: grant failed: role cannot be granted by a non-admin caller",
         assert: "ErrRoleNotGrantable — outside the eight-role allow-list",
+        why: "Wren can grant only the eight roles the document names: Administrator, Reader, Secrets User, Secrets Officer, Crypto User, Crypto Officer, Certificates Officer, and Crypto Service Encryption User. `Key Vault Purge Operator` is not on that list, so the grant is refused.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G",
       },
       {
         id: "G6",
@@ -67,6 +73,9 @@ export const journeysGM: Suite[] = [
         expected:
           "Error: grant failed: role cannot be granted by a non-admin caller",
         assert: "Denied — Data Access Administrator is not self-grantable",
+        why: "`Key Vault Data Access Administrator` is also not among the eight roles Wren can grant — the allow-list she can act on does not include the role she herself holds, so she cannot re-grant it even to herself.",
+        related: [{ id: "G9", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G",
       },
       {
         id: "G7",
@@ -77,8 +86,9 @@ export const journeysGM: Suite[] = [
         expected: "Error: role cannot be granted by a non-admin caller",
         assert: "No back door via revoke",
         flag: "trap",
-        notes:
-          "Without this, she could revoke a role she cannot grant, which is a privilege change in the other direction. Check both halves.",
+        notes: "Check both halves.",
+        why: "The same eight-role allow-list gates `revoke`, not just `grant`. Without that, Wren could revoke a role she cannot grant — a privilege change in the opposite direction, such as removing someone else's Purge Operator assignment despite never being able to create one.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G",
       },
       {
         id: "G8",
@@ -90,8 +100,8 @@ export const journeysGM: Suite[] = [
         expected:
           "403 Insufficient permissions: admin role required to manage access policies",
         assert: "403 with the access-policy-specific message",
-        notes:
-          "Data Access Administrator manages *role assignments only*. Access policies are a different surface entirely.",
+        why: "Access policies are a separate surface from role assignments, gated by admin only. `Key Vault Data Access Administrator` covers role assignments alone and does not reach it, so Wren gets 403 here even though she just granted roles under her own authority.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G (lines 540-543)",
       },
       {
         id: "G9",
@@ -102,6 +112,9 @@ export const journeysGM: Suite[] = [
 # Crypto Officer, Certificates Officer, Crypto Service Encryption User`,
         expected: "All eight succeed. The other three roles do not.",
         assert: "Eight succeed, three refuse",
+        why: "The allow-list is `nonAdminGrantableRoles`, and it holds exactly those eight. The three built-in roles left out are **Key Vault Data Access Administrator** itself, **Key Vault Purge Operator** and **Key Vault Certificate User** — the last is the one the document does not name. The same list gates revoke as well as grant, so an excluded role cannot be reached from the revoke side either.",
+        source:
+          "internal/services/authorization/role_assignment_service.go:27-45, :126, :193",
       },
       {
         id: "G10",
@@ -113,6 +126,8 @@ export const journeysGM: Suite[] = [
         expected: `Error: permission denied: admin, vaults/manage, or Key Vault Data Access
        Administrator required for this vault`,
         assert: "Listing assignments is itself a privileged operation",
+        why: "Listing role assignments requires one of three authorities — admin, a `vaults/manage` access policy, or holding `Key Vault Data Access Administrator` in that vault. A plain `Key Vault Secrets User` grant only carries data-plane access, so Marcus does not qualify for any of the three.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G",
       },
       {
         id: "G11",
@@ -155,6 +170,9 @@ export const journeysGM: Suite[] = [
         expected: "A policy id.",
         assert: "Created — there is no CLI equivalent for this",
         flag: "gap",
+        after:
+          "The deny policy stays active until it is explicitly deleted (H6). Stopping the run anywhere before H6 leaves Marcus locked out of this one secret in `prod`.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey H",
       },
       {
         id: "H3",
@@ -167,7 +185,13 @@ export const journeysGM: Suite[] = [
         assert: "“access policy denied”, not “no role assignment grants…”",
         flag: "divergence",
         notes:
-          "Gate 2 rejected the request **before** the role check ran. Matching only on the status code cannot distinguish this from a Gate 3 denial, and the difference is what tells you whether the deny actually took effect.",
+          "Matching only on the status code cannot distinguish this from a Gate 3 denial, and the difference is what tells you whether the deny actually took effect.",
+        why: "The explicit-deny check (Gate 2) runs before the per-vault role-assignment check (Gate 3) — a deny here rejects the request before the role check ever runs, which is why the message reads `access policy denied` rather than `no role assignment grants this operation in this vault`. The same ordering means an access-policy deny overrides a role grant the principal genuinely holds.",
+        verify: {
+          look: "The message reads exactly `access policy denied`, not `no role assignment grants this operation in this vault` (the Gate 3 wording). A 403 with the Gate 3 string means the deny did not take effect and the request fell through to the role check instead — the status code alone cannot tell the two apart.",
+        },
+        related: [{ id: "H1", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey H",
       },
       {
         id: "H4",
@@ -187,6 +211,9 @@ export const journeysGM: Suite[] = [
         command: `rocketvault vault-access list --vault prod --output json | jq '.[] | select(.principal_username=="marcus")'`,
         expected: "The Secrets User assignment is still there, unchanged.",
         assert: "The deny is an overlay, not a revocation",
+        why: "The explicit-deny check (Gate 2) and the per-vault role check (Gate 3) are separate gates evaluated in sequence. Writing a deny policy only affects Gate 2; it never modifies the role grant Gate 3 reads, so Marcus's Secrets User assignment is unchanged.",
+        related: [{ id: "H2", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey H",
       },
       {
         id: "H6",
@@ -198,6 +225,9 @@ curl -s -o /dev/null -w '%{http_code}\\n' $BASE/vaults/prod/secrets/<secret-id> 
   -H "Authorization: Bearer $MARCUS_TOKEN"`,
         expected: "200",
         assert: "200 again — no restart, no cache flush",
+        why: "Access returns on the very next request, with no restart and no cache flush, because the deleted policy row is no longer there to be found when the request is evaluated.",
+        related: [{ id: "H2", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey H (lines 592-596)",
       },
     ],
   },
@@ -248,6 +278,9 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
   -H "Authorization: Bearer $SVC_TOKEN"`,
         expected: "403",
         assert: "200 → 403 with no reissue",
+        why: "Authorization runs as a live per-request lookup against the `role_assignments` table — there is no cache and no JWT-embedded permission. The token itself is unchanged; only the assignment row is gone, so the very next request after the revoke is denied with no new login and no reissue needed.",
+        related: [{ id: "I3", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey I",
       },
       {
         id: "I5",
@@ -257,8 +290,12 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         command: `echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         expected: "Identical to I2 — exp still roughly 55 minutes out.",
         assert: "Nothing about the token changed; only the DB row did",
-        notes:
-          "Both `PolicyMiddleware` (HTTP) and `RequireDataAction` (CLI) call the same live `HasDataAction` lookup per request. No cache, no JWT-embedded claim, no lag.",
+        why: "Both `PolicyMiddleware` (HTTP) and `RequireDataAction` (CLI) call the same live `HasDataAction` lookup on every request — no cache, no JWT-embedded claim, no revocation lag. The token itself never changes; only the underlying `role_assignments` row does, which is why the decoded claims here are byte-identical to I2.",
+        verify: {
+          look: "`sub` and `jti` must match I2 character for character — no new token was issued. `exp` matches too; 'roughly 55 minutes out' describes the gap from now, not license to see a different absolute value than I2 recorded.",
+        },
+        related: [{ id: "I2", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey I",
       },
       {
         id: "I6",
@@ -269,6 +306,9 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         command: `rocketvault keys rotate <key-id> --vault prod`,
         expected: "A new key version.",
         assert: "Rotation succeeds; old versions still verify (see C12)",
+        why: "Rotating creates a new key version so any material the leaked credentials could reach through the old version is invalidated going forward. Whether the old version still verifies existing signatures is established at C12, not here.",
+        related: [{ id: "C12", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey I",
       },
     ],
   },
@@ -294,9 +334,10 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
         assert: "Children are soft-deleted with the vault's timestamp",
         why: "The cascade stamps every contained secret, key and certificate with the vault's own `deleted_at`, not with a timestamp of its own. That shared value is what makes J3's recovery possible, and it is the same fact that excludes J4's earlier-deleted secret from the cascade.",
         verify: {
-          look: "Every item the cascade touched carries the same `deleted_at` as the vault row itself, not the time each one was created or last changed.",
+          look: "Every item the cascade touched carries the same `deleted_at` as the vault row itself, not the time each one was created or last changed. Read that column the way J6 does, straight from the database: no CLI command shows a secret's `deleted_at` — `secrets list` excludes soft-deleted rows and registers only `--tags` — and the one HTTP listing that returns the column, `GET /api/v1/vaults/{vault_name}/deleted/secrets`, 404s for as long as the vault is soft-deleted, which is the whole window this check runs in.",
         },
-        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J",
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J; cmd/secrets/list.go:50,217; api/soft_delete.go:41-48,405; internal/middleware/middleware.go:635-640; internal/repositories/vault_repository.go:134",
       },
       {
         id: "J2",
@@ -337,9 +378,10 @@ echo "$SVC_TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null | jq '{exp,jti,sub}'`,
           "Do not assume vault recovery brings everything back. This is the most commonly missed assertion in the whole document.",
         why: "A secret soft-deleted individually, earlier, carries its own `deleted_at`, and that value does not equal the vault's. The `WHERE vault_id = ? AND deleted_at = ?` clause driving the cascade therefore never matches it, so vault recovery steps straight past it.",
         after:
-          "The secret is still soft-deleted and still recoverable on its own. Restore it explicitly before continuing, or the rest of this journey runs against a smaller secret set than it expects.",
+          "The secret is still soft-deleted and still recoverable on its own, but **no CLI command restores it**: the `secrets` group registers only create, get, list, update, delete, generate-password, import and export, and `backup restore` replaces the whole database rather than one row. The only restore path is REST — `POST /api/v1/vaults/staging/deleted/secrets/<secret-id>/restore`, with the ids from `GET /api/v1/vaults/staging/deleted/secrets`. Both resolve the vault by name, so they work here only because J3 already recovered `staging`. The restore route needs `Microsoft.KeyVault/vaults/secrets/recover/action` in `staging` (Key Vault Administrator or Key Vault Secrets Officer), and data-plane routes have no admin short-circuit, so a global admin holding no grant in the vault gets a 403.",
         related: [{ id: "J3", rel: "depends" }],
-        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J",
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J; cmd/secrets/create.go:195, delete.go:151, get.go:180, list.go:215, update.go:184, generate.go:97, import.go:255, export.go:281 (no restore subcommand registered); cmd/backup.go:176; api/soft_delete.go:405-406; internal/services/authorization/data_actions.go:302-305; model/azure_roles.go:27,158,180; internal/services/authorization/data_action_authz.go:12-19",
       },
       {
         id: "J5",
@@ -419,6 +461,8 @@ rocketvault vaults purge staging      # as ops-oncall`,
   -H "Authorization: Bearer $ADMIN_TOKEN"`,
         expected: "403",
         assert: "403 for a global admin with no Purge Operator grant",
+        why: "The HTTP purge route has no admin short-circuit: a global admin holding no `Key Vault Purge Operator` grant in `dev` fails the same role check anyone else without the role would fail.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey K",
       },
       {
         id: "K3",
@@ -429,8 +473,17 @@ rocketvault vaults purge staging      # as ops-oncall`,
         expected: "Succeeds.",
         assert: "Succeeds for the same principal that got 403 in K2",
         flag: "divergence",
-        notes:
-          "`CanPurgeVault` short-circuits for the global admin role; the HTTP route is gated purely by the `RouteVaultData`/`ActionVaultPurge` role-assignment check in `PolicyMiddleware`. Both are intentional; they simply disagree.",
+        notes: "Both are intentional; they simply disagree.",
+        why: "`CanPurgeVault` short-circuits for the global admin role, so Priya's `admin` account passes the CLI check without ever needing a `Key Vault Purge Operator` grant — unlike the HTTP route (K2), which has no such short-circuit.",
+        verify: {
+          command: "rocketvault vaults list --include-deleted --output json",
+          look: "`dev` is gone from the list entirely, not merely shown as soft-deleted — a purge removes the vault row outright. If it is still listed with a `deleted_at`, the purge did not actually run.",
+        },
+        after:
+          "Like any vault purge, this permanently removes the vault row without cascading to its contents. Anything still inside `dev` becomes an orphaned, unreachable row exactly as described for the purge trap — purge its contents first if it holds anything.",
+        related: [{ id: "J5", rel: "diverges" }],
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey K; VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J — the purge trap",
       },
       {
         id: "K4",
@@ -441,6 +494,9 @@ rocketvault vaults purge staging      # as ops-oncall`,
 # HTTP: curl -X DELETE $BASE/vaults/dev/purge -H "Authorization: Bearer $OPS_TOKEN"`,
         expected: "Both succeed.",
         assert: "The divergence affects admins only",
+        why: "Both doors ultimately gate on the same `Key Vault Purge Operator` grant for a non-admin caller — there is no admin short-circuit to diverge from when the caller already holds the role the check is looking for. The CLI/HTTP split in K2 and K3 only appears for an admin who lacks that grant.",
+        related: [{ id: "K3", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey K",
       },
     ],
   },
@@ -472,6 +528,12 @@ rocketvault vault-access grant daeho --role "Key Vault Reader" --vault staging`,
         assert: "Works — read commands skip Correction 8's gate",
         notes:
           "Compare with C1, where the same user's `keys create` would be refused by the global-role gate before the vault check ran.",
+        why: "Correction 8's global-role gate applies only to mutating key commands (`create/update/delete/rotate/sign/verify/wrap/unwrap`, plus `rotation-policy set/delete`). `keys get`/`keys list`/`rotation-policy get` are the row in that table with no global-role requirement at all — only the vault data action is checked.",
+        related: [
+          { id: "L1", rel: "depends" },
+          { id: "C1", rel: "contrasts" },
+        ],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Correction 8",
       },
       {
         id: "L3",
@@ -504,6 +566,9 @@ rocketvault secrets get <secret-id> --vault prod`,
         flag: "gap",
         notes:
           "Worth flagging to whoever designs your compliance process: the auditor has to ask an admin for their own evidence.",
+        why: "Audit logs are gated by a global admin check, not by any vault-scoped role assignment. Reader is a per-vault grant and audit cuts across every vault, so holding it in `prod` and `staging` has no bearing on this gate at all.",
+        related: [{ id: "L1", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey L",
       },
       {
         id: "L6",
@@ -524,6 +589,7 @@ rocketvault secrets get <secret-id> --vault prod`,
   --action create_key --outcome success --limit 100 --output json`,
         expected: "Matching entries.",
         assert: "Filters by date, action and outcome",
+        related: [{ id: "L5", rel: "contrasts" }],
       },
       {
         id: "L8",
@@ -545,8 +611,10 @@ rocketvault audit report --type gdpr --from 2026-07-01 --to 2026-09-30 \\
         expected: "Current audit log retention: 90 days",
         assert: "Reads, does not write",
         flag: "trap",
-        notes:
-          "An omitted or `0` `--retention-days` is a view, not a set. The same command with a value writes.",
+        notes: "The same command with a value writes.",
+        why: "`audit config` treats an omitted or explicit `0` value for `--retention-days` as a read: the command only prints the current retention rather than writing anything.",
+        related: [{ id: "L10", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey L",
       },
       {
         id: "L10",
@@ -588,6 +656,8 @@ done`,
         expected: "Every assignment across every vault.",
         assert: "You must loop — there is no cross-vault listing",
         flag: "gap",
+        why: "Every `vault-access` command in the document takes a single `--vault` — there is no command that lists or revokes role assignments across every vault at once, so removing a principal's access instance-wide means enumerating each vault yourself, as this loop does.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey M",
       },
       {
         id: "M2",
@@ -597,6 +667,10 @@ done`,
         command: `rocketvault vault-access revoke <assignment-id> --vault dev`,
         expected: "Takes effect on his very next request.",
         assert: "Revoked, one call per assignment",
+        after:
+          "Only the `dev` assignment shown here is revoked. Repeat this call for every assignment M1 found, in every vault it appeared in, or the offboarding is incomplete.",
+        related: [{ id: "M1", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey M",
       },
       {
         id: "M3",
@@ -610,7 +684,10 @@ curl -s -o /dev/null -w '%{http_code}\\n' $BASE/vaults/dev/secrets \\
         expected: "401",
         assert: "401, not 403, and not at TTL expiry",
         notes:
-          "Contrast with I4, where a revoked *role* gives 403 and the token stays valid. Deleting the *user* invalidates authentication itself.",
+          "Contrast with I4, where a revoked *role* gives 403 and the token stays valid.",
+        why: "Revoking a role assignment (I4) leaves the account able to authenticate — the token still passes signature and expiry checks, so the request reaches the authorization check and fails there with 403. Deleting the user removes the account authentication depends on entirely, so the same token fails to authenticate at all and returns 401 instead.",
+        related: [{ id: "I4", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey M (lines 790-796)",
       },
       {
         id: "M4",
@@ -627,6 +704,8 @@ curl -s -o /dev/null -w '%{http_code}\\n' $BASE/vaults/dev/secrets \\
         flag: "trap",
         notes:
           "Left behind, these accumulate as dangling denies against ids that no longer resolve. Clean them up as part of offboarding.",
+        why: "User deletion does not remove `access_policies` rows naming that user — the document is explicit that this step does not happen automatically. A deny written against Marcus's user id keeps existing, now naming an id that resolves to nobody, until an admin deletes it by hand.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey M",
       },
       {
         id: "M5",
@@ -636,6 +715,9 @@ curl -s -o /dev/null -w '%{http_code}\\n' $BASE/vaults/dev/secrets \\
         command: `rocketvault users logout`,
         expected: "The session file is deleted.",
         assert: "Client-side only — the JWT is not revoked server-side",
+        why: "`users logout` deletes only the locally cached session file under `~/.rocketvault/sessions/` — the same cache the setup section describes as something HTTP never reads. Removing it does not call anything server-side, so the JWT itself stays valid, on any machine that already holds a copy, until its own expiry.",
+        related: [{ id: "M3", rel: "contrasts" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey M (lines 804-806)",
       },
     ],
   },

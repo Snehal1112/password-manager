@@ -58,6 +58,10 @@ rocketvault vaults get prod --output json`,
         expected:
           "`prod` reports purge protection enabled and 30-day retention.",
         assert: "Creation flags round-trip into the stored record",
+        verify: {
+          look: "The JSON keys are exactly `PurgeProtection` and `RetentionDays` — PascalCase, no hyphens or underscores. The CLI's JSON formatter uses each command's table headers verbatim as keys, and headers are chosen independently per command, so casing is not consistent across commands. `PurgeProtection` reads `true` and `RetentionDays` reads `30`.",
+        },
+        source: "cmd/vaults/get.go:55; internal/formatter/json.go:10-24",
       },
       {
         id: "A5",
@@ -98,6 +102,10 @@ rocketvault vaults update staging --purge-protection`,
         flag: "trap",
         notes:
           "The single most surprising behaviour in RocketVault, and correct. Retract any runbook that says admin bypasses vault checks.",
+        why: "`HasDataAction` looks up the principal's role assignments in the target vault and grants only if one of them includes the requested action; it never checks the caller's global account role. Creating a vault is a management decision (`CanManageVault`), and it writes no role assignment for the vault's creator, so a brand-new vault's own admin starts with zero data-plane access inside it.",
+        related: [{ id: "A10", rel: "contrasts" }],
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey A — Day Zero: the admin discovers she has no access; internal/services/authorization/role_assignment_service.go:213",
       },
       {
         id: "A8",
@@ -132,6 +140,10 @@ rocketvault vault-access grant priya --role "Key Vault Administrator" --vault st
         assert: "Same command as A7, now permitted",
         notes:
           "Put “self-grant Key Vault Administrator in every new vault” in your provisioning runbook, or the vault is unusable to whoever created it.",
+        why: "Once `vault-access grant priya --role \"Key Vault Administrator\" --vault prod` creates a role assignment, `HasDataAction`'s lookup of Priya's assignments in `prod` finds one whose bundle grants every data action — including the key-read action `keys list` checks — where A7's identical lookup found nothing.",
+        related: [{ id: "A9", rel: "depends" }],
+        source:
+          "internal/services/authorization/role_assignment_service.go:213; model/azure_roles.go (RoleKeyVaultAdministrator bundle)",
       },
       {
         id: "A11",
@@ -147,6 +159,9 @@ rocketvault users create --new-username ops-oncall --new-password '<pw>' --new-r
         assert: "Five users created; five TOTP secrets captured",
         notes:
           "Capture every secret as it appears. The rest of this playbook cannot be run without them.",
+        why: "Every mutating `keys`/`secrets`/`certificates` CLI command checks the caller's global account role — `admin` or the matching manager role — before the vault-scoped data action, and HTTP has no equivalent check. Sofia, Marcus and Noor are given `crypto_manager`, `secrets_manager` and `certificate_manager` here specifically so their CLI sessions can pass that check in the journeys that follow; a `user` role holding the matching vault role would still be refused by the CLI alone.",
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Correction 8 — The CLI enforces a global role gate the HTTP path does not; § Corrected Cast",
       },
       {
         id: "A12",
@@ -159,6 +174,14 @@ rocketvault users create --new-username ops-oncall --new-password '<pw>' --new-r
         assert: "Two --new-role flags produce two roles",
         notes:
           "`--new-role admin,secrets_manager` does not split into two roles. Check what actually landed with `users list --output json`.",
+        why: '`--new-role` is registered as a cobra `StringArray` flag, not `StringSlice` — `StringArray` takes each flag occurrence as one literal value and never splits on commas. `--new-role admin,secrets_manager` becomes a single role string `"admin,secrets_manager"`, not two roles; only repeating the flag produces two.',
+        verify: {
+          command:
+            "rocketvault users list --output json | jq '.[] | select(.Username==\"multi\") | .Role'",
+          look: "The CLI's JSON output uses each command's table headers verbatim as keys, so the field is `Role` (capitalized), not `roles`, and its value is the comma-joined string `admin, secrets_manager` — both role names present. A single `--new-role` occurrence would show only one name here.",
+        },
+        source:
+          'cmd/users/create.go:151; cmd/users/list.go (headers `["ID", "Username", "Role", "Created"]`, built via `strings.Join(u.Roles, ", ")`); internal/formatter/json.go:10-24',
       },
     ],
   },
@@ -187,6 +210,7 @@ rocketvault users create --new-username ops-oncall --new-password '<pw>' --new-r
         command: `rocketvault secrets get <secret-id> --vault dev`,
         expected: "Error: forbidden — Reader has no secrets/get",
         assert: "Denied; Reader holds readMetadata, not secrets/get",
+        related: [{ id: "B5", rel: "contrasts" }],
       },
       {
         id: "B3",
@@ -202,6 +226,10 @@ rocketvault users create --new-username ops-oncall --new-password '<pw>' --new-r
         flag: "trap",
         notes:
           "A `true` here means secret values are leaking to a metadata-only role through the versions endpoint. Treat it as a release blocker, not a bug report.",
+        why: "`GET /secrets/{id}/versions` used to map to `ActionSecretsReadMetadata` — an action Reader holds — while still decrypting and returning every version's value, because `model.SecretVersion` carried a `Value` field with no metadata-only counterpart. The fix introduced `model.SecretVersionMetadata`, which has no `Value` field at all, so the handler now has nothing to leak even by a future mistake.",
+        related: [{ id: "B1", rel: "depends" }],
+        source:
+          ".claude/known-bugs.md § B30 — A Key Vault Reader can dump every historical plaintext value of every secret in a vault",
       },
       {
         id: "B4",
@@ -230,8 +258,10 @@ rocketvault vault-access grant marcus --role "Key Vault Secrets User" --vault de
         command: `rocketvault secrets create test-db-pass 's3cr3t' --vault dev`,
         expected: "Error: forbidden (no secrets/set)",
         assert: "Denied at the vault-role gate, not the global-role gate",
-        notes:
-          "Marcus holds `secrets_manager` globally, so Correction 8's gate passes. This denial comes from the vault role, which proves the two gates are independent.",
+        why: "Marcus holds `secrets_manager` globally, so Correction 8's CLI-only global-role gate passes cleanly. `secrets create` also needs the vault-scoped `Microsoft.KeyVault/vaults/secrets/setSecret/action`, and Key Vault Secrets User's bundle grants only `readMetadata` and `getSecret` — no `setSecret` — so `HasDataAction` denies it regardless of his global role.",
+        related: [{ id: "B4", rel: "depends" }],
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Correction 8; § Corrected Cast; model/azure_roles.go (RoleKeyVaultSecretsUser bundle)",
       },
       {
         id: "B7",
@@ -244,6 +274,10 @@ rocketvault secrets update <secret-id> 's3cr3t-v2' --vault dev
 rocketvault secrets list --vault dev --tags prod --output json`,
         expected: "Create and update succeed; the tag filter returns db-pass.",
         assert: "Full secret ownership in dev",
+        why: "Key Vault Secrets Officer's bundle adds `setSecret`, `delete`, `backup`, `restore`, `recover` and `purge` on top of the same `readMetadata`/`getSecret` pair Secrets User already held — the write and lifecycle actions B6 found missing.",
+        related: [{ id: "B6", rel: "contrasts" }],
+        source:
+          "model/azure_roles.go (RoleKeyVaultSecretsOfficer / RoleKeyVaultSecretsUser bundles)",
       },
       {
         id: "B8",
@@ -253,6 +287,9 @@ rocketvault secrets list --vault dev --tags prod --output json`,
         command: `rocketvault secrets list --vault prod`,
         expected: "Error: forbidden: no role grants ... in this vault",
         assert: "Three grants in dev buy nothing in prod",
+        why: "Role assignments are stored per vault, and `HasDataAction` looks them up with `ListByPrincipalInVault(principalID, vaultID)`. A lookup scoped to `prod` finds none of the three `dev` grants, because none of them was ever written against `prod`'s vault id.",
+        source:
+          "internal/services/authorization/role_assignment_service.go:213-221",
       },
       {
         id: "B9",
@@ -262,8 +299,10 @@ rocketvault secrets list --vault dev --tags prod --output json`,
         command: `rocketvault vault-access grant marcus --role "Key Vault Secrets Officer" --vault dev`,
         expected: "The original assignment id is returned, not a new one.",
         assert: "Idempotent — no duplicate row, no error",
-        notes:
-          "`AssignRole` finds the existing `(principal, role, vault)` tuple. Safe to put in a provisioning script that may re-run.",
+        notes: "Safe to put in a provisioning script that may re-run.",
+        why: "`AssignRole` looks up the assignment by its `(principal, role, vault)` tuple via `FindByTuple` before creating one, and returns the existing row unchanged when a match exists instead of inserting a duplicate or erroring.",
+        source:
+          "internal/services/authorization/role_assignment_service.go:114-145",
       },
       {
         id: "B10",
@@ -276,6 +315,8 @@ rocketvault users update <marcus-user-id> --new-password 'new-Str0ng-pw'`,
         assert: "Own profile is readable and writable",
         notes:
           "User accounts are global. There is no vault-scoped user, so `--vault` does nothing here.",
+        why: "User accounts carry no `vault_id`. `users get`/`update` check only `claims.UserID != id` plus the global `admin` role — there is no vault-scoped lookup for a `--vault` flag to filter on, which is why passing one here does nothing.",
+        source: "cmd/users/get.go:71-73; cmd/users/update.go:76-80",
       },
       {
         id: "B11",
@@ -286,6 +327,8 @@ rocketvault users update <marcus-user-id> --new-password 'new-Str0ng-pw'`,
         expected:
           "Error: forbidden: can only access your own profile or requires admin role",
         assert: "Denied on another principal's record",
+        why: "The same `claims.UserID != id` check that let B10 pass denies here: Marcus's ID does not match Sofia's, and he holds no `admin` role to satisfy the fallback.",
+        source: "cmd/users/get.go:71-73",
       },
       {
         id: "B12",
@@ -298,6 +341,9 @@ rocketvault users update <marcus-user-id> --new-password 'new-Str0ng-pw'`,
         flag: "trap",
         notes:
           "Note the shape: he *can* update his own record, but not that field of it. A test asserting only “update succeeds” would miss this.",
+        why: "The role-change guard runs twice: `cmd/users/update.go` refuses any `--new-role` when the caller lacks the `admin` role, and `UserService.UpdateUser` repeats the identical check before writing — a defense-in-depth pair that blocks self-promotion even though the same command's non-role fields (B10) are owner-writable.",
+        source:
+          "cmd/users/update.go:93-98; internal/services/users/user_service.go:248-254",
       },
     ],
   },
@@ -318,6 +364,9 @@ rocketvault users update <marcus-user-id> --new-password 'new-Str0ng-pw'`,
   --tags prod,jwt --purge-protection --vault prod`,
         expected: "The key is created and its id printed.",
         assert: "Create succeeds with crypto_manager + Crypto Officer",
+        why: "`keys create` runs Correction 8's global-role check (`admin` or `crypto_manager`) before the vault-scoped data action check. Sofia holds `crypto_manager` globally, and Key Vault Crypto Officer's bundle includes `Microsoft.KeyVault/vaults/keys/create`, so both gates pass.",
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Correction 8; model/azure_roles.go (RoleKeyVaultCryptoOfficer bundle)",
       },
       {
         id: "C2",
@@ -362,6 +411,9 @@ rocketvault keys get <secp-key-id> --vault prod --output json | jq .type`,
           "Rejected — but only after authenticating, never at parse time.",
         assert: "Rejected late, not at flag-parse time",
         flag: "gap",
+        why: "cobra's `Int` flag type accepts any integer, so `--bits 1234` parses without complaint. The size check happens only inside `KeyService.CreateRSAKey` (`req.Bits != 2048 && req.Bits != 3072 && req.Bits != 4096`), which runs after the CLI's `admin`/`crypto_manager` check and the vault data-action check have both already passed.",
+        source:
+          "cmd/keys/create.go (flag registration and auth ordering); internal/services/keys/key_service.go:276",
       },
       {
         id: "C6",
@@ -407,6 +459,10 @@ rocketvault keys verify --key-id <key-id> --data "$TAMPERED" \\
 rocketvault keys sign --key-id <key-id> --data "$DATA" --algorithm RS256 --vault prod`,
         expected: "Error: ... key is revoked",
         assert: "Sign fails; keys get still returns the record",
+        after:
+          "The key stays revoked until C10's `--revoked=false` explicitly restores it. Every sign against it fails in the meantime, including a later case run out of order that assumes the key is usable.",
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey C (revoke / un-revoke sequence)",
       },
       {
         id: "C10",
@@ -443,6 +499,9 @@ rocketvault keys verify --key-id <key-id> --data "$DATA" \\
         assert: "--version 1 reaches the pre-rotation material",
         notes:
           "`--version 0` or an omitted `--version` means the current version. This is the assertion that proves rotation is additive, not destructive.",
+        why: "The first rotation archives the pre-rotation material as version 1 before writing the new material as the next version — it is not overwritten in place. `--version 1` still resolves to that archived row after rotation, which is what lets the pre-rotation signature keep verifying.",
+        related: [{ id: "C6", rel: "depends" }],
+        source: "internal/services/keys/key_service.go:1112-1131",
       },
       {
         id: "C13",
@@ -452,6 +511,8 @@ rocketvault keys verify --key-id <key-id> --data "$DATA" \\
         command: `rocketvault keys rotation-policy get <key-id> --vault prod`,
         expected: "No rotation policy set for key <key-id>",
         assert: "Exit is clean; the message is informational",
+        why: '`keys rotation-policy get` treats `sql.ErrNoRows` from `GetKeyRotationPolicy` as the ordinary "nothing configured" case: it logs success, prints the informational line, and returns `nil` instead of surfacing an error.',
+        source: "cmd/keys/rotation_policy.go:101-107",
       },
       {
         id: "C14",
@@ -465,6 +526,8 @@ whole policy, so every field must be supplied`,
         flag: "trap",
         notes:
           "Contrast with `vaults update` (A5), which *is* a partial update. The two are inconsistent by design — mirror the HTTP `PUT` semantics here.",
+        why: 'The command checks `cmd.Flags().Changed("rotate-after-days")` and `Changed("enabled")` directly, rather than reading their zero-value defaults — an omitted flag would otherwise be indistinguishable from an explicitly-set default — so both are required on every call to keep the full-replace contract honest.',
+        source: "cmd/keys/rotation_policy.go:185-187",
       },
       {
         id: "C15",
@@ -475,6 +538,9 @@ whole policy, so every field must be supplied`,
         expected: `Error: invalid rotation policy: RotateAfterDays: must be at least 7 when
 the policy is enabled.`,
         assert: "Rejected below 7 days when enabled",
+        why: "The 7-day minimum is enforced with `validation.By` and a custom function, not ozzo-validation's built-in `validation.Min` — `Min`/`Max` skip validation entirely on a field's zero value, which would let `RotateAfterDays: 0` (continuous re-rotation) through silently whenever the policy is enabled.",
+        source:
+          "internal/validation/key_validation.go (ValidateKeyRotationPolicy)",
       },
       {
         id: "C16",
@@ -501,6 +567,8 @@ the policy is enabled.`,
         flag: "trap",
         notes:
           "An omitted field silently zeroes rather than leaving the stored value alone. Same trap as C14, different door.",
+        why: "`UpsertKeyRotationPolicyRequest`'s fields are plain `int`/`bool`, not pointers, so decoding a JSON body with a field left out just leaves that field at its Go zero value rather than signalling \"not provided.\" The HTTP `PUT` and the CLI's `rotation-policy set` both call the same `KeyService.UpsertKeyRotationPolicy` with that struct, so both write all four fields unconditionally.",
+        source: "model/key_rotation_policy.go:40-45",
       },
       {
         id: "C18",
@@ -513,7 +581,13 @@ the policy is enabled.`,
         assert: "Value round-trips; no notification is ever delivered",
         flag: "gap",
         notes:
-          "There is no outbound HTTP anywhere in the vault, secret or key service packages. Per-vault webhook *config* exists (Journey U) but nothing sends. Do not build an operational process that depends on RocketVault warning you before expiry.",
+          "Do not build an operational process that depends on RocketVault warning you before expiry.",
+        why: "There is no outbound HTTP anywhere in the vault, secret or key service packages, so a configured `notify_before_expiry_days` is stored and read back correctly but nothing ever sends a notification from it — the value is inert.",
+        verify: {
+          look: "The CLI's JSON output uses the command's table headers verbatim as keys, so the field reads back as `Notify-Before-Expiry-Days` (with hyphens), not `notify_before_expiry_days` — and its value is `14`, the number set in C16.",
+        },
+        source:
+          'VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey C ("What actually executes on schedule"); cmd/keys/rotation_policy.go (headers `["Enabled", "Rotate-After-Days", "Notify-Before-Expiry-Days", "Expiry-Days", "Last-Rotated", "Next-Rotation"]`)',
       },
       {
         id: "C19",
@@ -523,6 +597,7 @@ the policy is enabled.`,
         command: `rocketvault keys rotation-policy delete <key-id> --vault prod`,
         expected: "Rotation policy for key <key-id> deleted successfully",
         assert: "Policy gone; manual keys rotate still works",
+        related: [{ id: "C16", rel: "depends" }],
       },
       {
         id: "C20",
@@ -532,6 +607,7 @@ the policy is enabled.`,
         command: `rocketvault keys rotation-policy delete <key-id> --vault prod`,
         expected: "Error: no rotation policy exists for key <key-id>",
         assert: "Not idempotent — contrast with vault-webhook delete (U8)",
+        related: [{ id: "C19", rel: "depends" }],
       },
       {
         id: "C21",
@@ -542,8 +618,9 @@ the policy is enabled.`,
         expected: 'Error: unknown command "import" for "rocketvault keys"',
         assert: "Unknown command",
         flag: "gap",
-        notes:
-          "`ActionKeysImport` is in the Crypto Officer bundle, but no route maps to it either. The permission exists; the capability does not.",
+        why: "`ActionKeysImport` is defined and included in the Crypto Officer role bundle, but `cmd/keys.go` registers no `import` subcommand, and no HTTP route maps to that action either — the permission was modeled ahead of the capability existing.",
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Correction 9; model/azure_roles.go:189-192 (RoleKeyVaultCryptoOfficer bundle includes ActionKeysImport)",
       },
       {
         id: "C22",
@@ -556,7 +633,13 @@ the policy is enabled.`,
         assert: "Rejected only after RSA generation, with an unwrapped error",
         flag: "gap",
         notes:
-          "The name collision is detected after the expensive key generation runs. If you script this, match on `UNIQUE constraint failed` rather than a friendly message.",
+          "If you script this, match on `UNIQUE constraint failed` rather than a friendly message.",
+        why: "The insert wraps SQLite's constraint violation in `ErrNameTaken` (`a resource with this name already exists in this vault`), but the wrap uses `%w` twice and does not discard the underlying driver error, so the raw `UNIQUE constraint failed` text still appears in the final message alongside the friendlier one. The check only runs at insert time, which is after `CreateRSAKey` has already generated the RSA key material.",
+        verify: {
+          look: 'The full CLI error is longer than the fragment shown in `expected` — it reads `failed to create key: key "payments-signing": a resource with this name already exists in this vault: UNIQUE constraint failed: keys.vault_id, keys.name`. Match on the `UNIQUE constraint failed` substring, not the whole line.',
+        },
+        source:
+          "internal/repositories/key_repository.go:380-395; internal/repositories/name_taken_errors.go:5-9; internal/repositories/key_repository.go:389-395",
       },
       {
         id: "C23",
@@ -568,6 +651,9 @@ the policy is enabled.`,
           "The CLI accepts it. HTTP enforces ^[a-zA-Z][a-zA-Z0-9-]{0,126}$ and would reject it.",
         assert: "A CLI-created key can violate a constraint HTTP enforces",
         flag: "divergence",
+        why: '`ValidateKeyCreate` — which includes the `KeyNameRule` regex — is only called from the HTTP handler in `api/keys.go`. `cmd/keys/create.go`\'s `RunE` checks just `name == "" || keyType == ""` before calling `KeyService.CreateRSAKey`/`CreateECDSAKey` directly, so the same regex the HTTP path enforces never runs on the CLI path.',
+        source:
+          "api/keys.go:356 (ValidateKeyCreate call); cmd/keys/create.go (name/type check only); internal/validation/key_validation.go:26-40",
       },
     ],
   },
@@ -633,6 +719,9 @@ the policy is enabled.`,
   -d '{"name":"scratch","type":"RSA","bits":2048}'`,
         expected: "403",
         assert: "403 — Crypto User has no keys/create",
+        why: "Key Vault Crypto User's bundle covers using key material — read, update, encrypt, decrypt, wrap, unwrap, sign, verify, backup — but not `Microsoft.KeyVault/vaults/keys/create`, which belongs only to Crypto Officer and Administrator.",
+        related: [{ id: "D4", rel: "contrasts" }],
+        source: "model/azure_roles.go (RoleKeyVaultCryptoUser bundle)",
       },
       {
         id: "D6",
@@ -646,6 +735,10 @@ the policy is enabled.`,
         flag: "trap",
         notes:
           "Threat-model precision: the blob is ciphertext, but it is still key material. “Can use a key, can't manage it” is not an accurate description of this role.",
+        why: "Crypto User's bundle includes `update` and `backup` alongside the use-the-key actions — it is not limited to using a key while never touching its lifecycle. A backup blob is the master-key-encrypted key value, so this role can export key material off the vault even though it cannot create, delete, rotate or import a key.",
+        related: [{ id: "D5", rel: "contrasts" }],
+        source:
+          "model/azure_roles.go (RoleKeyVaultCryptoUser bundle); VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey D — Threat-model precision",
       },
     ],
   },
@@ -694,6 +787,8 @@ rocketvault keys unwrap --key-id <rsa-key-id> \\
         assert: "No --algorithm flag exists",
         flag: "gap",
         notes: "AES key wrapping is REST-only.",
+        why: '`keys wrap`/`keys unwrap` hardcode `Algorithm: "RSA-OAEP"` in the request they build, and neither command registers an `--algorithm` flag to override it.',
+        source: "cmd/keys/wrap.go:125,149-154; cmd/keys/unwrap.go:125,149-154",
       },
       {
         id: "E4",
@@ -718,6 +813,10 @@ rocketvault keys unwrap --key-id <rsa-key-id> \\
         assert: "403 — this role has no keys/encrypt",
         notes:
           "The point of the case: a bug that hits the wrong endpoint is refused rather than silently doing different crypto.",
+        why: "Key Vault Crypto Service Encryption User's bundle is `keys/read`, `keys/wrap` and `keys/unwrap` only — it holds no `Microsoft.KeyVault/vaults/keys/encrypt/action`, so `HasDataAction` denies the `/encrypt` route regardless of which key is targeted.",
+        related: [{ id: "E4", rel: "contrasts" }],
+        source:
+          "model/azure_roles.go (RoleKeyVaultCryptoServiceEncryptionUser bundle)",
       },
       {
         id: "E6",
@@ -732,6 +831,10 @@ rocketvault keys unwrap --key-id <rsa-key-id> \\
         assert: "The wrap contract carries no IV channel",
         notes:
           "On HSM-backed keys wrap/unwrap is limited to AES-KW and the RSA-OAEP variants. This is a contract limit, not an authorization one.",
+        why: "The wrap/unwrap contract carries no IV channel to round-trip, so CBC's required IV has nowhere to travel. Encrypt/decrypt do carry one and can support CBC. This is a limit on the operation's contract shape, not a role or authorization check.",
+        related: [{ id: "E4", rel: "contrasts" }],
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey E (closing paragraph)",
       },
     ],
   },
@@ -761,6 +864,7 @@ rocketvault keys unwrap --key-id <rsa-key-id> \\
   -d '{"algorithm":"RSA-OAEP-256","value":"'"$DATA"'"}'`,
         expected: "200",
         assert: "200",
+        related: [{ id: "F4", rel: "contrasts" }],
       },
       {
         id: "F3",
@@ -772,6 +876,8 @@ rocketvault keys unwrap --key-id <rsa-key-id> \\
   -d '{"tags":["updated-by-cryptouser"]}'`,
         expected: "200",
         assert: "200 — update is in the bundle",
+        why: "Crypto User's bundle includes `Microsoft.KeyVault/vaults/keys/update` alongside the use-the-key actions, which is what this `PUT` succeeds against.",
+        source: "model/azure_roles.go (RoleKeyVaultCryptoUser bundle)",
       },
       {
         id: "F4",
@@ -787,6 +893,10 @@ done`,
 PUT 403
 DELETE 403`,
         assert: "403 on all three verbs",
+        why: "Crypto User's bundle has no `rotationpolicy/read` or `rotationpolicy/write` entry at all — those two actions exist only in the Crypto Officer and Administrator bundles — so `HasDataAction` denies all three HTTP verbs on this route before any handler runs.",
+        related: [{ id: "F5", rel: "diverges" }],
+        source:
+          "model/azure_roles.go (RoleKeyVaultCryptoUser bundle, contrasted with RoleKeyVaultCryptoOfficer / RoleKeyVaultAdministrator)",
       },
       {
         id: "F5",
@@ -801,6 +911,13 @@ DELETE 403`,
         flag: "divergence",
         notes:
           "Commit `cdd591c` added the rotation-policy actions to Crypto Officer and Administrator only, stating *“not Crypto User, matching Azure.”* The exclusion is deliberate.",
+        why: "Priya already holds Key Vault Administrator in `prod` from her Journey A self-grant, and that bundle includes both rotation-policy actions, so her `GET` passes the vault-role check and reaches the handler — which reports 404 because this key has no policy set. cryptouser's role grants neither action, so their request is denied before it ever reaches the handler; that is F4's 403 on the same route.",
+        related: [
+          { id: "A9", rel: "depends" },
+          { id: "F4", rel: "diverges" },
+        ],
+        source:
+          "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey A (self-grant Key Vault Administrator); model/azure_roles.go (RoleKeyVaultAdministrator bundle)",
       },
     ],
   },

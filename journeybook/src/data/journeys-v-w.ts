@@ -20,7 +20,9 @@ export const journeysVW: Suite[] = [
         assert: "Success line shows the resolved UUID, never the literal wren",
         flag: "trap",
         notes:
-          "`resolvePrincipal` parses the argument as a UUID first and falls back to a username lookup, and what prints is the stored grant's `principal_id`. A QA case asserting the literal string `wren` in this output fails on a correct build.",
+          "A QA case asserting the literal string `wren` in this output fails on a correct build.",
+        why: "`resolvePrincipal` parses the argument as a UUID first and falls back to a username lookup. The success line prints the stored grant's `principal_id` — what that lookup resolved to — never the argument you typed.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey V, step 1",
       },
       {
         id: "V2",
@@ -30,8 +32,8 @@ export const journeysVW: Suite[] = [
         command: `rocketvault vault-provisioning grant 3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a --quota 20`,
         expected: `Provisioning grant issued: principal=3b1e6c2a-9e4b-4f2d-8a2f-6b1c9d0e7f5a quota=20`,
         assert: "UUID form succeeds with no username to resolve",
-        notes:
-          "An OAuth2 service account is an `oauth2_clients` row with no username to look up, so the grant path must accept a bare UUID directly.",
+        why: "An OAuth2 service account is an `oauth2_clients` row with no username to look up, so `resolvePrincipal` must accept a bare UUID directly, ahead of any username lookup.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey V, step 1",
       },
       {
         id: "V3",
@@ -43,8 +45,10 @@ export const journeysVW: Suite[] = [
         command: `rocketvault vault-provisioning grant wren --quota 10`,
         expected: `Provisioning grant issued: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34 quota=10`,
         assert: "Same principal, quota now 10 — not a second grant row",
-        notes:
-          "`principal_id` is `UNIQUE` and the repository upsert updates only the quota, leaving `id`, `created_by` and `created_at` as they were.",
+        why: "`principal_id` is `UNIQUE` on the `vault_provisioning_grants` table, and the repository issues an `ON CONFLICT (principal_id) DO UPDATE SET quota` upsert. Re-issuing for the same principal updates only the quota; `id`, `created_by` and `created_at` are untouched.",
+        related: [{ id: "V1", rel: "depends" }],
+        source:
+          "internal/repositories/vault_provisioning_grant_repository.go:44-53",
       },
       {
         id: "V4",
@@ -69,7 +73,10 @@ Error: --quota must be a positive integer: a zero-quota grant is indistinguishab
           "No cobra required-flag error — --quota is a plain Int flag defaulting to 0",
         flag: "trap",
         notes:
-          '`--quota` is documented as required but is **not** registered with cobra\'s required-flag machinery, so omitting it entirely produces the ordinary positive-integer error, not `required flag(s) "quota" not set`. Note also the check ordering: the admin check runs before this one, so a non-admin who types a bad quota sees the permission error, never this one.',
+          '`--quota` is documented as required but is **not** registered with cobra’s required-flag machinery, so omitting it entirely produces the ordinary positive-integer error, not `required flag(s) "quota" not set`.',
+        why: "`--quota` is a plain `Int` flag defaulting to `0` (`cmd/vault-provisioning/grant.go`), never registered with cobra's required-flag machinery, so an omitted value reaches the same `quota <= 0` check a literal `--quota 0` would. `runGrant` checks admin (`requireGrantAdmin`) before it checks quota, so a non-admin caller who also supplies a bad quota sees the permission error, never this one.",
+        source:
+          "cmd/vault-provisioning/grant.go:42-47 (admin check first); cmd/vault-provisioning/grant.go:103 (--quota Int flag, no MarkFlagRequired)",
       },
       {
         id: "V6",
@@ -89,7 +96,10 @@ Error: permission denied: managing vault provisioning grants requires the admin 
           "Denied on all three — the one CLI tier with no delegation path at all",
         flag: "trap",
         notes:
-          "`requireGrantAdmin` reads the caller's account roles and checks one thing: `common.HasAnyRole(roles, model.RoleAdmin)` — no access-policy path, no role-assignment path. The code states its own reason: 'a principal able to amend grants could raise its own quota, and the bound the grant exists to impose would be decorative.' A provisioning grant confers nothing over provisioning grants, even to its own holder.",
+          "A provisioning grant confers nothing over provisioning grants, even to its own holder.",
+        why: "`requireGrantAdmin` (`cmd/vault-provisioning/authz.go`) checks only `HasAnyRole(roles, model.RoleAdmin)` — no access-policy path, no role-assignment path, unlike every other CLI authorization tier in RocketVault. It is deliberate: a principal able to amend its own provisioning grant could raise its own quota, and the bound the grant exists to impose would be decorative. Key Vault Data Access Administrator — the one role built to delegate access management — buys Wren nothing here.",
+        related: [{ id: "G1", rel: "depends" }],
+        source: "cmd/vault-provisioning/authz.go:31-46",
       },
       {
         id: "V7",
@@ -106,8 +116,12 @@ rocketvault vault-provisioning list --vault prod`,
 identical output with --vault prod — same rows, no filtering`,
         assert: "Every grant on the instance, and --vault changes nothing",
         flag: "trap",
-        notes:
-          "A grant is a global right to create vaults, not a right inside one, so this lists every grant on the instance. `--vault` is a root-level persistent flag, so it parses here and is then ignored — `runList` never reads it.",
+        notes: "`--vault` parses here and is then ignored.",
+        why: "A provisioning grant is a global right to create vaults, not a right scoped to one, so `runList` lists every grant on the instance regardless of vault. `--vault` is a root-level persistent flag, so it still parses, but `runList` (`cmd/vault-provisioning/list.go`) never reads it.",
+        verify: {
+          look: "Run both commands and diff the output — the two PRINCIPAL-ID/QUOTA/CREATED-AT tables must be identical, not merely similar; `--vault prod` must not drop, reorder, or filter a single row.",
+        },
+        source: "cmd/vault-provisioning/list.go:18-31",
       },
       {
         id: "V8",
@@ -120,7 +134,12 @@ identical output with --vault prod — same rows, no filtering`,
         assert: "--output json is silently ignored — table printed anyway",
         flag: "trap",
         notes:
-          "`runList` writes with `fmt.Fprintf` and never reaches the output formatter, so the flag parses and does nothing. This is the opposite of `vaults list`, which does honour `--output` — so a script that pipes one into `jq` and the other into `jq` breaks on only one of them.",
+          "A script that pipes this and `vaults list` into `jq` breaks on only one of them.",
+        why: "`runList` (`cmd/vault-provisioning/list.go`) writes with `fmt.Fprintf` directly and never calls the output formatter, so `--output json` parses but has nothing to act on. This is the opposite of `vaults list`, which does honour `--output`.",
+        verify: {
+          look: "The output is the plain PRINCIPAL-ID/QUOTA/CREATED-AT table — no `{`, `[`, or JSON keys anywhere, even though `--output json` was passed.",
+        },
+        source: "cmd/vault-provisioning/list.go:18-31",
       },
       {
         id: "V9",
@@ -163,8 +182,9 @@ vault or raise your quota`,
         assert:
           "Refused at 3 of 3 — soft-deleting a vault does not free the slot",
         flag: "trap",
-        notes:
-          "The quota check runs inside the insert transaction, so two concurrent creates cannot both pass a check-then-insert race.",
+        why: "The quota check runs inside the same transaction that inserts the vault row (`CreateVaultProvisioned`), so a check-then-insert race can't let two concurrent creates both pass. Soft-deleting a vault does not touch the quota count — the count query counts every vault the principal created, deleted or not — so the slot stays occupied until the vault is purged.",
+        source:
+          "internal/services/vaults/vault_service.go:363-417; internal/repositories/vault_repository.go:158-165 (CountByCreatedBy: SELECT COUNT(*) ... WHERE created_by = ?, no deleted_at filter)",
       },
       {
         id: "V12",
@@ -179,7 +199,10 @@ or a global vaults:manage holder can`,
           "Refused — purge protection is closed to a quota-bounded create",
         flag: "trap",
         notes:
-          "Deliberate: a grantee who could set purge protection would soft-delete a protected vault and hold its slot forever. Wren cannot free her own slot either way — purge is gated on CanPurgeVault, and the creator grant she receives, Key Vault Administrator, does not carry ActionVaultPurge (Journey J).",
+          "Wren cannot free her own slot either way — purge is gated on `CanPurgeVault`, and the creator grant she receives, Key Vault Administrator, does not carry `ActionVaultPurge` (Journey J).",
+        why: "`CreateVaultProvisioned` refuses purge protection outright whenever `quotaBounded` is true and `PurgeProtection` is set. The reason is closing a trap: a grantee who could set purge protection could soft-delete a protected vault and permanently hold its slot.",
+        related: [{ id: "W5", rel: "contrasts" }],
+        source: "internal/services/vaults/vault_service.go:372-374",
       },
       {
         id: "V13",
@@ -189,6 +212,10 @@ or a global vaults:manage holder can`,
         command: `rocketvault vaults delete tenant-a`,
         expected: "succeeds — she manages what she created",
         assert: "Delete succeeds on her own creation",
+        why: "She manages tenant-a because `CreateVaultProvisioned` wrote her a vault-scoped `(vaults, manage, allow)` access-policy row for it at creation time, and `vaults delete` checks exactly that policy via `CanManageVault`. It is not her provisioning grant or her Key Vault Administrator role assignment doing the work — a provisioning grant carries no vault-management authority at all.",
+        related: [{ id: "V10", rel: "depends" }],
+        source:
+          "internal/services/vaults/vault_service.go:428-443; cmd/vaults/authz.go:104-116",
       },
       {
         id: "V14",
@@ -201,6 +228,15 @@ or a global vaults:manage holder can`,
         assert:
           "Purge denied — Key Vault Administrator does not carry ActionVaultPurge",
         flag: "trap",
+        why: "Purge is not gated by `CanManageVault` — it is gated by `CanPurgeVault`, which checks a role assignment carrying `ActionVaultPurge`. The vault-scoped access policy from creation grants `vaults:manage` only, and the creator's Key Vault Administrator role assignment does not carry `ActionVaultPurge`. No built-in role does except Key Vault Purge Operator, so neither of Wren's two creator grants reaches this check.",
+        after:
+          "tenant-a stays soft-deleted and still counts against Wren's quota (3 of 3 used) — only an admin or a Key Vault Purge Operator grant can purge it and free the slot. Continuing this journey with Wren still short a slot hits the same quota-exceeded error V11 produced.",
+        related: [
+          { id: "J5", rel: "contrasts" },
+          { id: "V13", rel: "depends" },
+        ],
+        source:
+          "internal/services/authorization/vault_authz.go:61-73 (CanPurgeVault -> HasDataAction(ActionVaultPurge)); model/azure_roles.go:201-203; VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey V, step 5",
       },
       {
         id: "V15",
@@ -211,6 +247,8 @@ or a global vaults:manage holder can`,
         expected:
           'Error: permission denied: admin or vaults/manage required for vault "prod"',
         assert: "Denied on prod — created by Priya, not her",
+        why: "A provisioning grant confers authority to create vaults, nothing more. There is no access-policy row and no role assignment for Wren on `prod` at all, so `CanManageVault` falls through to its fail-closed default regardless of what she holds elsewhere.",
+        source: "internal/services/authorization/vault_authz.go:35-55",
       },
       {
         id: "V16",
@@ -221,8 +259,10 @@ or a global vaults:manage holder can`,
         expected: `Provisioning grant revoked: principal=4f2c8a10-6f1b-4a53-9c2e-0d7b8e5a1c34`,
         assert: "Revoked — again the UUID, not the typed wren",
         flag: "trap",
-        notes:
-          "Same `resolvePrincipal` path as grant, and the same trap for a test asserting the typed argument.",
+        notes: "The same trap for a test asserting the typed argument.",
+        why: "Revoke resolves its argument through the same `resolvePrincipal` path as grant — UUID first, username fallback — so the printed line names the resolved principal, never the argument typed.",
+        related: [{ id: "V1", rel: "depends" }],
+        source: "cmd/vault-provisioning/revoke.go:19-33",
       },
       {
         id: "V17",
@@ -234,6 +274,10 @@ or a global vaults:manage holder can`,
         expected: `Error: permission denied: admin, a global vaults/manage grant, or a vault provisioning grant
 required to create a vault`,
         assert: "Create refused immediately after revoke",
+        why: "`requireCanCreateVault` calls `CanCreateVault`, which checks admin, then a global `vaults:manage` allow, then a provisioning grant, in that order. With the grant revoked and neither of the first two present, all three come back empty and the create is refused with the same three-way message a principal with no grant at all would see.",
+        related: [{ id: "V16", rel: "depends" }],
+        source:
+          "cmd/vaults/authz.go:52-81; internal/services/authorization/vault_authz.go:171-195",
       },
       {
         id: "V18",
@@ -246,6 +290,9 @@ required to create a vault`,
         flag: "trap",
         notes:
           "`vault-provisioning revoke`'s help states it outright: it leaves every vault the principal already created, and that vault's own access grants, untouched. Removing access to existing vaults is a separate operator action.",
+        why: "`RevokeGrant` deletes only the `vault_provisioning_grants` row. The vault-scoped access-policy allow and the Key Vault Administrator role assignment `CreateVaultProvisioned` wrote for tenant-b at creation are separate rows in separate tables, and revoke never touches them.",
+        related: [{ id: "V16", rel: "depends" }],
+        source: "internal/services/provisioning/grant_service.go:94-110",
       },
       {
         id: "V19",
@@ -259,6 +306,9 @@ required to create a vault`,
         flag: "trap",
         notes:
           "Offboarding means revoking the grant **and** removing the per-vault creator grants — the vault-scoped `vaults:manage` policy (HTTP only, Journey W) and the `Key Vault Administrator` role assignment (`vault-access revoke <assignment-id> --vault tenant-b`) — for every vault the principal created.",
+        why: "`vaults get`/`delete` and `secrets list` check different things — `CanManageVault` against the vault-scoped access policy, `HasDataAction` against the Key Vault Administrator role assignment — and revoking a provisioning grant touches neither. Offboarding a principal means removing both, per vault, as a separate step.",
+        related: [{ id: "V16", rel: "depends" }],
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey V, step 6",
       },
       {
         id: "V20",
@@ -273,6 +323,9 @@ rocketvault audit logs --action revoke_provisioning_grant --limit 20 --output js
         notes:
           "The actor comes from `requireGrantAdmin`'s return value — the CLI has no middleware to stamp one for it. " +
           "A create made under a grant is distinguishable from every other create in the same log: `Vault created under provisioning grant: <name>`, versus plain `Vault created: <name>` for an admin and `Vault created under global vaults:manage grant (creator rights granted): <name>` for Journey W's Iris.",
+        why: "`requireGrantAdmin` returns the authorized principal's ID, and `runGrant`/`runRevoke` pass it through to `IssueGrant`/`RevokeGrant` as the actor for the audit log entry — the CLI has no middleware that stamps an actor onto commands the way an HTTP session context does, so this return value is the only source of one.",
+        source:
+          "cmd/vault-provisioning/grant.go:41-58; internal/services/provisioning/grant_service.go:57-110",
       },
     ],
   },
@@ -301,6 +354,12 @@ curl -s $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN"
         assert: "No vault_id in the response confirms a global policy",
         notes:
           "There is no CLI command for access policies — the only mechanism is the admin-gated `POST /api/v1/access-policies`, gated by `requireAccessPolicyAdmin`. `vault_id` is a STRING in `CreateAccessPolicyRequest`: an empty value leaves the policy global, a value scopes it to that vault.",
+        why: "`vault_id` is a plain `string` field on `CreateAccessPolicyRequest`; an empty value is what leaves the policy global. The stored `AccessPolicy.VaultID` is `*uuid.UUID` tagged `omitempty`, so a global policy's JSON response has no `vault_id` key at all rather than an explicit `null` — the missing key is what confirms 'global,' not a null value.",
+        verify: {
+          look: 'The `jq .` output has no `vault_id` key anywhere in the object — not `"vault_id": null`. The key must be fully absent, since the field is `omitempty`.',
+        },
+        source:
+          "model/access_policy.go:64-66,79-80; model/access_policy.go:64-66",
       },
       {
         id: "W2",
@@ -316,7 +375,9 @@ curl -s $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN"
           "Writes role_assignments only — CanManageVault still sees nothing",
         flag: "gap",
         notes:
-          "`ExpandRole` returns `nil, nil` for every Azure built-in role, so this writes `role_assignments` rows and nothing `CanManageVault` can see. It satisfies data-plane checks and nothing else, however much it looks like a substitute.",
+          "It satisfies data-plane checks and nothing else, however much it looks like a substitute.",
+        why: "`ExpandRole` returns `nil, nil` for every Azure built-in role, including Key Vault Administrator, because those roles are evaluated directly from the `role_assignments` row by `HasDataAction`, never materialized into `access_policies`. So this command writes a `role_assignments` row and nothing `CanManageVault` reads.",
+        source: "internal/services/authorization/roles.go:155-168",
       },
       {
         id: "W3",
@@ -327,6 +388,9 @@ curl -s $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN"
         expected: `ID  Name  Enabled  PurgeProtection  RetentionDays  Created`,
         assert:
           "Create succeeds — the collection-level decision still calls CheckAccess",
+        why: "`CanCreateVault` checks a global `(vaults, manage, allow)` policy via `CheckAccess` at `vaultID == uuid.Nil` — the one call a `NULL`-scoped allow still satisfies. `CreateVaultProvisioned` treats this as `CreateRightGlobalPolicy`: not quota-bounded, but `grantCreatorRights` true.",
+        source:
+          "internal/services/authorization/vault_authz.go:171-195; internal/services/vaults/vault_service.go:355-361",
       },
       {
         id: "W4",
@@ -339,7 +403,13 @@ curl -s $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN"
         assert: "She sees vaults she cannot touch — listing is not managing",
         flag: "trap",
         notes:
-          '`vaults list` treats her as an "all" lister, which a NULL-scoped allow satisfies via CheckAccess. That asymmetry is the single most confusing thing about this release in practice, and it is intended.',
+          "That asymmetry is the single most confusing thing about this release in practice, and it is intended.",
+        why: "`vaults list` calls `CanManageVault` at `vaultID == uuid.Nil`, the same collection-level `CheckAccess` path create uses, and a `NULL`-scoped allow satisfies it — so she lists every vault. Listing is a collection-level decision; managing one is not, and that split is the entire point of this release.",
+        verify: {
+          look: "The list includes tenant-x — the vault she created — alongside vaults she has no management rights over at all, such as prod. Seeing a vault here is not evidence she can manage it.",
+        },
+        source:
+          "cmd/vaults/authz.go:93-101; internal/services/authorization/vault_authz.go:35-55; VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey W, step 2",
       },
       {
         id: "W5",
@@ -351,6 +421,9 @@ curl -s $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN"
         assert: "Purge protection open to her — she has no quota to protect",
         notes:
           "Three tiers exist on the create path, and only the middle one is refused: admin may set purge protection, a global-policy holder may set it, a provisioning grantee (Journey V) may not.",
+        why: "`quotaBounded` is `false` for a global-policy creator — only a provisioning grant sets it `true` — and `CreateVaultProvisioned` refuses `PurgeProtection` only when `quotaBounded` is true. She has no quota to protect from being permanently occupied, so the restriction that blocks Journey V's grantee does not apply to her.",
+        related: [{ id: "V12", rel: "contrasts" }],
+        source: "internal/services/vaults/vault_service.go:355-374",
       },
       {
         id: "W6",
@@ -366,6 +439,8 @@ rocketvault vault-access list --vault tenant-x`,
           "get, update, webhook get and vault-access list all succeed on her own vault",
         notes:
           "None of this comes from the global policy. `cmd/vaults/create.go` passes `right != authz.CreateRightAdmin` as `grantCreatorRights`, and `CreateVaultProvisioned` writes, in the same transaction as the vault row, a vault-scoped `vaults:manage` access policy **and** a `Key Vault Administrator` role assignment for the creator.",
+        why: "`cmd/vaults/create.go` passes `right != authz.CreateRightAdmin` as `grantCreatorRights`, true for her global-policy create. Inside the same transaction that inserts the vault, `CreateVaultProvisioned` writes a vault-scoped `(vaults, manage, allow)` access-policy row and a Key Vault Administrator role assignment for the creator — both scoped to this vault only. Each of these four commands checks one of those two grants, never the global policy itself.",
+        source: "internal/services/vaults/vault_service.go:428-451",
       },
       {
         id: "W7",
@@ -378,6 +453,9 @@ rocketvault vault-access list --vault tenant-x`,
         expected:
           "one row with no vault_id (the global allow) plus one row per vault she created, each carrying that vault's UUID",
         assert: "One global row, plus one scoped row per vault she created",
+        why: "The vault-scoped row is written by the same `CreatePolicyTx` call inside `CreateVaultProvisioned` that runs for every non-admin creator — it carries a concrete `vault_id`, unlike the pre-existing global row from W1, which has none.",
+        related: [{ id: "W6", rel: "depends" }],
+        source: "internal/services/vaults/vault_service.go:432-443",
       },
       {
         id: "W8",
@@ -395,6 +473,10 @@ Error: permission denied: admin or vaults/manage required for vault "prod"`,
         flag: "trap",
         notes:
           "A concrete vault ID routes CanManageVault to CheckVaultScopedAccess instead of CheckAccess. That method reuses the same (vault_id = ? OR vault_id IS NULL) lookup, then discards NULL-scoped allow rows and keeps NULL-scoped deny rows — her global allow survives the query and is thrown away by the filter, so the decision falls through to AccessFallback, which is not AccessAllowed.",
+        why: "A concrete vault ID routes `CanManageVault` to `CheckVaultScopedAccess` instead of `CheckAccess`. That method keeps every `NULL`-scoped **deny** row but discards `NULL`-scoped **allow** rows before returning a decision — her global allow is read from the database and then thrown away by the filter, so the check falls through to `AccessFallback`, which is not `AccessAllowed`, and `CanManageVault` fails closed.",
+        related: [{ id: "W6", rel: "contrasts" }],
+        source:
+          "internal/services/authorization/access_policy_service.go:89-111",
       },
       {
         id: "W9",
@@ -404,6 +486,8 @@ Error: permission denied: admin or vaults/manage required for vault "prod"`,
         command: `rocketvault vault-webhook set --vault prod --url https://hooks.example/rocketvault`,
         expected: `Error: permission denied: managing webhook config for vault "prod" requires admin or vaults/manage`,
         assert: "Denied — webhook config is also behind CanManageVault",
+        why: "Webhook configuration is gated by the same `CanManageVault` check as get/update/delete — one function, one narrowing, applied everywhere it is called.",
+        source: "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey W, step 4",
       },
       {
         id: "W10",
@@ -418,6 +502,9 @@ required for this vault`,
           "Denied — she cannot self-award Key Vault Administrator in prod",
         notes:
           "This is why CanManageVault and CanManageRoleAssignments were narrowed together: role-assignment management alone would otherwise be enough to self-award Key Vault Administrator anywhere, leaving the escalation wide open.",
+        why: "`CanManageRoleAssignments` was narrowed the same way and for the same reason as `CanManageVault`: it also routes a concrete vault ID to `CheckVaultScopedAccess`, discarding her `NULL`-scoped allow. Narrowing only `CanManageVault` would have left this open — role-assignment management alone is enough to self-award Key Vault Administrator in any vault, which is exactly what this command would do if it succeeded.",
+        related: [{ id: "W2", rel: "contrasts" }],
+        source: "internal/services/authorization/vault_authz.go:100-121",
       },
       {
         id: "W11",
@@ -432,7 +519,13 @@ required for this vault`,
         assert: "Denied — the vault she created, now unreachable",
         flag: "trap",
         notes:
-          "The asymmetry between deny and allow is deliberate: a global NULL-scoped deny still matches every vault, but a global NULL-scoped allow matches none once a concrete vault ID is in play. The admin account role is untouched by any of this — it short-circuits both functions before any policy check runs.",
+          "The admin account role is untouched by any of this — it short-circuits both functions before any policy check runs.",
+        why: "The asymmetry is deliberate and lives in one loop: `CheckVaultScopedAccess` returns `AccessDenied` the instant it sees **any** deny row, scoped or `NULL`, before it ever looks at allow rows — but it only honours an allow when it finds one scoped to this exact vault. A `NULL`-scoped deny is inspected first and always wins; a `NULL`-scoped allow is inspected last and never counts.",
+        after:
+          "This deny is global and blocks Iris everywhere, including tenant-x and tenant-y, until an admin removes it — `DELETE /api/v1/access-policies/{id}`, the same endpoint Journey H uses to lift an explicit deny. Nothing in this journey issues that call; do it before relying on Iris's global-policy access again.",
+        related: [{ id: "W6", rel: "contrasts" }],
+        source:
+          "internal/services/authorization/access_policy_service.go:95-110; VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey H",
       },
       {
         id: "W12",
@@ -447,6 +540,9 @@ manage) scoped to this vault.`,
         flag: "trap",
         notes:
           '`cmd/vaults/list.go` still says "granted globally" — correctly, the only one that should. `cmd/vaults/create.go` says the allow must be scoped globally rather than to a specific vault, since the vault being created does not exist yet to scope the check to — the same fact from the other side.',
+        why: "Six subcommands — `vaults` `delete`/`get`/`recover`/`update` and `vault-webhook` `delete`/`get`/`set` — previously said an allow 'scoped to this vault or granted globally' would satisfy them. All six now say 'scoped to this vault,' matching the narrowing to `CheckVaultScopedAccess` described in step 4.",
+        source:
+          "cmd/vaults/delete.go:21; cmd/vaults/get.go:23; cmd/vaults/recover.go:22; cmd/vaults/update.go:25; cmd/vault-webhook/delete.go:23; cmd/vault-webhook/get.go:29; cmd/vault-webhook/set.go:35",
       },
     ],
   },
