@@ -18,6 +18,11 @@ import (
 // hardcoded 100ms. Before this, tuning monitoring.slow_query_threshold moved
 // the SlowQueryCount metric but left every repository's log warning at 100ms,
 // so the metric and the logs disagreed about which queries were slow.
+// This test mutates process-global state (rvdb's package-level slow-query
+// threshold) and restores it in t.Cleanup. That is safe only because nothing
+// else in this package calls t.Parallel(). If a future test in this package
+// adds t.Parallel(), this test must not run concurrently with it -- either
+// keep this one serial or move the threshold into non-global state first.
 func TestSlowQueryThresholdIsConfigurable(t *testing.T) {
 	original := rvdb.SlowQueryThreshold()
 	t.Cleanup(func() { rvdb.SetSlowQueryThreshold(original) })
@@ -44,6 +49,13 @@ func TestWithMetricsPropagatesTheError(t *testing.T) {
 // the configured monitoring.slow_query_threshold -- so once an operator tuned
 // that setting, the SlowQueryCount metric and the slow-query log warnings
 // disagreed about which queries were slow.
+// This scans every non-test file in the package for the literal
+// "100*time.Millisecond" / "100 * time.Millisecond". That is a blunt
+// instrument: a repository that one day needs an unrelated 100ms value (a
+// statement timeout, say, with no connection to the slow-query cutoff) would
+// trip this guard with a misleading failure message. If that ever happens,
+// narrow the scan to files that also mention RecordQueryExecution rather than
+// loosening or deleting the check.
 func TestNoRepositoryHardcodesTheThreshold(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	require.NoError(t, err)

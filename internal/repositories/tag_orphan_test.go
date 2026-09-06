@@ -160,3 +160,55 @@ func TestDeleteKeyIsAtomic(t *testing.T) {
 	require.Equal(t, 1, countKeyTags(t, raw, key.ID),
 		"an unrelated failed delete must not touch this key's tags")
 }
+
+// TestPurgeKeyIsAtomicOnItemDeleteFailure pins Finding 1 of the 2026-09-07
+// review: purgeItem now opens its own transaction around the tag delete and
+// the item delete, so a failure on the item delete must roll back the tag
+// delete that already ran, rather than leaving the key present but stripped
+// of its tags. A BEFORE DELETE trigger simulates the ordinary-error-path
+// failure the review called out (lock contention, disk pressure) by making
+// the "DELETE FROM keys" statement itself fail after the tag delete has
+// already succeeded within the same transaction.
+func TestPurgeKeyIsAtomicOnItemDeleteFailure(t *testing.T) {
+	raw := setupTagOrphanTestDB(t)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(raw, rvdb.SQLite), logging.InitLogger())
+
+	ctx := context.Background()
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		VaultID:   uuid.New(),
+		Name:      "signing-key",
+		Value:     "ENCRYPTED",
+		Type:      "RSA",
+		CreatedAt: time.Now(),
+		Enabled:   true,
+		Tags:      []string{"prod", "signing"},
+	}
+	require.NoError(t, repo.Create(ctx, key))
+	require.NoError(t, repo.SoftDelete(ctx, key.ID))
+	require.Equal(t, 2, countKeyTags(t, raw, key.ID), "tags were stored")
+
+	// Force the item delete to fail once the tag delete has already run,
+	// without touching the driver or the transaction machinery -- a trigger
+	// is a faithful stand-in for "the second statement failed" regardless of
+	// the real-world cause.
+	_, err := raw.Exec(`
+		CREATE TRIGGER block_purge BEFORE DELETE ON keys
+		WHEN OLD.id = '` + key.ID.String() + `'
+		BEGIN SELECT RAISE(ABORT, 'simulated purge failure'); END;
+	`)
+	require.NoError(t, err, "install failure trigger")
+
+	err = repo.PurgeKey(ctx, key.ID)
+	require.Error(t, err, "purge must fail when the item delete fails")
+	require.Contains(t, err.Error(), "failed to purge key")
+
+	require.Equal(t, 2, countKeyTags(t, raw, key.ID),
+		"a failed item delete must roll back the tag delete that already ran in the same transaction")
+
+	var stillPresent int
+	require.NoError(t, raw.QueryRow(
+		"SELECT COUNT(*) FROM keys WHERE id = ?", key.ID.String()).Scan(&stillPresent))
+	require.Equal(t, 1, stillPresent, "the key row itself must survive the rolled-back purge")
+}

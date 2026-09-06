@@ -113,15 +113,22 @@ func recoverItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uu
 }
 
 // purgeItem permanently deletes a soft-deleted row, refusing rows that
-// aren't soft-deleted or that have purge protection enabled.
-func purgeItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid.UUID) error {
+// aren't soft-deleted or that have purge protection enabled. The status check
+// runs against conn before any write; only once it passes does purgeItem open
+// its own transaction for the tag delete and the item delete together, so a
+// failure on either leaves both rows exactly as they were -- mirroring
+// deleteItemWithTags below. Unlike the other functions in this file it takes
+// a db.DB rather than a db.DBTX, because it begins the transaction itself;
+// every call site already passes r.db, a db.DB, so this is not a
+// call-site-visible change.
+func purgeItem(ctx context.Context, conn db.DB, cfg itemLifecycleConfig, id uuid.UUID) error {
 	op := "purge_" + cfg.item
 	return cfg.wrap(op, func() error {
 		logrus.WithField(cfg.idField, id.String()).Debug("Purging " + cfg.item + " from database")
 
 		var deletedAt *time.Time
 		var purgeProtection bool
-		err := ex.QueryRowContext(ctx,
+		err := conn.QueryRowContext(ctx,
 			"SELECT deleted_at, purge_protection FROM "+cfg.table+" WHERE id = ?", id.String()).
 			Scan(&deletedAt, &purgeProtection)
 		if err != nil {
@@ -142,17 +149,24 @@ func purgeItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid
 			return cfg.purgeErr
 		}
 
-		// Tag rows first, then the item, both against ex. The tag table
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to begin transaction", err)
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		// Tag rows first, then the item, both against tx. The tag table
 		// declares ON DELETE CASCADE, but SQLite runs with the foreign_keys
 		// pragma off project-wide, so that cascade never fires -- without this
 		// the tags outlive the item as unreachable rows nothing ever sweeps.
-		if _, tagErr := ex.ExecContext(ctx,
+		if _, tagErr := tx.ExecContext(ctx,
 			"DELETE FROM "+cfg.tagTable+" WHERE "+cfg.tagFK+" = ?", id.String()); tagErr != nil {
 			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to purge "+cfg.item+" tags", tagErr)
 			return fmt.Errorf("failed to purge %s tags: %w", cfg.item, tagErr)
 		}
 
-		result, err := ex.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE id = ?", id.String())
+		result, err := tx.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE id = ?", id.String())
 		if err != nil {
 			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to purge "+cfg.item, err)
 			return fmt.Errorf("failed to purge %s: %w", cfg.item, err)
@@ -166,6 +180,11 @@ func purgeItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid
 		if rowsAffected == 0 {
 			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found for purge", nil)
 			return fmt.Errorf("%s not found for purge", cfg.item)
+		}
+
+		if err := tx.Commit(); err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to commit transaction", err)
+			return fmt.Errorf("failed to commit transaction: %w", err)
 		}
 
 		cfg.log.LogAuditInfo(cfg.auditActor, op, "success", cfg.itemCap+" purged successfully")
