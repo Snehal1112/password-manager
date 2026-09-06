@@ -45,10 +45,10 @@ func TestGetConfig_NilFrontendConfig_ReturnsEmptyDefaults(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var body map[string]any
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-	// Should not panic and should return empty defaults.
-	assert.NotNil(t, body)
+	// The exact bytes are pinned, not just the decoded keys: this branch used
+	// to build its body as a map and now emits the zero FrontendConfig, and
+	// the two must stay byte-identical. feature_flags must be {} and not null.
+	assert.Equal(t, `{"feature_flags":{},"public_api_url":"","sentry_dsn":""}`+"\n", w.Body.String())
 }
 
 func TestGetConfig_NeverExposesPasswords(t *testing.T) {

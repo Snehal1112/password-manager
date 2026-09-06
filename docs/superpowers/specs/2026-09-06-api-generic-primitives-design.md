@@ -227,3 +227,76 @@ would bury the one diff that most needs careful reading.
 - `api/` statement coverage at or above 86.0% throughout.
 - Zero test-file modifications across plans 02-08.
 - Net reduction in `api/` non-test lines, with no file over ~600 lines.
+
+## Outcome: response bodies left as maps
+
+Plan 10 found 16 `map[string]any` response-body literals in `api/` (down from
+21 at the `4dc0285` baseline; plans 02-09 removed the rest). Five were
+converted to named types, five were deliberately kept as maps, and six were
+deferred.
+
+The governing rule was that a body is only converted when a test pins its
+shape. A conversion with no oracle is exactly the change that silently breaks
+a client, because a struct encodes its fields in declaration order and honours
+`omitempty`, whereas a map encodes its keys sorted and always emits every one.
+Where the existing oracle was only a status-code assertion, a byte-level
+characterization test was added first, run green against the map, and then run
+green again against the struct: see `api/response_shape_test.go` and the
+tightened `TestGetConfig_NilFrontendConfig_ReturnsEmptyDefaults`.
+
+### Kept as maps
+
+- `api/context.go` `writeError`, and the two inline auth failures in
+  `ApiSessionRequired` — the shared error envelope. Every error assertion in
+  the suite pins its keys already, so a struct adds no contract and would touch
+  the whole suite.
+- `api/api.go` `Handle404` — same envelope, same reasoning.
+- `api/jwks.go` `buildJWKSet` — an RFC 7517 JWK Set. Its members are
+  dynamically shaped maps built by `signing.PublicKeyInfoToJWK`, whose key set
+  varies by key type, and the function's `map[string]any` return type is itself
+  type-asserted by `api/jwks_test.go`. A struct could not express the member
+  shape and would break the assertion.
+
+### Deferred, with the reason each is not obviously safe
+
+- `api/soft_delete.go` `getDeletedKey` — the natural conversion is to reuse the
+  existing `deletedKeyItem`, but that type's fields are **not** in alphabetical
+  order (`id, name, type, deleted_at, purge_protection`), while the map here
+  sorts to `deleted_at, id, name, purge_protection, type`. Reusing it would
+  silently reorder the response. The two representations of the same resource
+  already disagree on byte order today, which is arguably the real defect;
+  reconciling them is a deliberate wire change that needs its own decision, not
+  a side effect of this plan.
+- `api/access_policies.go` `listAccessPolicies` and `listPoliciesByPrincipal` —
+  no test asserts either body. There is also a trap: `model.ListAccessPolicies`
+  `Response` already exists with the right key names, but its items are
+  `[]AccessPolicyResponse` while these handlers write `[]*model.AccessPolicy`.
+  Reusing it would change the item shape, not just the envelope.
+- `api/oauth2.go` `createServiceAccount` — no test asserts the body. It carries
+  `client_secret`, returned exactly once, so a wrong `omitempty` here would
+  lose the only copy of a credential.
+- `api/oauth2.go` `listServiceAccounts` — no test asserts the body, and no
+  other package consumes the `service_accounts` envelope.
+- `api/users.go` `listSessions` — no test asserts the body, and no other
+  package consumes the `sessions` envelope.
+
+### Converted
+
+| Site | Type introduced | Oracle |
+|---|---|---|
+| `soft_delete.go` list envelope | `deletedSecretsResponse`, `deletedKeysResponse`, `deletedCertificatesResponse` | `api/response_shape_test.go`; `internal/vaultapi` and `internal/mcpserver` fixtures |
+| `soft_delete.go` recover envelope | `recoveredResponse` | `api/response_shape_test.go`; `internal/mcpserver/tools_recover_test.go` |
+| `soft_delete.go` secret list row | `deletedSecretItem` | `api/response_shape_test.go` |
+| `config.go` nil-config fallback | reuses `app.FrontendConfig` | `api/config_test.go` |
+| `audit.go` log listing | `auditLogsResponse` | `api/response_shape_test.go`; `internal/vaultapi/audit.go` |
+
+`deletedResource[T]`'s `ListKey string` field was replaced by
+`Envelope func([]any) any`, because the envelope's first key is data rather
+than schema and three explicit types express it better than one dynamic map.
+
+One note for plan 11: `api/audit.go` now imports `internal/repositories` in
+production code for the first time, to name `[]repositories.AuditLog` on the
+envelope. This makes an existing dependency explicit rather than creating one —
+`ComplianceReportServiceInterface.QueryLogs` already returns that type, so the
+build graph was already `api` -> `services/audit` -> `repositories` — but it is
+worth a deliberate look if a layer-boundary gate is ever added.

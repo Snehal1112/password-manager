@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"rocketvault/common"
+	"rocketvault/internal/repositories"
 	auditSvc "rocketvault/internal/services/audit"
 	"rocketvault/model"
 )
@@ -82,12 +83,25 @@ func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, map[string]any{
-		"logs":         logs,
-		"total":        total,
-		"integrity_ok": integrityOK,
-		"next_cursor":  "",
+	writeJSON(w, auditLogsResponse{
+		IntegrityOK: integrityOK,
+		Logs:        logs,
+		NextCursor:  "",
+		Total:       total,
 	})
+}
+
+// auditLogsResponse is the GET /audit/logs envelope.
+//
+// Fields are declared in the alphabetical order the map[string]any this
+// replaces encoded them in, so the JSON byte order is unchanged. No field is
+// omitempty: the map always emitted all four keys, and next_cursor in
+// particular is always the empty string today.
+type auditLogsResponse struct {
+	IntegrityOK bool                    `json:"integrity_ok"`
+	Logs        []repositories.AuditLog `json:"logs"`
+	NextCursor  string                  `json:"next_cursor"`
+	Total       int64                   `json:"total"`
 }
 
 // getSOC2Report handles GET /audit/reports/soc2.
