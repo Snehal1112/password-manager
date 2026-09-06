@@ -3880,6 +3880,287 @@ of the happy-path scenario (`get` against a nonexistent vault name).
 
 ---
 
+### B65 — Swallowed scan errors truncated result sets silently
+
+**Status**: Fixed in commits `398f56b`, `7032545`, `1873418`
+**Severity**: High — silent wrong answers, no error surfaced, security-visible
+in the session case
+**Files**: `internal/repositories/rotation_repository.go`,
+`internal/repositories/session_repository.go`
+
+**Symptom**: four `for rows.Next()` loops responded to a failed `rows.Scan`
+with `log.Error(...)` followed by `continue`, and never called `rows.Err()`
+afterwards. A driver failure partway through iteration returned a short
+result list with a **nil** error, so a caller could not distinguish a
+truncated listing from a complete one. `session_repository.go`'s
+`GetActiveSessionsByUserID` was the security-visible instance: a user
+auditing where their account is signed in could be shown fewer sessions than
+actually existed.
+
+**Root cause**: the same swallow-and-continue pattern already fixed once in
+`versioning_repository.go` by commit `6cd6d52` ("no longer swallows scan
+errors") was never applied to `rotation_repository.go`'s three loops (lines
+269, 318, 430 at the time of the audit) or to `session_repository.go`'s one.
+
+**What was fixed**: each loop now returns the scan error immediately instead
+of logging and continuing, and each checks `rows.Err()` after the loop exits.
+See `docs/superpowers/specs/2026-09-07-repository-layer-hardening-design.md`
+§ F1 for the full analysis.
+
+---
+
+### B66 — Discarded `uuid.Parse` errors silently yielded `uuid.Nil`
+
+**Status**: Fixed in commits `398f56b`, `acd10c6`, `7fa2e16`, `e4fde67`
+**Severity**: Medium-high — silent substitution of a privileged sentinel
+value for corrupt data
+**Files**: `internal/repositories/rotation_repository.go` (21 sites),
+`internal/repositories/versioning_repository.go` (9 sites),
+`internal/repositories/certificate_policy_repository.go` (6 sites)
+
+**Symptom**: 35 sites across the three files assigned a parsed UUID while
+discarding the parse error, e.g. `policy.VaultID, _ = uuid.Parse(vaultID)`. A
+malformed or empty UUID column therefore produced `uuid.Nil` rather than an
+error, with no indication anything had gone wrong.
+
+**Root cause**: `uuid.Nil` is not an inert value in this codebase — it is the
+`auditActor` constant for key and certificate lifecycle operations, and
+`model.NewAdminScope(uuid.Nil)` is a real, privileged scope. Every other
+scanner in the package (`scanKeyRow`, `scanCertificateRow`, `scanSecretRow`,
+`parseRoleAssignmentIDs`) already returned a wrapped parse error; these three
+files were the outliers.
+
+**What was fixed**: all 35 sites now return a wrapped parse error instead of
+discarding it. See the design doc's § F6 for the full site list; note this
+is the one fix in this effort that changes behavior on data that exists
+today — a deployed database with a malformed UUID in one of these columns
+now surfaces an error on read where it previously produced a silent
+`uuid.Nil`, which is the intended outcome of the fix.
+
+---
+
+### B67 — `CertificateRepository.ListAll`'s duplicated SELECT list panicked on a malformed UUID
+
+**Status**: Fixed in commits `213a751`, `d1fad5a`
+**Severity**: Medium-high — a live panic vector plus the structural cause of
+a bug this codebase had already been bitten by once
+**Files**: `internal/repositories/certificate_repository.go`
+
+**Symptom**: `ListAll` (used by the certificate renewal scheduler) scanned
+rows with `uuid.MustParse` for `id`, `user_id`, and `key_id`. A malformed
+UUID in any of those columns panicked the renewal scheduler's goroutine
+rather than returning an error.
+
+**Root cause**: `ListAll` carried a second, hand-written column list parallel
+to the canonical `certificateColumns` const, rather than reusing the shared
+`scanCertificateRow`. That hand-written list also omitted `vault_id`,
+`deleted_at`, and `purge_protection` — the same shape of defect previously
+documented as the cause of an earlier bug where `keyColumns` and
+`certificateColumns` omitted `deleted_at`/`purge_protection` and made every
+`List()` return both fields zero-valued.
+
+The missing `vault_id` was **latent, not live**: `CheckAndRenewCertificates`
+(`renewal_service.go:45`) passes `model.NewAdminScope(cert.UserID)`, which
+applies no vault predicate, so the zero-valued `VaultID` never reached a
+query. The live defect was strictly the `uuid.MustParse` panic.
+
+**What was fixed**: `ListAll` now routes through the same shared column list
+and `scanCertificateRow` every other certificate read uses, so it returns a
+wrapped parse error instead of panicking and no longer omits any column.
+`d1fad5a` adds a guard test against a second column list reappearing. See the
+design doc's § F2.
+
+---
+
+### B68 — Error identity by string comparison, and bare errors missing the `ErrNotFound` sentinel
+
+**Status**: Fixed in commits `5b1f54a`, `3107a85`, `c574c42`
+**Severity**: Medium — no misbehavior at the time, but a sharp edge that
+turns an innocuous edit into a silent behavior change
+**Files**: `internal/repositories/role_assignment_repository.go`,
+`internal/repositories/user_repository.go`,
+`internal/repositories/access_policy_repository.go`,
+`internal/repositories/oauth2_client_repository.go`
+
+**Symptom**: `role_assignment_repository.go`'s `FindByTuple` identified "no
+such assignment" by comparing `err.Error()` to the literal string `"role
+assignment not found"` — rewording the message in `scanRoleAssignment` would
+silently flip `FindByTuple` from `(nil, nil)` to an error, on an
+authorization-adjacent path. Several sites (the consequential one being
+`user_repository.go`'s `ReadByExternalSubject`, which OIDC's
+`FindOrCreateExternalUser` needs to distinguish "no such user, create one"
+from "the database is broken") returned a bare `fmt.Errorf("... not
+found")` without wrapping `ErrNotFound`, so `errors.Is` could never work
+against them. Three sites (`access_policy_repository.go:198`,
+`oauth2_client_repository.go:110`, `role_assignment_repository.go:149`)
+compared `err == sql.ErrNoRows` directly rather than `errors.Is`, which only
+worked because nothing wrapped the error yet.
+
+**Root cause**: `errors.go`'s `ErrNotFound` sentinel existed but was not
+consistently used — see that file's own (now-corrected) comment, which
+pointed at `FindByTuple` as the standing example of the pattern it exists to
+replace.
+
+**What was fixed**: `FindByTuple` and the other bare-error sites now wrap
+`ErrNotFound` (message text preserved as a prefix, per the design doc's
+"error messages are extended, never replaced" rule, so existing
+`assert.Contains` service-layer tests keep passing), and the three
+`== sql.ErrNoRows` comparisons became `errors.Is`. `internal/repositories/errors.go`'s
+comment was corrected to stop citing `FindByTuple` as a still-open example
+(this task). See the design doc's § F3.
+
+---
+
+### B69 — `executeWithMetrics` copy-pasted five times, ignoring the configured slow-query threshold
+
+**Status**: Fixed in commits `9461d81`, `5aa1df2`, `897610f`
+**Severity**: Medium — observability that misleads under exactly the
+conditions it was configured to help with
+**Files**: `internal/repositories/key_repository.go`,
+`internal/repositories/certificate_repository.go`,
+`internal/repositories/secret_repository.go`,
+`internal/repositories/user_repository.go`,
+`internal/repositories/session_repository.go`, `internal/repositories/metrics.go`
+(new), `internal/db/db.go`
+
+**Symptom**: five separate `executeWithMetrics` definitions each hardcoded
+`100 * time.Millisecond` as the slow-query cutoff, while
+`db.RecordQueryExecution` — which every one of them also called — applied
+the *configured* `monitoring.slow_query_threshold`. Once an operator tuned
+that setting away from its 100ms default, the `SlowQueryCount` metric and
+the "slow query" log warnings disagreed about which queries were slow.
+Separately, `SecretRepository.Update` and `SecretRepository.Delete` were not
+wrapped in metrics at all, while their key and certificate equivalents were.
+
+**Correction to the original finding**: an earlier draft of the design
+assumed all five copies were identical; they were not.
+`SessionRepository`'s diverged in three ways — it never called
+`db.RecordQueryExecution` at all (so session queries had never been counted
+in `QueryCount`/`TotalQueryTime`/`SlowQueryCount`), it logged through the
+injected `r.logger` rather than the package-level `logrus` the other four
+used, and it emitted a different message plus a `"threshold": 100` field.
+
+**What was fixed**: a single package-level `withMetrics(table, operation,
+fn)` helper in the new `internal/repositories/metrics.go`, taking its
+threshold from a new exported `db.SlowQueryThreshold()` accessor (wrapping
+the existing unexported `getSlowQueryThreshold`) so the metric and the log
+warnings agree at any configured value. All five `executeWithMetrics`
+methods became one-line delegations to it, and `SecretRepository.Update`/
+`Delete` were instrumented for the first time (`897610f`).
+
+**Accepted behavior change**: consolidating the session copy means session
+queries are now counted in the shared `QueryCount`/`SlowQueryCount` metrics
+for the first time — a step change in those numbers on deployment, and the
+correct outcome, since their prior absence was under-reporting. Session's
+distinct log message and `"threshold": 100` field are gone, replaced by the
+shared `"Slow database query detected"` message; a log-based alert matching
+the old string stops matching. Session's slow-query warning now also routes
+through the unconfigured global `logrus` (stderr, no rotation) rather than
+the configured, rotated injected logger `r.logger` used to write to — a
+known limitation accepted rather than plumbing a logger through the
+package-level helper, which the design deliberately keeps free of
+per-repository state (see the design doc's "shared metrics helper is
+package-level, not a struct field" note). See § F4 for the full analysis.
+
+---
+
+### B70 — Tag rows orphaned on purge and on secret delete
+
+**Status**: Fixed in commits `947fdc4`, `1442c2d`
+**Severity**: Medium — unbounded row growth and a stale-data path; not a
+disclosure risk, since orphaned tags are only reachable by an item ID that no
+longer resolves
+**Files**: `internal/repositories/item_lifecycle.go`,
+`internal/repositories/secret_repository.go`,
+`internal/repositories/key_repository.go`,
+`internal/repositories/certificate_repository.go`
+
+**Symptom**: `secret_tags`, `key_tags`, and `certificate_tags` each declare
+`FOREIGN KEY (...) REFERENCES ... ON DELETE CASCADE`
+(`internal/db/db.go` lines 437-443, 479-485, 589-595), but SQLite runs with
+the `foreign_keys` pragma off project-wide, so the declared cascade never
+fires. `item_lifecycle.go`'s `purgeItem` and `purgeVaultContents` issued a
+bare `DELETE FROM <table> WHERE id = ?`, stranding every tag row of the
+purged item(s) — for secrets, keys, and certificates alike.
+`SecretRepository.Delete` deleted the secret row without touching
+`secret_tags` at all, unlike `KeyRepository.Delete` and
+`CertificateRepository.Delete`, which already deleted their tag rows
+explicitly inside a transaction. Because tag primary keys are `(item_id,
+tag)`, a purged-then-recreated item that reused an ID would also inherit the
+dead tags.
+
+**Root cause**: this is the same class of defect the existing
+`RoleAssignmentRepository.DeleteByVault`/`AccessPolicyRepository.DeleteByVault`/
+webhook cleaner exist to work around — SQLite's `foreign_keys` pragma being
+off means every `ON DELETE CASCADE` in the schema is decorative and each
+dependent table needs its own explicit cleanup.
+
+**What was fixed**: `itemLifecycleConfig` (`947fdc4`) learned the tag table
+and its foreign-key column, so `purgeItem` and `purgeVaultContents` now
+delete tag rows before the item/vault-contents row. `1442c2d` then collapsed
+`KeyRepository.Delete` and `CertificateRepository.Delete` — which differed
+only in table names and log labels — into a shared `deleteItemWithTags`, and
+`SecretRepository.Delete` adopted the same helper, gaining the tag cleanup
+it was missing. See § F5.
+
+**Known limitation accepted**: `purgeItem`'s two writes (tags, then item) are
+not atomic when reached through a non-`Tx` caller (`PurgeKey`/`PurgeSecret`/
+`PurgeCertificate`). `purgeItem` receives a `db.DBTX` executor and cannot
+tell whether it already holds a transaction, and `database/sql` does not
+nest transactions. Tags are deleted first, so the crash window leaves "tags
+gone, item present" — recoverable, since the item row is still there and
+retryable — rather than the orphaned tags the fix exists to prevent.
+
+---
+
+### B71 — Repository-layer hardening: recorded non-goals and other accepted limitations
+
+**Status**: Not bugs — deliberately out of scope or accepted as-is, recorded
+2026-09-07 so they are not rediscovered from scratch
+**Severity**: N/A
+**Files**: `internal/repositories/secret_repository.go`,
+`internal/repositories/rotation_repository.go` (`RemoveFromSecret`),
+`internal/repositories/tag_orphan_test.go`
+
+Found during the repository-layer hardening effort
+(`docs/superpowers/specs/2026-09-07-repository-layer-hardening-design.md`)
+but excluded from it. Each non-goal below needs an exported-interface
+change, which that effort's scope decision ruled out entirely (see the
+design doc's "Scope decision" line):
+
+- Five dead stubs on `SecretRepositoryInterface` (`ExportSecrets`,
+  `ImportSecrets`, `GetVersions`, `GetVersion`, `GetLatestVersion`) return
+  "moved to X service" errors and exist only to satisfy the interface.
+- `SecretFilter.Tags` is accepted by `List` and silently ignored, while
+  `KeyFilter.Tags` and `CertificateFilter.Tags` are honored.
+- `SecretFilter` is still declared in `internal/repositories` while
+  `KeyFilter`, `CertificateFilter`, and `AuditFilter` moved to
+  `model/filters.go`.
+- `SecretRepository.List` does not load tags; the key and certificate
+  equivalents batch-load them.
+
+Two further items were accepted as-is rather than fixed, both noted in
+their own B70/B69 entries above and repeated here for a single point of
+reference:
+
+- `purgeItem`'s tags-then-item write pair is not atomic outside a `Tx`
+  caller (B70).
+- Session's slow-query warning now logs through the unconfigured global
+  `logrus` instead of the rotated injected logger (B69).
+
+One item found during the sweep but outside every plan's file list:
+`rotation_repository.go`'s `RemoveFromSecret` still returns a bare
+`"policy assignment not found"` without the `ErrNotFound` sentinel B68 added
+elsewhere in the package.
+
+Test coverage note: `tag_orphan_test.go` (added by `947fdc4`) covers keys
+only; secret and certificate tag-foreign-key correctness is exercised only
+incidentally, by pre-existing purge tests that would fail with "no such
+column" if a column name were wrong, not by a dedicated orphan-row
+assertion for those two types.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
