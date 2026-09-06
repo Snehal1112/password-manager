@@ -122,10 +122,29 @@ func scanRotationPolicyRow(row *sql.Row) (*model.RotationPolicy, error) {
 		&policy.CreatedAt, &policy.UpdatedAt); err != nil {
 		return nil, err
 	}
-	policy.ID, _ = uuid.Parse(id)
-	policy.UserID, _ = uuid.Parse(userID)
-	policy.VaultID, _ = uuid.Parse(vaultID)
+	if err := parseRotationPolicyIDs(&policy, id, userID, vaultID); err != nil {
+		return nil, err
+	}
 	return &policy, nil
+}
+
+// parseRotationPolicyIDs fills policy's three UUID fields from their string
+// column values. Errors are returned rather than discarded: a malformed
+// column would otherwise yield uuid.Nil, which is a meaningful value in this
+// codebase (model.NewAdminScope(uuid.Nil)) rather than an obvious sentinel.
+// Mirrors parseRoleAssignmentIDs in role_assignment_repository.go.
+func parseRotationPolicyIDs(policy *model.RotationPolicy, id, userID, vaultID string) error {
+	var err error
+	if policy.ID, err = uuid.Parse(id); err != nil {
+		return fmt.Errorf("invalid rotation policy id: %w", err)
+	}
+	if policy.UserID, err = uuid.Parse(userID); err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	if policy.VaultID, err = uuid.Parse(vaultID); err != nil {
+		return fmt.Errorf("invalid vault id: %w", err)
+	}
+	return nil
 }
 
 // Update updates a rotation policy (expects pre-processed data with updated timestamp), authorized by scope.
@@ -188,9 +207,9 @@ func (r *rotationPolicyRepository) List(ctx context.Context, scope model.Scope) 
 			&policy.CreatedAt, &policy.UpdatedAt); err != nil {
 			return policy, err
 		}
-		policy.ID, _ = uuid.Parse(id)
-		policy.UserID, _ = uuid.Parse(userID)
-		policy.VaultID, _ = uuid.Parse(vaultID)
+		if err := parseRotationPolicyIDs(&policy, id, userID, vaultID); err != nil {
+			return policy, err
+		}
 		return policy, nil
 	})
 	if err != nil {
