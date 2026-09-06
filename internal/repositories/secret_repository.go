@@ -261,40 +261,42 @@ func (r *SecretRepository) FindByName(ctx context.Context, name string, scope mo
 // audit row after calling this, for every error path and on success — logging
 // here too would duplicate every scoped update into two audit_logs rows.
 func (r *SecretRepository) Update(ctx context.Context, secret *model.Secret, scope model.Scope) error {
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secret.ID.String(),
-		"scope":     scope.String(),
-		"version":   secret.Version,
-	}).Debug("Updating secret in database")
+	return r.executeWithMetrics("update_secret_scoped", func() error {
+		logrus.WithFields(logrus.Fields{
+			"secret_id": secret.ID.String(),
+			"scope":     scope.String(),
+			"version":   secret.Version,
+		}).Debug("Updating secret in database")
 
-	query := "UPDATE secrets SET name = ?, value = ?, version = ?, content_type = ?, enabled = ?, expires_at = ?, not_before = ? WHERE id = ?"
-	execArgs := []any{
-		secret.Name, secret.Value, secret.Version, secret.ContentType,
-		secret.Enabled, secret.ExpiresAt, secret.NotBefore, secret.ID.String(),
-	}
-
-	result, err := ScopedExec(ctx, r.db, query, execArgs, scope)
-	if err != nil {
-		if errors.Is(err, ErrInvalidScope) {
-			return err
+		query := "UPDATE secrets SET name = ?, value = ?, version = ?, content_type = ?, enabled = ?, expires_at = ?, not_before = ? WHERE id = ?"
+		execArgs := []any{
+			secret.Name, secret.Value, secret.Version, secret.ContentType,
+			secret.Enabled, secret.ExpiresAt, secret.NotBefore, secret.ID.String(),
 		}
-		return fmt.Errorf("failed to update secret: %w", err)
-	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		return fmt.Errorf("secret not found")
-	}
+		result, err := ScopedExec(ctx, r.db, query, execArgs, scope)
+		if err != nil {
+			if errors.Is(err, ErrInvalidScope) {
+				return err
+			}
+			return fmt.Errorf("failed to update secret: %w", err)
+		}
 
-	logrus.WithFields(logrus.Fields{
-		"secret_id": secret.ID.String(),
-		"scope":     scope.String(),
-		"version":   secret.Version,
-	}).Debug("Secret updated successfully")
-	return nil
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			return fmt.Errorf("secret not found")
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"secret_id": secret.ID.String(),
+			"scope":     scope.String(),
+			"version":   secret.Version,
+		}).Debug("Secret updated successfully")
+		return nil
+	})
 }
 
 // List lists secrets authorized by scope and narrowed by filter. The
