@@ -230,15 +230,25 @@ func writeError(w http.ResponseWriter, c *Context) {
 // the second return here leaves the caller with a zero value it must still
 // reason about.
 //
-// The failure behavior is unchanged from the accessors it replaces: a missing
-// App or container sets a 500 with no detail and returns false.
+// The failure behavior matches the accessors it replaces: a nil App or
+// container sets a 500 with no detail and returns false, and so does a
+// getter that itself returns a nil service. The nil-service check is
+// `any(resolved) == nil`, which only catches a genuinely nil interface
+// value; a non-nil interface wrapping a nil concrete pointer would still
+// pass through as ok. That gap is acceptable here because the container
+// stores interface values directly, never typed nil pointers.
 func svc[T any](c *Context, get func(container.ServiceContainerInterface) T) (T, bool) {
 	var zero T
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)
 		return zero, false
 	}
-	return get(c.App.ServiceContainer), true
+	resolved := get(c.App.ServiceContainer)
+	if any(resolved) == nil {
+		c.SetInternalError(nil)
+		return zero, false
+	}
+	return resolved, true
 }
 
 // The five accessors below are kept as one-line delegations to svc rather
