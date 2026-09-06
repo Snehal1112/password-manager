@@ -3735,7 +3735,7 @@ system user row already present.
 
 ---
 
-### B61 — `getDeletedKey` lists an entire vault to serve one id
+### B63 — `getDeletedKey` lists an entire vault to serve one id
 
 **Status**: Open (deferred 2026-09-06)
 **Severity**: Low — performance only, no correctness or authorization defect
@@ -3756,7 +3756,7 @@ Fix recipe: add `ReadDeletedScoped(ctx, id, scope)` to `KeyRepository` built on
 Deferred because the `KeyService` interface fan-out exceeded five files.
 
 That audit of the unscoped `ReadDeleted` was done on 2026-09-06 and is filed
-as B62: the one production caller is safe, but the method still authorizes
+as B64: the one production caller is safe, but the method still authorizes
 nothing on its own.
 
 The measured fan-out, for whoever picks this up: seven files declare or stub a
@@ -3771,7 +3771,7 @@ compile break rather than a silent bug.
 
 ---
 
-### B62 — `KeyRepository.ReadDeleted` takes no `model.Scope`, so it authorizes nothing
+### B64 — `KeyRepository.ReadDeleted` takes no `model.Scope`, so it authorizes nothing
 
 **Status**: Open (filed 2026-09-06, latent — no live defect today)
 **Severity**: Low today, High if a second caller appears
@@ -3783,7 +3783,7 @@ takes no `model.Scope`. Scope is the authorization predicate everywhere else in
 this codebase — every sibling read (`Read`, `List`) takes one — so this method
 returns any key in any vault to any caller that holds its id.
 
-This is the audit B61's entry asked for, now done. There is exactly one
+This is the audit B63's entry asked for, now done. There is exactly one
 production caller, and it is **safe**: `keyService.DeleteKey` calls the scoped
 `keyRepo.Read(ctx, keyID, scope)` first and returns `ErrKeyNotFound` if that
 fails, then soft-deletes, then calls `ReadDeleted` on the same already-authorized
@@ -3795,14 +3795,14 @@ call site, but it is exported on `KeyRepositoryInterface`, so nothing stops a
 future caller from reaching it without a preceding scoped read. The signature
 carries no hint that the caller owes an authorization check.
 
-Why it matters despite being latent: B61's fix recipe proposes a scoped by-id
+Why it matters despite being latent: B63's fix recipe proposes a scoped by-id
 read of a soft-deleted key. Anyone implementing that who reaches for the
 existing `ReadDeleted` instead of adding `ReadDeletedScoped` turns this into a
 live cross-vault read on a `GET` handler.
 
 Fix recipe: add `ReadDeletedScoped(ctx, id, scope)` built on `ScopedGet[T]`
-(the same one B61 needs), point `DeleteKey` at it, and unexport or delete
-`ReadDeleted` so no unscoped path remains. Doing this alongside B61 shares the
+(the same one B63 needs), point `DeleteKey` at it, and unexport or delete
+`ReadDeleted` so no unscoped path remains. Doing this alongside B63 shares the
 work, since both need the same new repository method.
 
 ---

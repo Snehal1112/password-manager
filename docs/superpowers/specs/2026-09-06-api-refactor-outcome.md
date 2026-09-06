@@ -124,7 +124,7 @@ they did not. Recording what actually happened:
 
 - **Plan 09** was to fix `getDeletedKey`'s full-vault scan. It did not. The
   `KeyService` interface fan-out measured seven files against the plan's
-  five-file bar, so the gate held and the finding was filed as **B61**
+  five-file bar, so the gate held and the finding was filed as **B63**
   (`31485e0`, renumbered from a colliding B39 in `e5b2a33`) instead of fixed.
   Docs-only commits.
 - **Plan 10** typed five response bodies and asserted each is **byte-identical**
@@ -159,7 +159,7 @@ Two structural changes in plan 11 that touch no behavior:
 
 ## Found but not fixed
 
-- **B61 — `getDeletedKey` lists an entire vault to serve one id**
+- **B63 — `getDeletedKey` lists an entire vault to serve one id**
   (`.claude/known-bugs.md`). `api/soft_delete.go`'s `getDeletedKey` calls
   `ListDeletedKeys` for the whole vault and linear-scans for one id: O(n) for a
   single-item GET. **Performance only** — no correctness or authorization
@@ -167,15 +167,15 @@ Two structural changes in plan 11 that touch no behavior:
   bar; four of the seven are hand-rolled test doubles that must each be edited
   by hand. The entry carries the measured fan-out for whoever picks it up.
 
-- **B62 — `KeyRepository.ReadDeleted` takes no `model.Scope`** (filed by this
+- **B64 — `KeyRepository.ReadDeleted` takes no `model.Scope`** (filed by this
   plan). Scope is the authorization predicate everywhere else in this codebase
   and every sibling read takes one, so this method returns any key in any vault
-  to any caller holding its id. The audit B61 asked for is now done: there is
+  to any caller holding its id. The audit B63 asked for is now done: there is
   exactly one production caller, `keyService.DeleteKey`, and it is **safe** —
   it performs the scoped `keyRepo.Read(ctx, keyID, scope)` first and returns
   `ErrKeyNotFound` if that fails, then calls `ReadDeleted` on the same
   already-authorized id purely to re-read post-delete metadata. Latent, not
-  live. It matters because B61's own fix recipe invites a second caller:
+  live. It matters because B63's own fix recipe invites a second caller:
   anyone implementing a scoped by-id read who reaches for the existing
   `ReadDeleted` instead of adding `ReadDeletedScoped` turns this into a live
   cross-vault read on a GET handler. Fix the two together — they need the same
