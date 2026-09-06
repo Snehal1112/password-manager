@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"rocketvault/internal/container"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
@@ -21,8 +22,8 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -57,8 +58,8 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -87,8 +88,8 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 

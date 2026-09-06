@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 
 	"rocketvault/common"
+	"rocketvault/internal/container"
 	userService "rocketvault/internal/services/users"
 	"rocketvault/model"
 )
@@ -99,8 +100,8 @@ func createUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSvc := c.userSvc()
-	if userSvc == nil {
+	userSvc, svcOK := svc(c, container.ServiceContainerInterface.GetUserService)
+	if !svcOK {
 		return
 	}
 
@@ -146,8 +147,8 @@ func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSvc := c.userSvc()
-	if userSvc == nil {
+	userSvc, svcOK := svc(c, container.ServiceContainerInterface.GetUserService)
+	if !svcOK {
 		return
 	}
 
@@ -210,8 +211,8 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSvc := c.userSvc()
-	if userSvc == nil {
+	userSvc, svcOK := svc(c, container.ServiceContainerInterface.GetUserService)
+	if !svcOK {
 		return
 	}
 
@@ -284,8 +285,8 @@ func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	userSvc := c.userSvc()
-	if userSvc == nil {
+	userSvc, svcOK := svc(c, container.ServiceContainerInterface.GetUserService)
+	if !svcOK {
 		return
 	}
 
@@ -365,8 +366,8 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSvc := c.userSvc()
-	if userSvc == nil {
+	userSvc, svcOK := svc(c, container.ServiceContainerInterface.GetUserService)
+	if !svcOK {
 		return
 	}
 
@@ -404,8 +405,8 @@ func loginUser(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for authentication.
-	authSvc := c.authSvc()
-	if authSvc == nil {
+	authSvc, svcOK := svc(c, container.ServiceContainerInterface.GetAuthenticationService)
+	if !svcOK {
 		return
 	}
 	result, err := authSvc.AuthenticateUser(r.Context(), req.Username, req.Password, req.TOTPCode)
@@ -449,8 +450,8 @@ func refreshToken(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for token refresh.
-	authSvc := c.authSvc()
-	if authSvc == nil {
+	authSvc, svcOK := svc(c, container.ServiceContainerInterface.GetAuthenticationService)
+	if !svcOK {
 		return
 	}
 	result, err := authSvc.RefreshAccessToken(r.Context(), req.RefreshToken)
@@ -487,8 +488,8 @@ func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	authSvc := c.authSvc()
-	if authSvc == nil {
+	authSvc, svcOK := svc(c, container.ServiceContainerInterface.GetAuthenticationService)
+	if !svcOK {
 		return
 	}
 	sessions, err := authSvc.ListActiveSessions(r.Context(), userID)
@@ -531,8 +532,8 @@ func revokeSession(c *Context, w http.ResponseWriter, r *http.Request) {
 	sessionID := c.Params.SessionID
 
 	// Use service container for session revocation.
-	authSvc := c.authSvc()
-	if authSvc == nil {
+	authSvc, svcOK := svc(c, container.ServiceContainerInterface.GetAuthenticationService)
+	if !svcOK {
 		return
 	}
 	if err := authSvc.RevokeSession(r.Context(), sessionID, "User requested revocation"); err != nil {
@@ -555,8 +556,8 @@ func revokeAllSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use service container for revoking all sessions.
-	authSvc := c.authSvc()
-	if authSvc == nil {
+	authSvc, svcOK := svc(c, container.ServiceContainerInterface.GetAuthenticationService)
+	if !svcOK {
 		return
 	}
 	if err := authSvc.RevokeAllUserSessions(r.Context(), userID, "User requested revocation of all sessions"); err != nil {

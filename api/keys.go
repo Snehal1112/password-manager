@@ -32,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"rocketvault/internal/container"
 	"rocketvault/internal/crypto"
 	keyservices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
@@ -377,8 +378,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -492,8 +493,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -534,8 +535,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 // use vault-level "members see all" visibility, optionally filtered by type
 // and tags.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -571,8 +572,8 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -615,8 +616,8 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -660,8 +661,8 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -703,8 +704,8 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -738,8 +739,8 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -773,8 +774,8 @@ func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -828,8 +829,8 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
+	cryptoSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCryptoService)
+	if !svcOK {
 		return
 	}
 
@@ -883,8 +884,8 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
+	cryptoSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCryptoService)
+	if !svcOK {
 		return
 	}
 
@@ -938,8 +939,8 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
+	cryptoSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCryptoService)
+	if !svcOK {
 		return
 	}
 
@@ -995,8 +996,8 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
+	cryptoSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCryptoService)
+	if !svcOK {
 		return
 	}
 
@@ -1052,8 +1053,8 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
+	cryptoSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCryptoService)
+	if !svcOK {
 		return
 	}
 
@@ -1119,8 +1120,8 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
+	cryptoSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCryptoService)
+	if !svcOK {
 		return
 	}
 

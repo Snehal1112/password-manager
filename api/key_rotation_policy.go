@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"rocketvault/internal/container"
 	keyServices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -22,8 +23,8 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -66,8 +67,8 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -96,8 +97,8 @@ func deleteKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 

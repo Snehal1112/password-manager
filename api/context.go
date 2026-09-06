@@ -8,6 +8,7 @@ import (
 
 	"rocketvault/app"
 	"rocketvault/common"
+	"rocketvault/internal/container"
 	"rocketvault/internal/logging"
 	authServices "rocketvault/internal/services/auth"
 	certServices "rocketvault/internal/services/certificates"
@@ -221,50 +222,52 @@ func writeError(w http.ResponseWriter, c *Context) {
 	})
 }
 
-func (c *Context) secretSvc() secretServices.SecretService {
+// svc resolves a service from the request's container.
+//
+// It replaces six accessors that were each the same six lines, and it changes
+// the call shape from a nil comparison to a checked ok. That matters: a nil
+// comparison is easy to omit and compiles fine when omitted, whereas ignoring
+// the second return here leaves the caller with a zero value it must still
+// reason about.
+//
+// The failure behavior is unchanged from the accessors it replaces: a missing
+// App or container sets a 500 with no detail and returns false.
+func svc[T any](c *Context, get func(container.ServiceContainerInterface) T) (T, bool) {
+	var zero T
 	if c.App == nil || c.App.ServiceContainer == nil {
 		c.SetInternalError(nil)
-		return nil
+		return zero, false
 	}
-	return c.App.ServiceContainer.GetSecretService()
+	return get(c.App.ServiceContainer), true
+}
+
+// The five accessors below are kept as one-line delegations to svc rather
+// than deleted outright: context_accessors_test.go calls them directly, and
+// the plan for this refactor forbids editing test files. cryptoSvc had no
+// such test and was removed outright; every production call site for all six
+// now goes through svc directly.
+
+func (c *Context) secretSvc() secretServices.SecretService {
+	v, _ := svc(c, container.ServiceContainerInterface.GetSecretService)
+	return v
 }
 
 func (c *Context) keySvc() keyServices.KeyService {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetKeyService()
-}
-
-func (c *Context) cryptoSvc() keyServices.CryptoService {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetCryptoService()
+	v, _ := svc(c, container.ServiceContainerInterface.GetKeyService)
+	return v
 }
 
 func (c *Context) userSvc() userServices.UserService {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetUserService()
+	v, _ := svc(c, container.ServiceContainerInterface.GetUserService)
+	return v
 }
 
 func (c *Context) certSvc() certServices.CertificateService {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetCertificateService()
+	v, _ := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	return v
 }
 
 func (c *Context) authSvc() authServices.AuthenticationService {
-	if c.App == nil || c.App.ServiceContainer == nil {
-		c.SetInternalError(nil)
-		return nil
-	}
-	return c.App.ServiceContainer.GetAuthenticationService()
+	v, _ := svc(c, container.ServiceContainerInterface.GetAuthenticationService)
+	return v
 }

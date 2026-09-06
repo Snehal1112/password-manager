@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"rocketvault/internal/container"
 	"rocketvault/model"
 )
 
@@ -26,8 +27,8 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretSvc := c.secretSvc()
-	if secretSvc == nil {
+	secretSvc, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -62,8 +63,8 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretSvc := c.secretSvc()
-	if secretSvc == nil {
+	secretSvc, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -87,8 +88,8 @@ func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretSvc := c.secretSvc()
-	if secretSvc == nil {
+	secretSvc, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -122,8 +123,8 @@ func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -176,8 +177,8 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -209,8 +210,8 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -234,8 +235,8 @@ func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -265,8 +266,8 @@ func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	certSvc := c.certSvc()
-	if certSvc == nil {
+	certSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -303,8 +304,8 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certSvc := c.certSvc()
-	if certSvc == nil {
+	certSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -328,8 +329,8 @@ func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certSvc := c.certSvc()
-	if certSvc == nil {
+	certSvc, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 

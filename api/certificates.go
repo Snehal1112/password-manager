@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"rocketvault/internal/container"
 	certServices "rocketvault/internal/services/certificates"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -174,8 +175,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -240,8 +241,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 // vault; explicit vault-scoped routes list the vault named in the path. Both
 // use vault-level "members see all" visibility.
 func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -274,8 +275,8 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -310,8 +311,8 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -365,8 +366,8 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 

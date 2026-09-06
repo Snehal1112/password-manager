@@ -33,6 +33,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"rocketvault/common"
+	"rocketvault/internal/container"
 	"rocketvault/internal/services/secrets"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -86,8 +87,8 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -118,8 +119,8 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 	}
 	versionNum := c.Params.Version
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -143,8 +144,8 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -177,8 +178,8 @@ func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -270,8 +271,8 @@ func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		data = opened
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -356,8 +357,8 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -407,8 +408,8 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 // in the path. Both use vault-level "members see all" visibility. Supports
 // filtering by tags.
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -454,8 +455,8 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -525,8 +526,8 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -631,8 +632,8 @@ func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -699,8 +700,8 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
