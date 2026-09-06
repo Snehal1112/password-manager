@@ -33,7 +33,7 @@
 - Consumes: the durable half of the brief written in plan 04 Task 1.
 - Produces: the standing contract for anyone adding detail to a case.
 
-- [ ] **Step 1: Extend the field table and the rules**
+- [x] **Step 1: Extend the field table and the rules**
 
 In `journeybook/.claude/authoring-cases.md`, in the **The rules** section,
 after existing rule 7 (`notes` explains why the case exists), add:
@@ -73,7 +73,7 @@ Never duplicate, and never drop the actionable half. See `J6` for the worked
 split.
 ```
 
-- [ ] **Step 2: Extend the "Where things live" table and add the field reference**
+- [x] **Step 2: Extend the "Where things live" table and add the field reference**
 
 In the same file, in the table under **Where things live**, add a row:
 
@@ -107,7 +107,7 @@ expected line genuinely leaves room for doubt; `after` only where the check
 leaves state behind. Journey J is the reference for all of them.
 ```
 
-- [ ] **Step 3: Remove the scaffolding**
+- [x] **Step 3: Remove the scaffolding**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -118,7 +118,7 @@ The brief was written for seven agents doing one backfill. Its durable half is
 now in `authoring-cases.md`, and leaving both means two documents stating the
 same rules, which is how one of them goes stale without anyone noticing.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -148,7 +148,7 @@ the same rules to drift apart."
 - Consumes: the actual built artifact size from plan 09 Task 3 Step 1.
 - Produces: docs that describe the page as it now is.
 
-- [ ] **Step 1: Update the journeybook README**
+- [x] **Step 1: Update the journeybook README**
 
 In `journeybook/README.md`:
 
@@ -165,7 +165,7 @@ In `journeybook/README.md`:
   that a claim in a case carries a citation, and that `bun run check:links`
   fails the build if one is missing.
 
-- [ ] **Step 2: Update `journeybook/CLAUDE.md`**
+- [x] **Step 2: Update `journeybook/CLAUDE.md`**
 
 Add to the **Things that will bite** list:
 
@@ -179,7 +179,7 @@ Add to the **Things that will bite** list:
   cases is how transcription errors get back in.
 ```
 
-- [ ] **Step 3: Update the repository CLAUDE.md**
+- [x] **Step 3: Update the repository CLAUDE.md**
 
 In the root `CLAUDE.md`, the **QA Journeybook** bullet under Developer
 Resources describes the page as "23 suites, 245 checks, each carrying its
@@ -194,7 +194,7 @@ is more true now, not less.
 Do not add a count that will drift. The bullet already says 245; leave the
 number where it is rather than adding a second one.
 
-- [ ] **Step 4: Rebuild and commit**
+- [x] **Step 4: Rebuild and commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
