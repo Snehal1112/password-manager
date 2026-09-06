@@ -16,8 +16,17 @@ import (
 
 // ResolveVaultID resolves the --vault selection to a vault id via the service container.
 func ResolveVaultID(ctx context.Context, cmd *cobra.Command, sc container.ServiceContainerInterface) (uuid.UUID, error) {
+	// A container wired without a vault service is a construction bug, but it
+	// must surface as an error on the authorization path rather than a nil
+	// dereference -- this call is the first thing every data-plane command
+	// does, so a panic here is the least legible place for one.
+	svc := sc.GetVaultService()
+	if svc == nil {
+		return uuid.Nil, fmt.Errorf("vault service not available")
+	}
+
 	name := common.ResolveVaultName(cmd)
-	v, err := sc.GetVaultService().GetVault(ctx, name)
+	v, err := svc.GetVault(ctx, name)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("vault %q not found: %w", name, err)
 	}
@@ -75,4 +84,10 @@ func resourceTypeFromAction(action model.DataAction) model.PolicyResourceType {
 	default:
 		return ""
 	}
+}
+
+// AddVaultFlag adds the --vault selection flag to a command. Commands under a
+// group that does not inherit the root persistent flag need their own.
+func AddVaultFlag(cmd *cobra.Command) {
+	cmd.Flags().String("vault", "", "vault name (default: ROCKETVAULT_VAULT env, config, or \"default\")")
 }
