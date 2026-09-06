@@ -3,7 +3,6 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -170,8 +169,7 @@ func (api *API) oidcCallbackHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSON(w, response)
 }
 
 // randomOIDCToken returns a 32-byte, hex-encoded random token suitable for

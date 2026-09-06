@@ -77,9 +77,8 @@ type restoreRequest struct {
 
 // backupSecretHandler creates a backup blob for a secret and returns it.
 func backupSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -108,8 +107,7 @@ func backupSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]string{"blob": blob})
 }
 
 // restoreSecretHandler decodes a backup blob and re-inserts the secret.
@@ -151,9 +149,8 @@ func restoreSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // backupKeyHandler creates a backup blob for a key and returns it.
 func backupKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -182,8 +179,7 @@ func backupKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]string{"blob": blob})
 }
 
 // restoreKeyHandler decodes a backup blob and re-inserts the key.
@@ -225,9 +221,8 @@ func restoreKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // backupCertificateHandler creates a backup blob for a certificate and returns it.
 func backupCertificateHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -256,8 +251,7 @@ func backupCertificateHandler(c *Context, w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"blob": blob}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]string{"blob": blob})
 }
 
 // restoreCertificateHandler decodes a backup blob and re-inserts the certificate.

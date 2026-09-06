@@ -14,20 +14,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// AuditLog is a single enriched audit event read from the database.
-type AuditLog struct {
-	ID           string
-	UserID       string
-	Action       string
-	Details      string
-	Timestamp    time.Time
-	ResourceType string
-	ResourceID   string
-	IPAddress    string
-	Outcome      string
-	Source       string
-	PrevHash     string
-}
+// AuditLog is a single enriched audit event read from the database. Alias for
+// model.AuditLog: the canonical definition lives in model/ so api/ and cmd/
+// can name one without importing this package.
+type AuditLog = model.AuditLog
 
 // AuditFilter specifies query constraints for QueryAuditLogs. Alias for
 // model.AuditFilter: the canonical definition lives in model/ so api/ and

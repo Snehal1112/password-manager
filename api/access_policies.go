@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -55,8 +54,7 @@ func listAccessPolicies(c *Context, w http.ResponseWriter, r *http.Request) {
 		policies = []*model.AccessPolicy{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{
 		"access_policies": policies,
 		"total":           len(policies),
 	})
@@ -69,9 +67,8 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req model.CreateAccessPolicyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[model.CreateAccessPolicyRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -127,9 +124,7 @@ func createAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, policy)
 }
 
 // getAccessPolicy retrieves a single access policy by ID.
@@ -139,9 +134,8 @@ func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.PolicyID)
-	if err != nil {
-		c.SetInvalidParam("policy_id")
+	id, ok := resourceID(c, c.Params.PolicyID, "policy_id")
+	if !ok {
 		return
 	}
 
@@ -152,8 +146,7 @@ func getAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSON(w, policy)
 }
 
 // updateAccessPolicy updates the effect of an existing access policy.
@@ -163,17 +156,15 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.PolicyID)
-	if err != nil {
-		c.SetInvalidParam("policy_id")
+	id, ok := resourceID(c, c.Params.PolicyID, "policy_id")
+	if !ok {
 		return
 	}
 
-	var req struct {
+	req, bodyOK := decodeBody[struct {
 		Effect string `json:"effect"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	}](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.Effect == "" {
@@ -198,8 +189,7 @@ func updateAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSON(w, policy)
 }
 
 // deleteAccessPolicy permanently removes an access policy.
@@ -209,9 +199,8 @@ func deleteAccessPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.PolicyID)
-	if err != nil {
-		c.SetInvalidParam("policy_id")
+	id, ok := resourceID(c, c.Params.PolicyID, "policy_id")
+	if !ok {
 		return
 	}
 
@@ -231,9 +220,8 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	principalID, err := uuid.Parse(c.Params.PrincipalID)
-	if err != nil {
-		c.SetInvalidParam("principal_id")
+	principalID, ok := resourceID(c, c.Params.PrincipalID, "principal_id")
+	if !ok {
 		return
 	}
 
@@ -248,8 +236,7 @@ func listAccessPoliciesByPrincipal(c *Context, w http.ResponseWriter, r *http.Re
 		policies = []*model.AccessPolicy{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{
 		"access_policies": policies,
 		"total":           len(policies),
 	})

@@ -2,12 +2,10 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 
-	"github.com/google/uuid"
-
+	"rocketvault/internal/container"
 	keyServices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -15,9 +13,8 @@ import (
 
 // getKeyRotationPolicy returns the rotation policy for a key.
 func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -26,8 +23,8 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -41,15 +38,13 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSON(w, policy)
 }
 
 // upsertKeyRotationPolicy creates or replaces the rotation policy for a key.
 func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -72,8 +67,8 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -87,16 +82,13 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, policy)
 }
 
 // deleteKeyRotationPolicy removes the rotation policy for a key.
 func deleteKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -105,8 +97,8 @@ func deleteKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	keySvc := c.keySvc()
-	if keySvc == nil {
+	keySvc, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 

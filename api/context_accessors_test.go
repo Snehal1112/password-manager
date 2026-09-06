@@ -30,7 +30,18 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"rocketvault/app"
+	"rocketvault/internal/container"
+	secretServices "rocketvault/internal/services/secrets"
 )
+
+// nilMethodContainer satisfies container.ServiceContainerInterface by
+// embedding it as a nil value. It exists only to give svc a non-nil
+// container to check against in TestSvc_NilService_SetsErr; that test's
+// getter never calls any of the embedded methods, so they never need a
+// real implementation.
+type nilMethodContainer struct {
+	container.ServiceContainerInterface
+}
 
 // TestContext_SecretSvc_NilApp_SetsErr verifies that secretSvc sets c.Err
 // and returns nil when c.App is nil.
@@ -128,6 +139,22 @@ func TestContext_AuthSvc_NilContainer_SetsErr(t *testing.T) {
 	ctx := &Context{App: &app.App{ServiceContainer: nil}}
 	svc := ctx.authSvc()
 	assert.Nil(t, svc)
+	assert.NotNil(t, ctx.Err)
+	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
+}
+
+// TestSvc_NilService_SetsErr verifies that svc sets c.Err and returns
+// (zero, false) when the container is non-nil but the getter itself returns
+// a nil service. Before this fix, svc returned (nil, true) in this case,
+// letting a nil service reach the handler and panic instead of producing a
+// 500.
+func TestSvc_NilService_SetsErr(t *testing.T) {
+	ctx := &Context{App: &app.App{ServiceContainer: nilMethodContainer{}}}
+	result, ok := svc(ctx, func(container.ServiceContainerInterface) secretServices.SecretService {
+		return nil
+	})
+	assert.False(t, ok)
+	assert.Nil(t, result)
 	assert.NotNil(t, ctx.Err)
 	assert.Equal(t, http.StatusInternalServerError, ctx.Err.StatusCode)
 }

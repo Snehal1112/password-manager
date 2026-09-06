@@ -135,18 +135,14 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 	_, err := h.collector.CollectMetrics(r.Context())
 	if err != nil {
 		h.logger.LogAuditError("", "readiness_api", "failed", "System not ready", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{
 			"status": "not ready",
 			"error":  err.Error(),
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, map[string]string{
 		"status": "ready",
 	})
 
@@ -156,9 +152,7 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 // LivenessCheck handles GET /health/live endpoint.
 func (h *HealthHandler) LivenessCheck(w http.ResponseWriter, r *http.Request) {
 	// Simple liveness check — if the handler is responding, we're alive.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, map[string]string{
 		"status": "alive",
 	})
 
@@ -177,7 +171,5 @@ func (h *HealthHandler) DatabaseCheck(w http.ResponseWriter, r *http.Request) {
 		httpStatus = http.StatusServiceUnavailable
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(httpStatus)
-	json.NewEncoder(w).Encode(result) //nolint:errcheck,gosec
+	writeJSONStatus(w, httpStatus, result)
 }

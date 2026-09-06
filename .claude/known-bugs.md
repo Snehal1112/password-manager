@@ -3735,6 +3735,78 @@ system user row already present.
 
 ---
 
+### B63 — `getDeletedKey` lists an entire vault to serve one id
+
+**Status**: Open (deferred 2026-09-06)
+**Severity**: Low — performance only, no correctness or authorization defect
+**Files**: `api/soft_delete.go` (lines 326-366),
+`internal/repositories/key_repository.go`, `internal/services/keys/key_service.go`
+
+`api/soft_delete.go`'s `getDeletedKey` calls `KeyService.ListDeletedKeys` for
+the whole vault and linear-scans the result for one key id. It is O(n) in the
+vault's soft-deleted key count for a single-item GET.
+
+Root cause: no scoped by-id read of a soft-deleted key exists.
+`KeyRepository.Read` filters `deleted_at IS NULL`, and `KeyRepository.ReadDeleted`
+takes no `model.Scope`, so a handler calling it would read across vault
+boundaries.
+
+Fix recipe: add `ReadDeletedScoped(ctx, id, scope)` to `KeyRepository` built on
+`ScopedGet[T]`, expose it as `KeyService.GetDeletedKey`, and rewire the handler.
+Deferred because the `KeyService` interface fan-out exceeded five files.
+
+That audit of the unscoped `ReadDeleted` was done on 2026-09-06 and is filed
+as B64: the one production caller is safe, but the method still authorizes
+nothing on its own.
+
+The measured fan-out, for whoever picks this up: seven files declare or stub a
+`ListDeletedKeys` method and would each need a `GetDeletedKey` pass-through —
+`internal/services/keys/key_service.go` (interface and implementation),
+`internal/services/retry/retry_key_service.go`,
+`internal/services/keys/mocks/mock_KeyService.go`, and four hand-rolled test
+doubles in `api/keys_crud_test.go`, `api/vault_scoped_keys_certs_test.go`,
+`cmd/keys/keys_cmd_test.go` and `cmd/keys/update_test.go`. The four hand-rolled
+doubles are the real cost: each must be edited by hand, and a missed one is a
+compile break rather than a silent bug.
+
+---
+
+### B64 — `KeyRepository.ReadDeleted` takes no `model.Scope`, so it authorizes nothing
+
+**Status**: Open (filed 2026-09-06, latent — no live defect today)
+**Severity**: Low today, High if a second caller appears
+**Files**: `internal/repositories/key_repository.go` (lines 41-43, 411-422),
+`internal/services/keys/key_service.go` (line 940)
+
+`ReadDeleted(ctx, id)` reads a key by id regardless of soft-deletion state and
+takes no `model.Scope`. Scope is the authorization predicate everywhere else in
+this codebase — every sibling read (`Read`, `List`) takes one — so this method
+returns any key in any vault to any caller that holds its id.
+
+This is the audit B63's entry asked for, now done. There is exactly one
+production caller, and it is **safe**: `keyService.DeleteKey` calls the scoped
+`keyRepo.Read(ctx, keyID, scope)` first and returns `ErrKeyNotFound` if that
+fails, then soft-deletes, then calls `ReadDeleted` on the same already-authorized
+id purely to re-read the row's post-delete metadata for its return value. The
+unscoped read is covered by the scoped read that precedes it.
+
+Root cause: the method was written as an internal re-read helper for one
+call site, but it is exported on `KeyRepositoryInterface`, so nothing stops a
+future caller from reaching it without a preceding scoped read. The signature
+carries no hint that the caller owes an authorization check.
+
+Why it matters despite being latent: B63's fix recipe proposes a scoped by-id
+read of a soft-deleted key. Anyone implementing that who reaches for the
+existing `ReadDeleted` instead of adding `ReadDeletedScoped` turns this into a
+live cross-vault read on a `GET` handler.
+
+Fix recipe: add `ReadDeletedScoped(ctx, id, scope)` built on `ScopedGet[T]`
+(the same one B63 needs), point `DeleteKey` at it, and unexport or delete
+`ReadDeleted` so no unscoped path remains. Doing this alongside B63 shares the
+work, since both need the same new repository method.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

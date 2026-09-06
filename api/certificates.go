@@ -23,13 +23,13 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"rocketvault/internal/container"
 	certServices "rocketvault/internal/services/certificates"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -137,9 +137,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	// the Microsoft.KeyVault/vaults/certificates/create data action, granted by
 	// Key Vault Certificates Officer or Key Vault Administrator in this vault.
 
-	var req CreateCertificateAPIRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[CreateCertificateAPIRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -176,8 +175,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -235,17 +234,15 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		NotBefore:   req.NotBefore,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, response)
 }
 
 // listCertificates lists certificates. Legacy flat routes list the default
 // vault; explicit vault-scoped routes list the vault named in the path. Both
 // use vault-level "members see all" visibility.
 func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -268,20 +265,18 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		response.Certificates[i] = certToDomainResponse(&certs[i])
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSON(w, response)
 }
 
 // getCertificate retrieves a specific certificate by ID.
 func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -296,21 +291,18 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck,gosec
+	writeJSON(w, certToDomainResponse(cert))
 }
 
 // updateCertificate updates an existing certificate's metadata.
 func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
-	var req UpdateCertificateAPIRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[UpdateCertificateAPIRequest](c, r)
+	if !bodyOK {
 		return
 	}
 
@@ -319,8 +311,8 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -357,15 +349,13 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck,gosec
+	writeJSON(w, certToDomainResponse(cert))
 }
 
 // deleteCertificate removes a certificate from the system.
 func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -376,8 +366,8 @@ func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 

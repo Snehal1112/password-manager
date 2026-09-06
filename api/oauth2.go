@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"rocketvault/common"
 	"rocketvault/internal/middleware"
 	auditSvc "rocketvault/internal/services/audit"
@@ -101,9 +99,7 @@ func (api *API) tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	api.recordOAuth2TokenAudit(r, clientID, "success")
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(tokenResp) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, tokenResp)
 }
 
 // maxAuditClientIDLen bounds the caller-supplied client_id written into an
@@ -163,9 +159,7 @@ func extractClientCredentials(r *http.Request) (clientID, clientSecret string, o
 // writeTokenError writes an RFC 6749 §5.2 compliant JSON error response.
 // Cache-control headers must already be set by the caller.
 func writeTokenError(w http.ResponseWriter, status int, errCode, description string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
+	writeJSONStatus(w, status, map[string]string{
 		"error":             errCode,
 		"error_description": description,
 	})
@@ -221,9 +215,7 @@ func createServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	recordServiceAccountAudit(c, r, "service_account_create", client.ID.String(), "success")
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, map[string]any{
 		"id":            client.ID.String(),
 		"name":          client.Name,
 		"description":   client.Description,
@@ -249,8 +241,7 @@ func listServiceAccounts(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{
 		"service_accounts": clients,
 		"total":            len(clients),
 	})
@@ -264,9 +255,8 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		c.SetInvalidParam("service_account_id")
+	id, ok := resourceID(c, c.Params.ServiceAccountID, "service_account_id")
+	if !ok {
 		return
 	}
 
@@ -277,8 +267,7 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(client) //nolint:errcheck,gosec
+	writeJSON(w, client)
 }
 
 // deleteServiceAccount handles DELETE /service-accounts/{service_account_id}.
@@ -289,9 +278,8 @@ func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		c.SetInvalidParam("service_account_id")
+	id, ok := resourceID(c, c.Params.ServiceAccountID, "service_account_id")
+	if !ok {
 		return
 	}
 
@@ -316,9 +304,8 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		c.SetInvalidParam("service_account_id")
+	id, ok := resourceID(c, c.Params.ServiceAccountID, "service_account_id")
+	if !ok {
 		return
 	}
 
@@ -332,8 +319,7 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 
 	recordServiceAccountAudit(c, r, "service_account_rotate_secret", id.String(), "success")
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
+	writeJSON(w, map[string]string{
 		"client_secret": newSecret, // returned once only — store securely
 	})
 }

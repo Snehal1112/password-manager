@@ -23,17 +23,13 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"rocketvault/common"
+	"rocketvault/internal/container"
 	"rocketvault/internal/services/secrets"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -80,246 +76,6 @@ func (api *API) registerSecretRoutes(s *mux.Router, scope string) {
 	api.Logger.WithField("scope", scope).Infoln("Secrets API routes initialized")
 }
 
-// listSecretVersionsHandler lists all versions of a secret.
-func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
-		return
-	}
-
-	secretService := c.secretSvc()
-	if secretService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	// Metadata only, and metadata only by construction: this route is
-	// authorized by ActionSecretsReadMetadata, which Key Vault Reader holds.
-	// It previously called GetSecretVersions, which decrypts every version,
-	// so a Reader could read every historical plaintext value of the secret
-	// (.claude/known-bugs.md § B30). A value is read through
-	// GET /secrets/{id}/versions/{n}, which requires ActionSecretsGet.
-	versions, err := secretService.GetSecretVersionsMetadata(r.Context(), secretID, scope)
-	if err != nil {
-		writeSecretError(c, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versions) //nolint:errcheck,gosec
-}
-
-// getSecretVersionHandler retrieves a specific version of a secret.
-func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
-		return
-	}
-	versionNum := c.Params.Version
-
-	secretService := c.secretSvc()
-	if secretService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	version, err := secretService.GetSecretVersion(r.Context(), secretID, versionNum, scope)
-	if err != nil {
-		writeSecretError(c, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
-}
-
-// getLatestSecretVersionHandler retrieves the latest version of a secret.
-func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
-		return
-	}
-
-	secretService := c.secretSvc()
-	if secretService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	version, err := secretService.GetLatestSecretVersion(r.Context(), secretID, scope)
-	if err != nil {
-		writeSecretError(c, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
-}
-
-// exportSecrets handles the export of secrets to encrypted files.
-// Supports JSON and CSV formats with optional encryption.
-func exportSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Parse request body using model type.
-	exportReq, err := model.ExportSecretsRequestFromJson(r.Body)
-	if err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-
-	// Validate format.
-	if exportReq.Format != "json" && exportReq.Format != "csv" {
-		c.SetInvalidParam("format: must be 'json' or 'csv'")
-		return
-	}
-
-	secretService := c.secretSvc()
-	if secretService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	// Use service layer for export.
-	serviceReq := secrets.ExportSecretsRequest{
-		Scope:       scope,
-		Format:      exportReq.Format,
-		FilterTags:  exportReq.Tags,
-		IncludeTags: exportReq.IncludeTags,
-		Encrypt:     exportReq.Encrypt,
-		Passphrase:  exportReq.Passphrase,
-	}
-
-	data, err := secretService.ExportSecrets(r.Context(), serviceReq)
-	if err != nil {
-		writeSecretError(c, err)
-		return
-	}
-
-	// Set response headers.
-	contentType := "application/json"
-	if exportReq.Format == "csv" {
-		contentType = "text/csv"
-	}
-
-	filename := fmt.Sprintf("secrets-export-%s.%s", time.Now().Format("20060102-150405"), exportReq.Format)
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-
-	// Write raw file bytes.
-	w.WriteHeader(http.StatusOK)
-	w.Write(data) //nolint:errcheck,gosec
-
-	c.Logger.Printf("User %s exported secrets in %s format", c.Claims.UserID, exportReq.Format)
-}
-
-// importSecrets handles the import of secrets from encrypted files.
-// Accepts multipart form data with file, format, and options.
-func importSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	// Parse multipart form.
-	if err := r.ParseMultipartForm(10 << 20); err != nil { // 10 MB max.
-		c.SetInvalidParam("request body: failed to parse multipart form")
-		return
-	}
-
-	// Get file from form.
-	file, _, err := r.FormFile("file")
-	if err != nil {
-		c.SetInvalidParam("file: missing or invalid")
-		return
-	}
-	defer file.Close() //nolint:errcheck
-
-	// Read file data.
-	data, err := io.ReadAll(file)
-	if err != nil {
-		c.SetInvalidParam("file: failed to read")
-		return
-	}
-
-	// Get form parameters.
-	format := r.FormValue("format")
-	if format != "json" && format != "csv" {
-		c.SetInvalidParam("format: must be 'json' or 'csv'")
-		return
-	}
-
-	overwrite := r.FormValue("overwrite") == "true"
-
-	// A sealed export must be opened here, in the handler, not in the
-	// service: this is the only layer with a passphrase channel (the
-	// "passphrase" form field). ImportSecrets refuses sealed data outright
-	// by design (see secret_service.go's ImportSecrets) — plaintext must
-	// reach it. This mirrors cmd/secrets/import.go's own detect-then-open
-	// sequence exactly. The passphrase form value is used only for this
-	// OpenExport call; it is never logged and never reaches the service.
-	if common.IsSealedExport(data) {
-		opened, openErr := common.OpenExport(data, r.FormValue("passphrase"))
-		if openErr != nil {
-			writeSecretError(c, openErr)
-			return
-		}
-		data = opened
-	}
-
-	secretService := c.secretSvc()
-	if secretService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	// Use service layer for import.
-	serviceReq := secrets.ImportSecretsRequest{
-		Scope:     scope,
-		Data:      data,
-		Format:    format,
-		Overwrite: overwrite,
-	}
-
-	result, err := secretService.ImportSecrets(r.Context(), serviceReq)
-	if err != nil {
-		writeSecretError(c, err)
-		return
-	}
-
-	// Prepare response using model type.
-	response := model.ImportResponse{
-		Success:       true,
-		Message:       fmt.Sprintf("Successfully imported %d/%d secrets", result.ImportedCount, result.TotalCount),
-		ImportedCount: result.ImportedCount,
-		TotalCount:    result.TotalCount,
-		Format:        format,
-		ImportedAt:    time.Now().Format(time.RFC3339),
-	}
-
-	// Send response.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(response.ToJson())) //nolint:errcheck,gosec
-
-	c.Logger.Printf("User %s imported %d/%d secrets from %s format",
-		c.Claims.UserID, result.ImportedCount, result.TotalCount, format)
-}
-
 // createSecret handles the creation of a new secret.
 func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Parse request body using model type.
@@ -363,8 +119,8 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -414,8 +170,8 @@ func createSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 // in the path. Both use vault-level "members see all" visibility. Supports
 // filtering by tags.
 func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -456,14 +212,13 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 // getSecret handles the HTTP request to retrieve a secret by its ID.
 // Returns the secret with its decrypted value.
 func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -502,9 +257,8 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 // updateSecret handles the HTTP request to update a secret by its ID.
 // Increments the version on change.
 func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -534,8 +288,8 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -635,14 +389,13 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteSecret handles the HTTP request to delete a secret by its ID.
 func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 
@@ -709,8 +462,8 @@ func generateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	secretService := c.secretSvc()
-	if secretService == nil {
+	secretService, svcOK := svc(c, container.ServiceContainerInterface.GetSecretService)
+	if !svcOK {
 		return
 	}
 

@@ -23,7 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -83,13 +82,25 @@ func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
-		"logs":         logs,
-		"total":        total,
-		"integrity_ok": integrityOK,
-		"next_cursor":  "",
+	writeJSON(w, auditLogsResponse{
+		IntegrityOK: integrityOK,
+		Logs:        logs,
+		NextCursor:  "",
+		Total:       total,
 	})
+}
+
+// auditLogsResponse is the GET /audit/logs envelope.
+//
+// Fields are declared in the alphabetical order the map[string]any this
+// replaces encoded them in, so the JSON byte order is unchanged. No field is
+// omitempty: the map always emitted all four keys, and next_cursor in
+// particular is always the empty string today.
+type auditLogsResponse struct {
+	IntegrityOK bool             `json:"integrity_ok"`
+	Logs        []model.AuditLog `json:"logs"`
+	NextCursor  string           `json:"next_cursor"`
+	Total       int64            `json:"total"`
 }
 
 // getSOC2Report handles GET /audit/reports/soc2.
@@ -131,8 +142,7 @@ func getSOC2Report(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report) //nolint:errcheck,gosec
+	writeJSON(w, report)
 }
 
 // getGDPRReport handles GET /audit/reports/gdpr.
@@ -181,8 +191,7 @@ func getGDPRReport(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report) //nolint:errcheck,gosec
+	writeJSON(w, report)
 }
 
 // getAuditConfig handles GET /audit/config and returns the current retention_days.
@@ -205,8 +214,7 @@ func getAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"retention_days": days}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]int{"retention_days": days})
 }
 
 // patchAuditConfig handles PATCH /audit/config and updates retention_days.
@@ -218,11 +226,10 @@ func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
+	body, ok := decodeBody[struct {
 		RetentionDays int `json:"retention_days"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		c.SetInvalidParam("request body")
+	}](c, r)
+	if !ok {
 		return
 	}
 	if body.RetentionDays <= 0 {
@@ -240,8 +247,7 @@ func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"retention_days": body.RetentionDays}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]int{"retention_days": body.RetentionDays})
 }
 
 // parseAuditFilter builds an AuditFilter from URL query parameters.

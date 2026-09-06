@@ -23,8 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -32,183 +30,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
-	"rocketvault/internal/crypto"
+	"rocketvault/internal/container"
 	keyservices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
 )
-
-// CreateKeyRequest represents the request structure for creating a cryptographic key.
-type CreateKeyRequest struct {
-	Name      string     `json:"name"`              // Key name.
-	Type      string     `json:"type"`              // Key type (RSA, ECDSA).
-	Bits      int        `json:"bits"`              // RSA key size in bits (2048, 3072, or 4096).
-	Curve     string     `json:"curve"`             // ECDSA curve (P-256, P-384, P-521).
-	Tags      []string   `json:"tags"`              // Tags for the key.
-	Enabled   *bool      `json:"enabled,omitempty"` // Defaults to true if nil.
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	NotBefore *time.Time `json:"not_before,omitempty"`
-	// PurgeProtection is optional; nil leaves the stored default alone.
-	PurgeProtection *bool `json:"purge_protection,omitempty"`
-}
-
-// ImportKeyRequest represents the request structure for importing a
-// cryptographic key from a JWK.
-type ImportKeyRequest struct {
-	Name      string          `json:"name"`
-	JWK       json.RawMessage `json:"jwk"`
-	Tags      []string        `json:"tags"`
-	Enabled   *bool           `json:"enabled,omitempty"`
-	ExpiresAt *time.Time      `json:"expires_at,omitempty"`
-	NotBefore *time.Time      `json:"not_before,omitempty"`
-	// PurgeProtection is optional; nil leaves the stored default alone.
-	PurgeProtection *bool `json:"purge_protection,omitempty"`
-}
-
-// UpdateKeyRequest represents the request structure for updating a cryptographic key.
-type UpdateKeyRequest struct {
-	Name      *string    `json:"name,omitempty"`    // New name for the key.
-	Revoked   *bool      `json:"revoked,omitempty"` // Set key revocation status.
-	Tags      []string   `json:"tags,omitempty"`    // Replace existing tags.
-	Enabled   *bool      `json:"enabled,omitempty"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	NotBefore *time.Time `json:"not_before,omitempty"`
-	// PurgeProtection is optional; nil means no change.
-	PurgeProtection *bool `json:"purge_protection,omitempty"`
-}
-
-// KeyResponse represents the response structure for a cryptographic key.
-type KeyResponse struct {
-	ID        uuid.UUID  `json:"id"`
-	Name      string     `json:"name"`
-	Type      string     `json:"type"`
-	UserID    uuid.UUID  `json:"user_id"`
-	Revoked   bool       `json:"revoked"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
-	Tags      []string   `json:"tags"`
-	Enabled   bool       `json:"enabled"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	NotBefore *time.Time `json:"not_before,omitempty"`
-	Bits      int        `json:"bits,omitempty"`
-	Curve     string     `json:"curve,omitempty"`
-	// JWK public components (omitted for HSM-backed keys).
-	N string `json:"n,omitempty"` // RSA modulus (base64url).
-	E string `json:"e,omitempty"` // RSA public exponent (base64url).
-	X string `json:"x,omitempty"` // EC x coordinate (base64url).
-	Y string `json:"y,omitempty"` // EC y coordinate (base64url).
-}
-
-// KeyVersionResponse is one key version's metadata plus its public JWK
-// components, matching what Azure Key Vault's GET /keys/{name}/{version}
-// returns.
-//
-// It embeds model.KeyVersion rather than adding fields to it, so that type's
-// no-material guarantee is untouched: there is deliberately no Value or PEM
-// field here, and none may be added.
-type KeyVersionResponse struct {
-	model.KeyVersion
-	N string `json:"n,omitempty"` // RSA modulus (base64url).
-	E string `json:"e,omitempty"` // RSA public exponent (base64url).
-	X string `json:"x,omitempty"` // EC x coordinate (base64url).
-	Y string `json:"y,omitempty"` // EC y coordinate (base64url).
-}
-
-// KeyListResponse represents the response structure for listing keys.
-type KeyListResponse struct {
-	Keys []KeyResponse `json:"keys"`
-}
-
-// WrapKeyRequest is the HTTP request body for POST /keys/{key_id}/wrap.
-type WrapKeyRequest struct {
-	PlaintextKey string `json:"plaintext_key"`     // base64-encoded key material.
-	Algorithm    string `json:"algorithm"`         // defaults to "RSA-OAEP".
-	Version      int    `json:"version,omitempty"` // 0 = current
-}
-
-// WrapKeyResponse is the HTTP response for a successful wrap.
-type WrapKeyResponse struct {
-	WrappedKey string `json:"wrapped_key"` // base64-encoded wrapped bytes.
-	Algorithm  string `json:"algorithm"`
-	Version    int    `json:"version"` // the version actually used
-}
-
-// UnwrapKeyRequest is the HTTP request body for POST /keys/{key_id}/unwrap.
-type UnwrapKeyRequest struct {
-	WrappedKey string `json:"wrapped_key"`       // base64-encoded wrapped bytes.
-	Algorithm  string `json:"algorithm"`         // defaults to "RSA-OAEP".
-	Version    int    `json:"version,omitempty"` // 0 = current
-}
-
-// UnwrapKeyResponse is the HTTP response for a successful unwrap.
-type UnwrapKeyResponse struct {
-	PlaintextKey string `json:"plaintext_key"` // base64-encoded recovered key.
-	Algorithm    string `json:"algorithm"`
-	Version      int    `json:"version"` // the version actually used
-}
-
-// SignKeyRequest is the HTTP request body for POST /keys/{key_id}/sign.
-type SignKeyRequest struct {
-	Value     string `json:"value"`             // base64-encoded data to sign
-	Algorithm string `json:"algorithm"`         // RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512
-	Version   int    `json:"version,omitempty"` // 0 = current
-}
-
-// SignKeyResponse is the HTTP response for a successful sign.
-type SignKeyResponse struct {
-	KeyID     string `json:"key_id"`
-	Algorithm string `json:"algorithm"`
-	Value     string `json:"value"`   // base64-encoded signature
-	Version   int    `json:"version"` // the version actually used
-}
-
-// VerifyKeyRequest is the HTTP request body for POST /keys/{key_id}/verify.
-type VerifyKeyRequest struct {
-	Value     string `json:"value"`     // base64-encoded original data
-	Signature string `json:"signature"` // base64-encoded signature
-	Algorithm string `json:"algorithm"`
-	Version   int    `json:"version,omitempty"` // 0 = current
-}
-
-// VerifyKeyResponse is the HTTP response for a verify operation.
-type VerifyKeyResponse struct {
-	KeyID     string `json:"key_id"`
-	Algorithm string `json:"algorithm"`
-	Valid     bool   `json:"valid"`
-	Version   int    `json:"version"` // the version actually used
-}
-
-// EncryptKeyRequest is the HTTP request body for POST /keys/{key_id}/encrypt.
-type EncryptKeyRequest struct {
-	Value     string `json:"value"`             // base64-encoded plaintext
-	Algorithm string `json:"algorithm"`         // RSA-OAEP, RSA-OAEP-256, AES256-GCM
-	Version   int    `json:"version,omitempty"` // 0 = current
-}
-
-// EncryptKeyResponse is the HTTP response for a successful encrypt.
-type EncryptKeyResponse struct {
-	KeyID     string `json:"key_id"`
-	Algorithm string `json:"algorithm"`
-	Value     string `json:"value"`           // base64-encoded ciphertext
-	Nonce     string `json:"nonce,omitempty"` // base64-encoded, for AES-GCM
-	Version   int    `json:"version"`         // the version actually used
-}
-
-// DecryptKeyRequest is the HTTP request body for POST /keys/{key_id}/decrypt.
-type DecryptKeyRequest struct {
-	Value     string `json:"value"`           // base64-encoded ciphertext
-	Nonce     string `json:"nonce,omitempty"` // base64-encoded, for AES-GCM
-	Algorithm string `json:"algorithm"`
-	Version   int    `json:"version,omitempty"` // 0 = current
-}
-
-// DecryptKeyResponse is the HTTP response for a successful decrypt.
-type DecryptKeyResponse struct {
-	KeyID     string `json:"key_id"`
-	Algorithm string `json:"algorithm"`
-	Value     string `json:"value"`   // base64-encoded plaintext
-	Version   int    `json:"version"` // the version actually used
-}
 
 // keyJWK fetches a key's public components for a response body. version 0
 // means the key's current version, which is what the four single-key handlers
@@ -333,9 +159,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Crypto Officer or Key Vault Administrator in this vault. A second gate on
 	// the caller's global role would contradict that per-vault decision.
 
-	var req CreateKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[CreateKeyRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -378,8 +203,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -450,9 +275,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0))) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0)))
 }
 
 // importKey imports a cryptographic key from caller-supplied JWK material.
@@ -461,9 +284,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Microsoft.KeyVault/vaults/keys/import/action data action, granted by
 	// Key Vault Crypto Officer or Key Vault Administrator in this vault.
 
-	var req ImportKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[ImportKeyRequest](c, r)
+	if !ok {
 		return
 	}
 	if req.Name == "" || len(req.JWK) == 0 {
@@ -496,8 +318,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -530,9 +352,7 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0))) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0)))
 }
 
 // listKeys lists cryptographic keys. Legacy flat routes list the default
@@ -540,8 +360,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 // use vault-level "members see all" visibility, optionally filtered by type
 // and tags.
 func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -567,20 +387,18 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		response.Keys[i] = buildKeyResponse(&keysList[i], nil)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSON(w, response)
 }
 
 // getKey retrieves a specific cryptographic key by ID.
 func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -595,21 +413,18 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
+	writeJSON(w, buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0)))
 }
 
 // updateKey updates a cryptographic key.
 func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
-	var req UpdateKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[UpdateKeyRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -626,8 +441,8 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -661,20 +476,18 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
+	writeJSON(w, buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0)))
 }
 
 // deleteKey deletes a cryptographic key.
 func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
-	keyService := c.keySvc()
-	if keyService == nil {
+	keyService, svcOK := svc(c, container.ServiceContainerInterface.GetKeyService)
+	if !svcOK {
 		return
 	}
 
@@ -706,488 +519,5 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		RecoveryID:       "/deleted/keys/" + deleted.ID.String() + "/restore",
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
-}
-
-// rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.
-func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	keyService := c.keySvc()
-	if keyService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	// Rotate the key. The scoped read inside the service is the access check.
-	result, err := keyService.RotateKey(r.Context(), keyID, scope)
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	// Fetch the full key record so buildKeyResponse can inspect the stored
-	// value, using the same scope that authorized the rotation.
-	key, err := keyService.GetKey(r.Context(), result.KeyID, scope)
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
-}
-
-// listKeyVersions returns the version history for a key, excluding raw key material.
-func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	keyService := c.keySvc()
-	if keyService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	// KeyService.ListKeyVersions does the scope-aware auth check internally,
-	// exactly like getKey on this same route, before delegating to the
-	// repository.
-	versions, err := keyService.ListKeyVersions(r.Context(), keyID, scope)
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	// Return an empty array rather than null when no versions exist.
-	if versions == nil {
-		versions = []model.KeyVersion{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"versions": versions}) //nolint:errcheck,gosec
-}
-
-// getKeyVersion retrieves metadata for one version of the vault key
-// identified by {key_id}. Never returns key material — see model.KeyVersion.
-func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	keyService := c.keySvc()
-	if keyService == nil {
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	version, err := keyService.GetKeyVersion(r.Context(), keyID, c.Params.Version, scope)
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	// The public components for THIS version, not the key's current ones --
-	// that is the whole point of addressing a version.
-	resp := KeyVersionResponse{KeyVersion: *version}
-	if jwk := keyJWK(c, r, keyService, keyID, scope, c.Params.Version); jwk != nil {
-		resp.N, resp.E, resp.X, resp.Y = jwk.N, jwk.E, jwk.X, jwk.Y
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
-}
-
-// wrapKey wraps plaintext key material using the vault key identified by {key_id}.
-func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	var req WrapKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-	if req.PlaintextKey == "" {
-		c.SetInvalidParam("plaintext_key is required")
-		return
-	}
-	if req.Algorithm == "" {
-		req.Algorithm = "RSA-OAEP"
-	}
-
-	plaintextBytes, err := base64.StdEncoding.DecodeString(req.PlaintextKey)
-	if err != nil {
-		c.SetInvalidParam("plaintext_key: must be valid base64")
-		return
-	}
-
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
-		return
-	}
-
-	result, err := cryptoSvc.WrapKey(r.Context(), keyservices.WrapKeyRequest{
-		KeyID:        keyID,
-		UserID:       scope.ActorID(),
-		VaultID:      scope.VaultID(),
-		Scope:        scope,
-		PlaintextKey: plaintextBytes,
-		Algorithm:    req.Algorithm,
-		Version:      req.Version,
-	})
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(WrapKeyResponse{ //nolint:errcheck,gosec
-		WrappedKey: base64.StdEncoding.EncodeToString(result.WrappedKey),
-		Algorithm:  result.Algorithm,
-		Version:    result.Version,
-	})
-}
-
-// unwrapKey recovers plaintext key material from wrapped bytes using the vault key identified by {key_id}.
-func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	var req UnwrapKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-	if req.WrappedKey == "" {
-		c.SetInvalidParam("wrapped_key is required")
-		return
-	}
-	if req.Algorithm == "" {
-		req.Algorithm = "RSA-OAEP"
-	}
-
-	wrappedBytes, err := base64.StdEncoding.DecodeString(req.WrappedKey)
-	if err != nil {
-		c.SetInvalidParam("wrapped_key: must be valid base64")
-		return
-	}
-
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
-		return
-	}
-
-	result, err := cryptoSvc.UnwrapKey(r.Context(), keyservices.UnwrapKeyRequest{
-		KeyID:      keyID,
-		UserID:     scope.ActorID(),
-		VaultID:    scope.VaultID(),
-		Scope:      scope,
-		WrappedKey: wrappedBytes,
-		Algorithm:  req.Algorithm,
-		Version:    req.Version,
-	})
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(UnwrapKeyResponse{ //nolint:errcheck,gosec
-		PlaintextKey: base64.StdEncoding.EncodeToString(result.PlaintextKey),
-		Algorithm:    result.Algorithm,
-		Version:      result.Version,
-	})
-}
-
-// signKey signs data using the vault key identified by {key_id}.
-func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	var req SignKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-	if req.Value == "" {
-		c.SetInvalidParam("value is required")
-		return
-	}
-	if req.Algorithm == "" {
-		req.Algorithm = "RS256"
-	}
-
-	data, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
-		return
-	}
-
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
-		return
-	}
-
-	result, err := cryptoSvc.Sign(r.Context(), keyservices.SignRequest{
-		KeyID:     keyID,
-		Data:      data,
-		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
-		UserID:    scope.ActorID(),
-		VaultID:   scope.VaultID(),
-		Scope:     scope,
-		Version:   req.Version,
-	})
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SignKeyResponse{ //nolint:errcheck,gosec
-		KeyID:     keyID.String(),
-		Algorithm: string(result.Algorithm),
-		Value:     base64.StdEncoding.EncodeToString(result.Signature),
-		Version:   result.Version,
-	})
-}
-
-// verifyKey verifies a signature using the vault key identified by {key_id}.
-func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	var req VerifyKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-	if req.Value == "" || req.Signature == "" {
-		c.SetInvalidParam("value and signature are required")
-		return
-	}
-
-	data, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
-		return
-	}
-	sig, err := base64.StdEncoding.DecodeString(req.Signature)
-	if err != nil {
-		c.SetInvalidParam("signature: must be valid base64")
-		return
-	}
-
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
-		return
-	}
-
-	result, err := cryptoSvc.Verify(r.Context(), keyservices.VerifyRequest{
-		KeyID:     keyID,
-		Data:      data,
-		Signature: sig,
-		Algorithm: crypto.SignatureAlgorithm(req.Algorithm),
-		UserID:    scope.ActorID(),
-		VaultID:   scope.VaultID(),
-		Scope:     scope,
-		Version:   req.Version,
-	})
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(VerifyKeyResponse{ //nolint:errcheck,gosec
-		KeyID:     keyID.String(),
-		Algorithm: string(result.Algorithm),
-		Valid:     result.Valid,
-		Version:   result.Version,
-	})
-}
-
-// encryptKey encrypts data using the vault key identified by {key_id}.
-func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	var req EncryptKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-	if req.Value == "" {
-		c.SetInvalidParam("value is required")
-		return
-	}
-	if req.Algorithm == "" {
-		req.Algorithm = "RSA-OAEP"
-	}
-
-	plaintext, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
-		return
-	}
-
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
-		return
-	}
-
-	result, err := cryptoSvc.Encrypt(r.Context(), keyservices.EncryptRequest{
-		KeyID:     keyID,
-		Data:      plaintext,
-		Algorithm: crypto.EncryptionAlgorithm(req.Algorithm),
-		UserID:    scope.ActorID(),
-		VaultID:   scope.VaultID(),
-		Scope:     scope,
-		Version:   req.Version,
-	})
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	resp := EncryptKeyResponse{
-		KeyID:     keyID.String(),
-		Algorithm: string(result.Algorithm),
-		Value:     base64.StdEncoding.EncodeToString(result.Ciphertext),
-		Version:   result.Version,
-	}
-	if len(result.Nonce) > 0 {
-		resp.Nonce = base64.StdEncoding.EncodeToString(result.Nonce)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
-}
-
-// decryptKey decrypts data using the vault key identified by {key_id}.
-func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
-		return
-	}
-
-	scope, ok := scopeFromRequest(c, r)
-	if !ok {
-		return
-	}
-
-	var req DecryptKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
-		return
-	}
-	if req.Value == "" {
-		c.SetInvalidParam("value is required")
-		return
-	}
-
-	ciphertext, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
-		return
-	}
-
-	var nonce []byte
-	if req.Nonce != "" {
-		nonce, err = base64.StdEncoding.DecodeString(req.Nonce)
-		if err != nil {
-			c.SetInvalidParam("nonce: must be valid base64")
-			return
-		}
-	}
-
-	cryptoSvc := c.cryptoSvc()
-	if cryptoSvc == nil {
-		return
-	}
-
-	result, err := cryptoSvc.Decrypt(r.Context(), keyservices.DecryptRequest{
-		KeyID:      keyID,
-		Ciphertext: ciphertext,
-		Nonce:      nonce,
-		Algorithm:  crypto.EncryptionAlgorithm(req.Algorithm),
-		UserID:     scope.ActorID(),
-		VaultID:    scope.VaultID(),
-		Scope:      scope,
-		Version:    req.Version,
-	})
-	if err != nil {
-		writeKeyError(c, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DecryptKeyResponse{ //nolint:errcheck,gosec
-		KeyID:     keyID.String(),
-		Algorithm: string(result.Algorithm),
-		Value:     base64.StdEncoding.EncodeToString(result.Plaintext),
-		Version:   result.Version,
-	})
+	writeJSON(w, resp)
 }

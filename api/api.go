@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -200,9 +199,7 @@ func InitForTest(application *app.App, router *mux.Router) *API {
 
 // Handle404 returns a structured JSON 404 response for unmatched routes.
 func Handle404(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotFound)
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusNotFound, map[string]any{
 		"id":          "api.not_found",
 		"message":     "Not found",
 		"status_code": http.StatusNotFound,
@@ -211,6 +208,5 @@ func Handle404(w http.ResponseWriter, r *http.Request) {
 
 // ReturnStatusOK writes a standard {"status":"OK"} response.
 func ReturnStatusOK(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "OK"}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]string{"status": "OK"})
 }

@@ -2,21 +2,18 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 
-	"github.com/google/uuid"
-
+	"rocketvault/internal/container"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
 
 // getCertificatePolicy returns the policy for a certificate.
 func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -25,8 +22,8 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -40,15 +37,13 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSON(w, policy)
 }
 
 // upsertCertificatePolicy creates or replaces the policy for a certificate.
 func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -63,8 +58,8 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 
@@ -78,16 +73,13 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, policy)
 }
 
 // deleteCertificatePolicy removes the policy for a certificate.
 func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -96,8 +88,8 @@ func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	certService := c.certSvc()
-	if certService == nil {
+	certService, svcOK := svc(c, container.ServiceContainerInterface.GetCertificateService)
+	if !svcOK {
 		return
 	}
 

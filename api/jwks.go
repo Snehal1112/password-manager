@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"rocketvault/common"
@@ -24,23 +23,18 @@ func (a *API) InitJWKS() {
 func getJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 	provider := c.App.ServiceContainer.GetSigningProvider()
 	if provider == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{"error": "signing provider not available"}) //nolint:errcheck,gosec
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{"error": "signing provider not available"})
 		return
 	}
 
 	jwks, err := buildJWKSet(provider.PublicKeys())
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to build JWK set"}) //nolint:errcheck,gosec
+		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": "failed to build JWK set"})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
-	json.NewEncoder(w).Encode(jwks) //nolint:errcheck,gosec
+	writeJSON(w, jwks)
 }
 
 // rotateJWKS serves POST /api/v1/jwks/rotate — only available with the self_pki provider.
@@ -75,8 +69,7 @@ func rotateJWKS(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	recordJWKSRotateAudit(c, r, newKID, "success")
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{ //nolint:errcheck,gosec
+	writeJSON(w, map[string]string{
 		"status":        "ok",
 		"new_kid":       newKID,
 		"overlap_until": overlapUntil,
