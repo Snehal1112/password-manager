@@ -3,6 +3,7 @@ package repositories_test
 import (
 	"context"
 	"database/sql"
+	"os"
 	"testing"
 	"time"
 
@@ -126,4 +127,31 @@ func TestListAllSkipsSoftDeleted(t *testing.T) {
 	certs, err := repo.ListAll(ctx)
 	require.NoError(t, err)
 	require.Empty(t, certs, "soft-deleted certificates stay out of ListAll")
+}
+
+// TestCertificateSelectListIsNotDuplicated guards the F2 invariant. The
+// certificates table has had a second, drifting SELECT list twice: once when
+// certificateColumns omitted deleted_at/purge_protection, and again in
+// ListAll, which additionally omitted vault_id and parsed with uuid.MustParse.
+// Both times the drift was silent -- the affected fields simply read as zero.
+//
+// The guard is the fragment "user_id, name, certificate", which appears only
+// in a certificates column list that has DROPPED vault_id. The canonical
+// certificateColumns const and the INSERT both read
+// "user_id, vault_id, name, certificate", so neither matches. That makes this
+// assertion specific to the actual failure mode -- a hand-written list that
+// drifted from the canonical one -- rather than to the shape of SQL in
+// general.
+//
+// Note a blunter "SELECT id, user_id" check does NOT work here: ListRevoked
+// legitimately issues "SELECT id, user_id, serial_number, name, revoked_at
+// FROM crl", a different table with nothing to do with this invariant.
+func TestCertificateSelectListIsNotDuplicated(t *testing.T) {
+	src, err := os.ReadFile("certificate_repository.go")
+	require.NoError(t, err, "read certificate_repository.go")
+
+	require.NotContains(t, string(src), "user_id, name, certificate",
+		"a certificates column list is missing vault_id — add columns to the certificateColumns const, never to a second hand-written list")
+	require.NotContains(t, string(src), "uuid.MustParse",
+		"repository scanners return wrapped parse errors; MustParse panics the caller's goroutine")
 }

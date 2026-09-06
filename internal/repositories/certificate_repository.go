@@ -61,7 +61,14 @@ type CertificateRepositoryInterface interface {
 // and cmd/ can construct one without importing this package.
 type CertificateFilter = model.CertificateFilter
 
-// certificateColumns is the canonical SELECT list shared by every scoped query.
+// certificateColumns is the canonical SELECT list for every certificates read
+// in this file, ListAll included. It is the ONLY one: a new column goes here
+// and into scanCertificateRow, never into a second hand-written list.
+//
+// This file has grown a competing list twice, and both times the drift was
+// silent -- the omitted fields simply read back as their zero values, so
+// nothing failed until someone depended on one. TestCertificateSelectListIsNotDuplicated
+// now fails the build if a third one appears.
 const certificateColumns = "id, user_id, vault_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before, deleted_at, purge_protection"
 
 // scanCertificateRow scans one certificates row in the canonical column order.
