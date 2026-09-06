@@ -10,7 +10,7 @@ import (
 	"rocketvault/internal/formatter"
 )
 
-func InitContextList(parent *cobra.Command) *cobra.Command {
+func InitContextList(parent *cobra.Command) {
 	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List saved server contexts",
@@ -54,5 +54,4 @@ server.`,
 		},
 	}
 	parent.AddCommand(listCmd)
-	return parent
 }

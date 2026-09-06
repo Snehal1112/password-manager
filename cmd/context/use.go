@@ -6,7 +6,7 @@ import (
 	"rocketvault/common"
 )
 
-func InitContextUse(parent *cobra.Command) *cobra.Command {
+func InitContextUse(parent *cobra.Command) {
 	useCmd := &cobra.Command{
 		Use:   "use <name>",
 		Short: "Set the current server context",
@@ -23,5 +23,4 @@ on the local instance -- run 'context unset' to return to local mode.`,
 		},
 	}
 	parent.AddCommand(useCmd)
-	return parent
 }

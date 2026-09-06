@@ -13,24 +13,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/common"
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/internal/container"
 	authz "rocketvault/internal/services/authorization"
-	"rocketvault/model"
 )
-
-// callerIdentity extracts the acting principal's account role and user ID from
-// the CLI's authenticated context, populated by persistentPreRun in
-// cmd/root.go. Returns an error if claims are missing — a command reaching
-// this far without prior authentication indicates a wiring bug, not a
-// permission denial.
-func callerIdentity(ctx context.Context) (roles []string, principalID uuid.UUID, err error) {
-	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-	if !ok || claims == nil {
-		return nil, uuid.Nil, fmt.Errorf("authenticated claims not available in context")
-	}
-	return claims.Roles, claims.UserID, nil
-}
 
 // requireCanManageVault authorizes a webhook-config operation on vaultID with
 // the same primitive the HTTP handlers use, so CLI and API cannot drift.
@@ -44,7 +30,7 @@ func callerIdentity(ctx context.Context) (roles []string, principalID uuid.UUID,
 // it, so a command that discards this value produces an audit record naming
 // nobody.
 func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInterface, vaultID uuid.UUID, vaultName string) (uuid.UUID, error) {
-	roles, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := vaultcli.CallerIdentity(ctx)
 	if err != nil {
 		return uuid.Nil, err
 	}

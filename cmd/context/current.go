@@ -8,7 +8,7 @@ import (
 	"rocketvault/common"
 )
 
-func InitContextCurrent(parent *cobra.Command) *cobra.Command {
+func InitContextCurrent(parent *cobra.Command) {
 	currentCmd := &cobra.Command{
 		Use:   "current",
 		Short: "Show the current server context",
@@ -31,5 +31,4 @@ store; it does not contact the server.`,
 		},
 	}
 	parent.AddCommand(currentCmd)
-	return parent
 }

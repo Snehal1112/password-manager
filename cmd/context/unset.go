@@ -6,7 +6,7 @@ import (
 	"rocketvault/common"
 )
 
-func InitContextUnset(parent *cobra.Command) *cobra.Command {
+func InitContextUnset(parent *cobra.Command) {
 	unsetCmd := &cobra.Command{
 		Use:   "unset",
 		Short: "Clear the current server context, returning to local mode",
@@ -22,5 +22,4 @@ currently set.`,
 		},
 	}
 	parent.AddCommand(unsetCmd)
-	return parent
 }

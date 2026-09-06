@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
@@ -67,14 +68,14 @@ assignment did not exist.`,
 			if !ok || sc == nil {
 				return fmt.Errorf("service container not available in context")
 			}
-			vaultID, err := resolveVaultID(ctx, cmd, sc)
+			vaultID, err := vaultcli.ResolveVaultID(ctx, cmd, sc)
 			if err != nil {
 				return err
 			}
 			if err := requireCanManageRoleAssignments(ctx, sc, vaultID, false); err != nil {
 				return err
 			}
-			callerRoles, _, err := callerIdentity(ctx)
+			callerRoles, _, err := vaultcli.CallerIdentity(ctx)
 			if err != nil {
 				return err
 			}
@@ -86,6 +87,6 @@ assignment did not exist.`,
 			return nil
 		},
 	}
-	addVaultFlag(cmd)
+	vaultcli.AddVaultFlag(cmd)
 	parent.AddCommand(cmd)
 }

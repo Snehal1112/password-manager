@@ -66,7 +66,6 @@ flag.`,
 }
 
 // InitVaultsGet registers the get command under the vaults command group.
-func InitVaultsGet(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsGet(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(getCmd)
-	return vaultsCmd
 }

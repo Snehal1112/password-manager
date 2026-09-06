@@ -120,7 +120,6 @@ func previewMigrationRows(grants []rvdb.RoleBackfillGrant) ([]string, [][]string
 
 // InitVaultsPreviewMigration registers the preview-migration command under the
 // vaults command group.
-func InitVaultsPreviewMigration(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsPreviewMigration(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(previewMigrationCmd)
-	return vaultsCmd
 }

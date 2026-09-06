@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	authzServices "rocketvault/internal/services/authorization"
 	"rocketvault/internal/services/provisioning"
@@ -159,20 +160,25 @@ func TestRequireCanCreateVault_DeniesWithoutAnyRight(t *testing.T) {
 	require.Equal(t, authzServices.CreateRightNone, right)
 }
 
-// TestCallerIdentity_MissingClaims proves callerIdentity fails closed with an
+// This package's own callerIdentity is gone; vaultcli.CallerIdentity is the
+// single copy, shared with cmd/vault-access, cmd/vault-webhook and
+// cmd/vault-provisioning, which each had a verbatim duplicate. These tests
+// stay because this package's authz helpers depend on its behaviour.
+
+// TestCallerIdentity_MissingClaims proves CallerIdentity fails closed with an
 // error, not a zero-value principal, when the context carries no claims --
 // a wiring bug, not a permission denial.
 func TestCallerIdentity_MissingClaims(t *testing.T) {
-	_, _, err := callerIdentity(context.Background())
+	_, _, err := vaultcli.CallerIdentity(context.Background())
 	require.Error(t, err)
 }
 
-// TestCallerIdentity_ReturnsRolesAndID proves callerIdentity extracts the
+// TestCallerIdentity_ReturnsRolesAndID proves CallerIdentity extracts the
 // account roles and user ID carried by the context's claims.
 func TestCallerIdentity_ReturnsRolesAndID(t *testing.T) {
 	ctx := ctxWithClaims(t, testPrincipalID, []string{"user", "admin"})
 
-	roles, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := vaultcli.CallerIdentity(ctx)
 	require.NoError(t, err)
 	require.Equal(t, testPrincipalID, principalID)
 	require.ElementsMatch(t, []string{"user", "admin"}, roles)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -43,7 +44,7 @@ flag.`,
 		if err := requireCanManageVault(ctx, serviceContainer, name); err != nil {
 			return err
 		}
-		_, callerID, err := callerIdentity(ctx)
+		_, callerID, err := vaultcli.CallerIdentity(ctx)
 		if err != nil {
 			return err
 		}
@@ -86,12 +87,10 @@ flag.`,
 }
 
 // InitVaultsUpdate registers the update command under the vaults command group.
-func InitVaultsUpdate(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsUpdate(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().Bool("enabled", true, "Enable or disable the vault")
 	updateCmd.Flags().Bool("purge-protection", false, "Protect the vault from being purged")
 	updateCmd.Flags().Int("retention-days", 0, "Soft-delete retention period in days")
-
-	return vaultsCmd
 }

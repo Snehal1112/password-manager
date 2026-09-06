@@ -6,7 +6,7 @@ import (
 	"rocketvault/common"
 )
 
-func InitContextRemove(parent *cobra.Command) *cobra.Command {
+func InitContextRemove(parent *cobra.Command) {
 	removeCmd := &cobra.Command{
 		Use:   "remove <name>",
 		Short: "Delete a saved server context",
@@ -22,5 +22,4 @@ a name that does not exist is not an error.`,
 		},
 	}
 	parent.AddCommand(removeCmd)
-	return parent
 }

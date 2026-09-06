@@ -50,7 +50,6 @@ The default vault cannot be deleted.`,
 }
 
 // InitVaultsDelete registers the delete command under the vaults command group.
-func InitVaultsDelete(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsDelete(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(deleteCmd)
-	return vaultsCmd
 }

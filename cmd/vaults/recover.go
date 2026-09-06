@@ -49,7 +49,6 @@ flag.`,
 }
 
 // InitVaultsRecover registers the recover command under the vaults command group.
-func InitVaultsRecover(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsRecover(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(recoverCmd)
-	return vaultsCmd
 }

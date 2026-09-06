@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	vaultServices "rocketvault/internal/services/vaults"
@@ -40,7 +41,7 @@ scoped to this vault. Acts on the vault named by
 				return fmt.Errorf("service container not available in context")
 			}
 			vaultName := common.ResolveVaultName(cmd)
-			vaultID, err := resolveVaultID(ctx, cmd, sc)
+			vaultID, err := vaultcli.ResolveVaultID(ctx, cmd, sc)
 			if err != nil {
 				return err
 			}
@@ -66,6 +67,6 @@ scoped to this vault. Acts on the vault named by
 			return nil
 		},
 	}
-	addVaultFlag(cmd)
+	vaultcli.AddVaultFlag(cmd)
 	parent.AddCommand(cmd)
 }

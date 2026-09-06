@@ -56,7 +56,6 @@ too if it matches by name.`,
 }
 
 // InitVaultsPurge registers the purge command under the vaults command group.
-func InitVaultsPurge(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsPurge(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(purgeCmd)
-	return vaultsCmd
 }

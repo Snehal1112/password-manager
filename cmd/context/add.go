@@ -17,7 +17,7 @@ import (
 // "flag redefined" if Init is invoked more than once in the same process
 // (e.g. once per test function), which the package-level-var version of this
 // command hit under `go test ./cmd/context/...`.
-func InitContextAdd(parent *cobra.Command) *cobra.Command {
+func InitContextAdd(parent *cobra.Command) {
 	addCmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Save a named remote server context",
@@ -64,5 +64,4 @@ remote connection and are not part of the saved context.`,
 	addCmd.Flags().String("default-username", "", "Default username for this context")
 	addCmd.Flags().String("default-vault", "", "Default vault for this context")
 	parent.AddCommand(addCmd)
-	return parent
 }

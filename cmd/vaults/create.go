@@ -110,11 +110,9 @@ creation time.`,
 }
 
 // InitVaultsCreate registers the create command under the vaults command group.
-func InitVaultsCreate(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsCreate(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(createCmd)
 
 	createCmd.Flags().Bool("purge-protection", false, "Protect the vault from being purged")
 	createCmd.Flags().Int("retention-days", 0, "Soft-delete retention period in days")
-
-	return vaultsCmd
 }

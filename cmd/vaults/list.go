@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/formatter"
@@ -43,7 +44,7 @@ one.`,
 		if err != nil {
 			return err
 		}
-		_, principalID, err := callerIdentity(ctx)
+		_, principalID, err := vaultcli.CallerIdentity(ctx)
 		if err != nil {
 			return err
 		}
@@ -74,9 +75,8 @@ one.`,
 }
 
 // InitVaultsList registers the list command under the vaults command group.
-func InitVaultsList(vaultsCmd *cobra.Command) *cobra.Command {
+func InitVaultsList(vaultsCmd *cobra.Command) {
 	vaultsCmd.AddCommand(listCmd)
 
 	listCmd.Flags().Bool("include-deleted", false, "Include soft-deleted vaults")
-	return vaultsCmd
 }

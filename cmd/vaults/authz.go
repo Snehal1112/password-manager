@@ -12,25 +12,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"rocketvault/common"
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/internal/container"
 	authz "rocketvault/internal/services/authorization"
 	vaultServices "rocketvault/internal/services/vaults"
-	"rocketvault/model"
 )
-
-// callerIdentity extracts the acting principal's account role and user ID
-// from the CLI's authenticated context, populated by persistentPreRun in
-// cmd/root.go. Returns an error if claims are missing — a command reaching
-// this far without prior authentication indicates a wiring bug, not a
-// permission denial.
-func callerIdentity(ctx context.Context) (roles []string, principalID uuid.UUID, err error) {
-	claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-	if !ok || claims == nil {
-		return nil, uuid.Nil, fmt.Errorf("authenticated claims not available in context")
-	}
-	return claims.Roles, claims.UserID, nil
-}
 
 // resolveTargetVaultID finds the ID of the vault named name, whether active
 // or soft-deleted. VaultService.GetVault only returns active vaults, and
@@ -69,7 +55,7 @@ func resolveTargetVaultID(ctx context.Context, svc vaultServices.VaultService, n
 // that mistake: a caller that checks only "err == nil" and calls the
 // unbounded path regardless reopens the same bypass.
 func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInterface) (authz.CreateRight, error) {
-	roles, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := vaultcli.CallerIdentity(ctx)
 	if err != nil {
 		return authz.CreateRightNone, err
 	}
@@ -92,7 +78,7 @@ func requireCanCreateVault(ctx context.Context, sc container.ServiceContainerInt
 // gets an empty list, which is the same information a 403 would leak minus
 // the confirmation that vaults exist.
 func requireCanListVaults(ctx context.Context, sc container.ServiceContainerInterface) (bool, error) {
-	roles, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := vaultcli.CallerIdentity(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -105,7 +91,7 @@ func requireCanListVaults(ctx context.Context, sc container.ServiceContainerInte
 // requireCanManageVault resolves vaultName to an ID and checks CanManageVault
 // against it.
 func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInterface, vaultName string) error {
-	roles, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := vaultcli.CallerIdentity(ctx)
 	if err != nil {
 		return err
 	}
@@ -122,7 +108,7 @@ func requireCanManageVault(ctx context.Context, sc container.ServiceContainerInt
 // requireCanPurgeVault resolves vaultName to an ID and checks CanPurgeVault
 // against it.
 func requireCanPurgeVault(ctx context.Context, sc container.ServiceContainerInterface, vaultName string) error {
-	roles, principalID, err := callerIdentity(ctx)
+	roles, principalID, err := vaultcli.CallerIdentity(ctx)
 	if err != nil {
 		return err
 	}
