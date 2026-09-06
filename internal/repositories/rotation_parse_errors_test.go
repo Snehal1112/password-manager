@@ -90,3 +90,34 @@ func TestReadRejectsMalformedVaultID(t *testing.T) {
 	require.Error(t, err, "a malformed vault_id must be an error, not uuid.Nil")
 	require.Contains(t, err.Error(), "vault id")
 }
+
+// TestGetRotationHistoryReportsCorruptRow pins the F1 fix: a row that cannot be
+// parsed must surface as an error rather than being dropped from the returned
+// slice. Before the fix this returned (1 row, nil error) for two stored rows --
+// a silently short list the caller could not distinguish from a complete one.
+func TestGetRotationHistoryReportsCorruptRow(t *testing.T) {
+	raw := setupRotationTestDB(t)
+	conn := rvdb.NewConn(raw, rvdb.SQLite)
+	repo := repositories.NewRotationPolicyRepository(conn, logging.InitLogger())
+
+	secretID := uuid.New()
+	ctx := context.Background()
+
+	_, err := conn.ExecContext(ctx,
+		`INSERT INTO secret_rotation_history
+		 (id, secret_id, policy_id, rotated_at, previous_version, new_version, triggered_by, notes)
+		 VALUES (?, ?, NULL, ?, 1, 2, 'scheduler', '')`,
+		uuid.New().String(), secretID.String(), time.Now())
+	require.NoError(t, err, "insert well-formed history row")
+
+	_, err = conn.ExecContext(ctx,
+		`INSERT INTO secret_rotation_history
+		 (id, secret_id, policy_id, rotated_at, previous_version, new_version, triggered_by, notes)
+		 VALUES (?, ?, NULL, ?, 2, 3, 'scheduler', '')`,
+		"not-a-uuid", secretID.String(), time.Now())
+	require.NoError(t, err, "insert history row with corrupt id")
+
+	_, err = repo.GetRotationHistory(ctx, secretID)
+	require.Error(t, err, "a corrupt history row must be reported, not silently dropped")
+	require.Contains(t, err.Error(), "invalid rotation history id")
+}

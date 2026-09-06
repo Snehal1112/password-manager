@@ -298,12 +298,15 @@ func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secret
 			&nextRotationAt,
 		)
 		if err != nil {
-			r.log.WithError(err).Error("Failed to scan secret policy")
-			continue
+			return nil, fmt.Errorf("failed to scan secret policy: %w", err)
 		}
 
-		sp.SecretID, _ = uuid.Parse(secretIDStr)
-		sp.PolicyID, _ = uuid.Parse(policyIDStr)
+		if sp.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+			return nil, fmt.Errorf("invalid secret id: %w", err)
+		}
+		if sp.PolicyID, err = uuid.Parse(policyIDStr); err != nil {
+			return nil, fmt.Errorf("invalid policy id: %w", err)
+		}
 		if lastRotatedAt.Valid {
 			sp.LastRotatedAt = &lastRotatedAt.Time
 		}
@@ -311,6 +314,10 @@ func (r *rotationPolicyRepository) GetSecretPolicies(ctx context.Context, secret
 			sp.NextRotationAt = &nextRotationAt.Time
 		}
 		policies = append(policies, sp)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate secret policies: %w", err)
 	}
 
 	return policies, nil
@@ -351,13 +358,20 @@ func (r *rotationPolicyRepository) GetPoliciesForSecret(ctx context.Context, sec
 			&policy.UpdatedAt,
 		)
 		if err != nil {
-			r.log.WithError(err).Error("Failed to scan policy")
-			continue
+			return nil, fmt.Errorf("failed to scan rotation policy: %w", err)
 		}
 
-		policy.ID, _ = uuid.Parse(policyID)
-		policy.UserID, _ = uuid.Parse(userIDStr)
+		if policy.ID, err = uuid.Parse(policyID); err != nil {
+			return nil, fmt.Errorf("invalid rotation policy id: %w", err)
+		}
+		if policy.UserID, err = uuid.Parse(userIDStr); err != nil {
+			return nil, fmt.Errorf("invalid user id: %w", err)
+		}
 		policies = append(policies, policy)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate rotation policies: %w", err)
 	}
 
 	return policies, nil
@@ -462,17 +476,27 @@ func (r *rotationPolicyRepository) GetRotationHistory(ctx context.Context, secre
 			&h.Notes,
 		)
 		if err != nil {
-			r.log.WithError(err).Error("Failed to scan rotation history")
-			continue
+			return nil, fmt.Errorf("failed to scan rotation history: %w", err)
 		}
 
-		h.ID, _ = uuid.Parse(historyID)
-		h.SecretID, _ = uuid.Parse(secretIDStr)
+		if h.ID, err = uuid.Parse(historyID); err != nil {
+			return nil, fmt.Errorf("invalid rotation history id: %w", err)
+		}
+		if h.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+			return nil, fmt.Errorf("invalid secret id: %w", err)
+		}
 		if policyID.Valid {
-			pid, _ := uuid.Parse(policyID.String)
+			pid, parseErr := uuid.Parse(policyID.String)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid policy id: %w", parseErr)
+			}
 			h.PolicyID = &pid
 		}
 		history = append(history, h)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate rotation history: %w", err)
 	}
 
 	return history, nil
