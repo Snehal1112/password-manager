@@ -237,16 +237,20 @@ func (r *SessionRepository) GetActiveSessionsByUserID(ctx context.Context, userI
 		)
 		if err != nil {
 			r.logger.Errorf("Failed to scan session row: %v", err)
-			continue
+			return nil, fmt.Errorf("failed to scan session row: %w", err)
 		}
 
-		// Convert userID string to UUID
+		// Convert userID string to UUID. Defensive: this method's own WHERE
+		// clause binds a uuid.UUID, so an unparseable user_id can never match
+		// it. Returning rather than skipping keeps the listing honest if the
+		// query ever grows a path that can reach such a row -- a session list
+		// that silently omits entries is worse than one that fails loudly.
 		userUUID, err := uuid.Parse(userIDStr)
 		if err != nil {
 			r.logger.WithFields(logrus.Fields{
 				"user_id": userIDStr,
 			}).Errorf("Invalid user ID format: %v", err)
-			continue
+			return nil, fmt.Errorf("invalid user id in session row: %w", err)
 		}
 		session.UserID = userUUID
 
