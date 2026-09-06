@@ -99,10 +99,9 @@ logging in, since login always requires a TOTP code.`,
 
 // InitUsersRegisterAdmin adds the admin sub-command to the users command.
 // It does not require prior authentication but requires a bootstrap token.
-func InitUsersRegisterAdmin(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersRegisterAdmin(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(registerAdminCmd)
 	registerAdminCmd.Flags().String("admin-username", "", "Username for the admin user")
 	registerAdminCmd.Flags().String("bootstrap-token", "", "Bootstrap token for initial admin registration")
 	registerAdminCmd.Flags().String("admin-password", "", "Password for the admin user")
-	return usersCmd
 }

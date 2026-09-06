@@ -107,16 +107,10 @@ resource.`,
 //
 // - usersCmd: The parent command under which the get command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized get command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The get command is a subcommand of the users command and is used to retrieve user information.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
-func InitUsersGet(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersGet(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(getCmd)
-
-	return usersCmd
 }

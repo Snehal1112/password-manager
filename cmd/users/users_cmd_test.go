@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"rocketvault/cmd/testutils"
 	"rocketvault/common"
@@ -282,10 +282,13 @@ func TestGetCmd_NoFormatter(t *testing.T) {
 // loginCmd tests
 // --------------------------------------------------------------------------
 
-// viperSet sets a viper key for a test and returns a cleanup function that resets it.
-func viperSet(key, value string) func() {
-	viper.Set(key, value)
-	return func() { viper.Set(key, "") }
+// setLoginFlags sets the credential flags on cmd. loginCmd reads them from
+// its own flag set, not from global viper -- see cmd/flag_binding_test.go.
+func setLoginFlags(t *testing.T, cmd *cobra.Command, username, password, totp string) {
+	t.Helper()
+	require.NoError(t, cmd.Flags().Set("username", username))
+	require.NoError(t, cmd.Flags().Set("password", password))
+	require.NoError(t, cmd.Flags().Set("totp-code", totp))
 }
 
 func TestLoginCmd_NoServiceContainer(t *testing.T) {
@@ -295,6 +298,7 @@ func TestLoginCmd_NoServiceContainer(t *testing.T) {
 	cmd.Flags().String("username", "", "")
 	cmd.Flags().String("password", "", "")
 	cmd.Flags().String("totp-code", "", "")
+	setLoginFlags(t, cmd, "alice", "secret", "123456")
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.Error(t, err)
@@ -305,9 +309,7 @@ func TestLoginCmd_MissingCredentials(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	ctx := context.WithValue(context.Background(), common.ServiceContainerKey, tc.MockContainer)
 
-	// No username / password / totp set — viper values default to "".
-	viper.Reset()
-
+	// No username / password / totp set — the flags keep their "" defaults.
 	cmd := &cobra.Command{Use: "login", Args: cobra.NoArgs, RunE: loginCmd.RunE}
 	cmd.Flags().String("username", "", "")
 	cmd.Flags().String("password", "", "")
@@ -322,10 +324,6 @@ func TestLoginCmd_AuthServiceError(t *testing.T) {
 	tc := testutils.NewTestContext(t)
 	ctx := context.WithValue(context.Background(), common.ServiceContainerKey, tc.MockContainer)
 
-	defer viperSet("username", "alice")()
-	defer viperSet("password", "secret")()
-	defer viperSet("totp-code", "123456")()
-
 	tc.MockAuthService.On("AuthenticateUser", mock.Anything, "alice", "secret", "123456").
 		Return(nil, fmt.Errorf("invalid credentials"))
 
@@ -333,6 +331,7 @@ func TestLoginCmd_AuthServiceError(t *testing.T) {
 	cmd.Flags().String("username", "", "")
 	cmd.Flags().String("password", "", "")
 	cmd.Flags().String("totp-code", "", "")
+	setLoginFlags(t, cmd, "alice", "secret", "123456")
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.Error(t, err)
@@ -344,10 +343,6 @@ func TestLoginCmd_Success(t *testing.T) {
 	common.SessionBaseDir = t.TempDir()
 	tc := testutils.NewTestContext(t)
 	ctx := context.WithValue(context.Background(), common.ServiceContainerKey, tc.MockContainer)
-
-	defer viperSet("username", "alice")()
-	defer viperSet("password", "secret")()
-	defer viperSet("totp-code", "123456")()
 
 	authResult := &authServices.AuthenticationResult{
 		Token:    "jwt-token-abc",
@@ -362,6 +357,7 @@ func TestLoginCmd_Success(t *testing.T) {
 	cmd.Flags().String("username", "", "")
 	cmd.Flags().String("password", "", "")
 	cmd.Flags().String("totp-code", "", "")
+	setLoginFlags(t, cmd, "alice", "secret", "123456")
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)

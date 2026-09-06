@@ -28,7 +28,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
@@ -133,7 +132,7 @@ accounts are global, not a vault-scoped resource.`,
 // usersCmd.Execute()
 // The create command is used to create a new user in the system.
 // It requires a username, password, and role to be specified.
-func InitUsersCreate(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersCreate(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(createCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -149,10 +148,4 @@ func InitUsersCreate(usersCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().String("new-username", "", "Username for the new user")
 	createCmd.Flags().String("new-password", "", "Password for the new user")
 	createCmd.Flags().StringArray("new-role", []string{}, "Role(s) for the new user (repeatable, e.g. --new-role admin --new-role secrets_manager)")
-
-	viper.BindPFlag("new-username", createCmd.Flags().Lookup("new-username")) //nolint:errcheck,gosec
-	viper.BindPFlag("new-password", createCmd.Flags().Lookup("new-password")) //nolint:errcheck,gosec
-	viper.BindPFlag("new-role", createCmd.Flags().Lookup("new-role"))         //nolint:errcheck,gosec
-
-	return usersCmd
 }

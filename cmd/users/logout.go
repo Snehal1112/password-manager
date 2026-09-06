@@ -26,7 +26,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/common"
 	"rocketvault/internal/cliclient"
@@ -52,7 +51,8 @@ without --username/--password).`,
 		if target, ok := cmd.Context().Value(common.RemoteTargetKey).(*cliclient.Target); ok && target != nil {
 			serverKey = common.SanitizeServerKey(target.Server)
 		}
-		return runLogout(serverKey, viper.GetString("logout-username"))
+		username, _ := cmd.Flags().GetString("username")
+		return runLogout(serverKey, username)
 	},
 }
 
@@ -83,11 +83,8 @@ func runLogout(serverKey, username string) error {
 }
 
 // InitUsersLogout registers the logout command under usersCmd.
-func InitUsersLogout(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersLogout(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(logoutCmd)
 
 	logoutCmd.Flags().String("username", "", "Log out this specific cached user instead of the current one")
-	viper.BindPFlag("logout-username", logoutCmd.Flags().Lookup("username")) //nolint:errcheck,gosec
-
-	return usersCmd
 }

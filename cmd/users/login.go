@@ -73,9 +73,9 @@ don't need credentials repeated.`,
 			return runOIDCLogin(cmd, serviceContainer)
 		}
 
-		username := viper.GetString("username")
-		password := viper.GetString("password")
-		totpCode := viper.GetString("totp-code")
+		username, _ := cmd.Flags().GetString("username")
+		password, _ := cmd.Flags().GetString("password")
+		totpCode, _ := cmd.Flags().GetString("totp-code")
 
 		if username == "" || password == "" || totpCode == "" {
 			logger.LogAuditError(uuid.Nil.String(), "login", "failed", "username, password, and totp-code are required", nil)
@@ -113,12 +113,12 @@ func runRemoteLogin(cmd *cobra.Command, target *cliclient.Target) error {
 	}
 
 	// A context may carry a default username; command flags still win.
-	username := viper.GetString("username")
+	username, _ := cmd.Flags().GetString("username")
 	if username == "" {
 		username = target.Username
 	}
-	password := viper.GetString("password")
-	totpCode := viper.GetString("totp-code")
+	password, _ := cmd.Flags().GetString("password")
+	totpCode, _ := cmd.Flags().GetString("totp-code")
 
 	if username == "" || password == "" || totpCode == "" {
 		return fmt.Errorf("username, password, and totp-code are required")
@@ -166,16 +166,11 @@ func performPasswordLogin(ctx context.Context, authSvc authServices.Authenticati
 // Parameters:
 // - usersCmd: The parent Cobra command to which the login command will be added.
 // Returns: The updated parent Cobra command with the login subcommand attached.
-func InitUsersLogin(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersLogin(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(loginCmd)
 
 	loginCmd.Flags().String("username", "", "Username for authentication")
 	loginCmd.Flags().String("password", "", "Password for authentication")
 	loginCmd.Flags().String("totp-code", "", "TOTP code for MFA")
 	loginCmd.Flags().Bool("oidc", false, "Log in via the configured OIDC provider using a browser, instead of username/password/TOTP")
-	viper.BindPFlag("username", loginCmd.Flags().Lookup("username"))   //nolint:errcheck,gosec
-	viper.BindPFlag("password", loginCmd.Flags().Lookup("password"))   //nolint:errcheck,gosec
-	viper.BindPFlag("totp-code", loginCmd.Flags().Lookup("totp-code")) //nolint:errcheck,gosec
-
-	return usersCmd
 }

@@ -77,8 +77,11 @@ type oidcExchangeResponse struct {
 // path won't match. Requests to any other path (wrong or missing state) are
 // rejected without touching codeCh/errCh, so they can't race a legitimate
 // callback that's still in flight.
-func startLoopbackListener() (redirectURI string, wait func(timeout time.Duration) (string, error), err error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// ctx cancels the listen itself; the caller's command context is the right
+// one, so a cancelled login does not leave a socket bound.
+func startLoopbackListener(ctx context.Context) (redirectURI string, wait func(timeout time.Duration) (string, error), err error) {
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to start local callback listener: %w", err)
 	}
@@ -216,7 +219,7 @@ func runOIDCLogin(cmd *cobra.Command, serviceContainer container.ServiceContaine
 		}
 	}
 
-	redirectURI, wait, err := startLoopbackListener()
+	redirectURI, wait, err := startLoopbackListener(ctx)
 	if err != nil {
 		return err
 	}

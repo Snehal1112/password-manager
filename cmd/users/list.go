@@ -103,17 +103,13 @@ accounts are global, not a vault-scoped resource.`,
 //
 // - usersCmd: The parent command under which the list command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized list command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The list command is a subcommand of the users command and is used to list all users.
 // It does not require any additional parameters.
 // The command is defined using the Cobra library, which provides a simple way to create command-line applications in Go.
 // The list command is a subcommand of the users command and is used to list all users.
-func InitUsersList(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersList(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(listCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -125,6 +121,4 @@ func InitUsersList(usersCmd *cobra.Command) *cobra.Command {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// listCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
-	return usersCmd
 }

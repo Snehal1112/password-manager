@@ -90,14 +90,10 @@ resource.`,
 //
 // - usersCmd: The parent command under which the delete command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized delete command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The delete command is a subcommand of the users command and is used to delete a user.
-func InitUsersDelete(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersDelete(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(deleteCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -109,6 +105,4 @@ func InitUsersDelete(usersCmd *cobra.Command) *cobra.Command {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// deleteCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
-	return usersCmd
 }

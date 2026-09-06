@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -34,7 +33,13 @@ func remoteLoginCmd(t *testing.T, srv *httptest.Server) (*cobra.Command, *clicli
 	ctx := context.WithValue(context.Background(), common.RemoteTargetKey, target)
 	ctx = context.WithValue(ctx, common.RemoteClientKey, client)
 
+	// runRemoteLogin reads its credentials from the command's own flag set,
+	// so the flags must exist here the same way InitUsersLogin registers them.
 	c := &cobra.Command{Use: "login"}
+	c.Flags().String("username", "", "")
+	c.Flags().String("password", "", "")
+	c.Flags().String("totp-code", "", "")
+	c.Flags().Bool("oidc", false, "")
 	c.SetContext(ctx)
 	return c, target
 }
@@ -59,14 +64,6 @@ func loginResponder(t *testing.T) *httptest.Server {
 // local session for the same username untouched.
 func TestRunRemoteLogin_WritesServerScopedSession(t *testing.T) {
 	common.SessionBaseDir = t.TempDir()
-	viper.Set("username", "admin")
-	viper.Set("password", "pw")
-	viper.Set("totp-code", "123456")
-	t.Cleanup(func() {
-		viper.Set("username", "")
-		viper.Set("password", "")
-		viper.Set("totp-code", "")
-	})
 
 	// A pre-existing local session for the same user must survive.
 	require.NoError(t, common.SaveSession(&common.SessionCache{
@@ -78,6 +75,9 @@ func TestRunRemoteLogin_WritesServerScopedSession(t *testing.T) {
 	defer srv.Close()
 
 	c, target := remoteLoginCmd(t, srv)
+	require.NoError(t, c.Flags().Set("username", "admin"))
+	require.NoError(t, c.Flags().Set("password", "pw"))
+	require.NoError(t, c.Flags().Set("totp-code", "123456"))
 	require.NoError(t, runRemoteLogin(c, target))
 
 	serverKey := common.SanitizeServerKey(srv.URL)

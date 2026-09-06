@@ -14,7 +14,7 @@ import (
 )
 
 func TestStartLoopbackListener_ReceivesCode(t *testing.T) {
-	redirectURI, wait, err := startLoopbackListener()
+	redirectURI, wait, err := startLoopbackListener(context.Background())
 	require.NoError(t, err)
 
 	go func() {
@@ -30,7 +30,7 @@ func TestStartLoopbackListener_ReceivesCode(t *testing.T) {
 }
 
 func TestStartLoopbackListener_MissingCode_ReturnsError(t *testing.T) {
-	redirectURI, wait, err := startLoopbackListener()
+	redirectURI, wait, err := startLoopbackListener(context.Background())
 	require.NoError(t, err)
 
 	go func() {
@@ -45,7 +45,7 @@ func TestStartLoopbackListener_MissingCode_ReturnsError(t *testing.T) {
 }
 
 func TestStartLoopbackListener_WrongState_RejectedWithoutDeliveringCode(t *testing.T) {
-	redirectURI, wait, err := startLoopbackListener()
+	redirectURI, wait, err := startLoopbackListener(context.Background())
 	require.NoError(t, err)
 
 	// Simulate an attacker (or a stale/foreign request) hitting the
@@ -66,7 +66,7 @@ func TestStartLoopbackListener_WrongState_RejectedWithoutDeliveringCode(t *testi
 }
 
 func TestStartLoopbackListener_Timeout(t *testing.T) {
-	_, wait, err := startLoopbackListener()
+	_, wait, err := startLoopbackListener(context.Background())
 	require.NoError(t, err)
 
 	_, err = wait(50 * time.Millisecond)

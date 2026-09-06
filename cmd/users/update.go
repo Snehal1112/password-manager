@@ -27,7 +27,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/common"
 	"rocketvault/internal/container"
@@ -149,23 +148,14 @@ a vault-scoped resource.`,
 //
 // - usersCmd: The parent command under which the update command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized update command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The update command is a subcommand of the users command and is used to update user information.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
-func InitUsersUpdate(usersCmd *cobra.Command) *cobra.Command {
+func InitUsersUpdate(usersCmd *cobra.Command) {
 	usersCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().String("new-username", "", "New username for the user")
 	updateCmd.Flags().String("new-password", "", "New password for the user")
 	updateCmd.Flags().StringArray("new-role", []string{}, "New role(s) for the user (repeatable, e.g. --new-role admin --new-role secrets_manager)")
-	viper.BindPFlag("new-username", updateCmd.Flags().Lookup("new-username")) //nolint:errcheck,gosec
-	viper.BindPFlag("new-password", updateCmd.Flags().Lookup("new-password")) //nolint:errcheck,gosec
-	viper.BindPFlag("new-role", updateCmd.Flags().Lookup("new-role"))         //nolint:errcheck,gosec
-
-	return usersCmd
 }
