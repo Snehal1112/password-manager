@@ -132,7 +132,7 @@ rocketvault vaults update staging --purge-protection
 
 ```bash
 rocketvault keys list --vault prod
-# Error: forbidden: no role grants Microsoft.KeyVault/vaults/keys/read/action in this vault
+# Error: forbidden: no role grants Microsoft.KeyVault/vaults/keys/read in this vault
 
 curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/secrets \
   -H "Authorization: Bearer $ADMIN_TOKEN"
@@ -376,7 +376,7 @@ rocketvault keys import ...
 rocketvault vault-access grant ci-payments-svc --role "Key Vault Crypto User" \
   --principal-type service_account --vault prod
 
-rocketvault vault-access list --vault prod --output json
+rocketvault vault-access list --vault prod
 ```
 
 The pipeline itself:
@@ -516,7 +516,7 @@ rocketvault users login --username wren --password '<pw>' --totp-code "$WREN_TOT
 rocketvault vault-access grant marcus --role "Key Vault Secrets User" --vault prod
 # granted Key Vault Secrets User to marcus in vault (assignment 8516e7fd-...)
 
-rocketvault vault-access list --vault prod --output json
+rocketvault vault-access list --vault prod
 
 # 2. She has zero data-plane access herself:
 rocketvault secrets list --vault prod
@@ -531,6 +531,9 @@ rocketvault vault-access grant wren --role "Key Vault Purge Operator" --vault pr
 # Error: grant failed: role cannot be granted by a non-admin caller
 
 rocketvault vault-access grant wren --role "Key Vault Data Access Administrator" --vault prod
+# Error: grant failed: role cannot be granted by a non-admin caller
+
+rocketvault vault-access grant wren --role "Key Vault Certificate User" --vault prod
 # Error: grant failed: role cannot be granted by a non-admin caller
 
 # 4. The same allow-list gates revoke, so she can't escape via the back door:
@@ -587,7 +590,7 @@ curl -s $BASE/access-policies/principal/<marcus-user-id> \
 # 1
 
 # Marcus's role assignment is untouched:
-rocketvault vault-access list --vault prod --output json | jq '.[] | select(.principal_username=="marcus")'
+rocketvault vault-access list --vault prod   # Marcus appears by principal id, not by name
 
 # Investigation clears him — revert instantly, no restart, no cache flush.
 curl -s -X DELETE $BASE/access-policies/$POLICY_ID -H "Authorization: Bearer $ADMIN_TOKEN"
@@ -608,8 +611,8 @@ Two different `403` strings, two different gates:
 
 ```bash
 # Capture the assignment ID first — you need it to revoke.
-ASSIGNMENT_ID=$(rocketvault vault-access list --vault prod --output json \
-  | jq -r '.[] | select(.principal_username=="checkout-api-svc") | .id')
+ASSIGNMENT_ID=$(rocketvault vault-access list --vault prod \
+  | awk -v p="$SVC_CLIENT_ID" '$3 == p { print $1 }')
 
 # Prove the token works right now, and record its claims.
 curl -s -o /dev/null -w '%{http_code}\n' $BASE/vaults/prod/keys/<key-id> \
@@ -780,8 +783,8 @@ rocketvault vault-access revoke <daeho-staging-assignment-id> --vault staging
 # 1. Enumerate per vault — there is no "revoke everything" command.
 for V in default dev staging prod; do
   echo "== $V"
-  rocketvault vault-access list --vault "$V" --output json \
-    | jq -r '.[] | select(.principal_username=="marcus") | "\(.id) \(.role)"'
+  rocketvault vault-access list --vault "$V" \
+    | awk -v p="$MARCUS_ID" '$3 == p { print $1, $2 }'
 done
 
 # 2. Revoke each. Takes effect on Marcus's very next request.
@@ -1131,7 +1134,13 @@ rocketvault certificates create --name checkout-tls-selfsigned \
 # <id>  checkout-tls-selfsigned    2026-08-25T...
 ```
 
-Flag validation runs before any authorization or key lookup:
+Flag validation runs before the vault-scoped authorization check and the key
+lookup — but **after** the global-role gate. `cmd/certificates/create.go` checks
+`HasAnyRole(admin, certificate_manager)` at line 74, ahead of the
+`name`/`key-id`/`validity-days` check at line 88; only `RequireDataAction`
+(line 115) runs after flag validation. Noor holds `certificate_manager`, so she
+reaches the missing-field error below. A caller without that global role who
+also omits a required flag gets the forbidden error instead, never this one:
 
 ```bash
 rocketvault certificates create --key-id <checkout-tls-leaf-key-id> --validity-days 365 --vault prod

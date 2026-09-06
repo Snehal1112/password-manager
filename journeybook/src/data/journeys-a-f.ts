@@ -97,7 +97,7 @@ rocketvault vaults update staging --purge-protection`,
           "Priya has created `prod` and holds no role assignment in it.",
         command: `rocketvault keys list --vault prod`,
         expected:
-          "Error: forbidden: no role grants Microsoft.KeyVault/vaults/keys/read/action in this vault",
+          "Error: forbidden: no role grants Microsoft.KeyVault/vaults/keys/read in this vault",
         assert: "Denied — global admin does not bypass the vault check",
         flag: "trap",
         notes:
@@ -384,16 +384,16 @@ rocketvault users update <marcus-user-id> --new-password 'new-Str0ng-pw'`,
         surface: "cli",
         gate: "none",
         command: `rocketvault keys create --name secp-key --type ECDSA --curve P-256K --vault prod
-rocketvault keys get <secp-key-id> --vault prod --output json | jq .type`,
+rocketvault keys get <secp-key-id> --vault prod --output json | jq .Type`,
         expected: '"ES256K"',
         assert: "Type reads ES256K, not ECDSA",
         flag: "trap",
         notes:
-          '`--curve`\'s help omits P-256K entirely, and `--type ES256K` is rejected — reach it only via `--type ECDSA --curve P-256K`. Tooling that asserts `type == "ECDSA"` misses these keys silently.',
+          '`--type ES256K` is rejected — reach a secp256k1 key only via `--type ECDSA --curve P-256K`. The key is then stored with type `ES256K`, so tooling asserting `type == "ECDSA"` misses these keys silently.',
       },
       {
         id: "C4",
-        title: "3072-bit keys work despite the help text",
+        title: "3072-bit keys are accepted",
         surface: "cli",
         gate: "validation",
         command: `rocketvault keys create --name rsa-3072 --type RSA --bits 3072 --vault prod`,
@@ -681,9 +681,19 @@ the policy is enabled.`,
         title: "The assignment appears in the vault listing",
         surface: "cli",
         gate: "management",
-        command: `rocketvault vault-access list --vault prod --output json`,
-        expected: "An entry with principal_username ci-payments-svc.",
+        command: `rocketvault vault-access list --vault prod`,
+        expected: `ASSIGNMENT-ID                          ROLE                 PRINCIPAL-ID
+<assignment-id>                        Key Vault Crypto User <ci-payments-svc-client-id>`,
         assert: "Service account listed alongside human principals",
+        flag: "trap",
+        notes:
+          "Match the service account by its client id, not by name — the name never appears in this output.",
+        why: "`vault-access list` writes a fixed `ASSIGNMENT-ID`/`ROLE`/`PRINCIPAL-ID` table with `fmt.Fprintf` and never reads `--output`, so there is no JSON form of this command. The principal column is the raw `PrincipalID` UUID; no username lookup happens on this path. A `principal_username` field does exist, but only on the HTTP API's `model.RoleAssignmentResponse`, not here.",
+        verify: {
+          look: "Three whitespace-separated columns and no JSON — passing `--output json` changes nothing. The third column is the service account's client id as a UUID, not the string `ci-payments-svc`.",
+        },
+        source:
+          "cmd/vault-access/list.go:25,28,76,78; api/role_assignments.go:35 (principal_username is HTTP-only)",
       },
       {
         id: "D3",

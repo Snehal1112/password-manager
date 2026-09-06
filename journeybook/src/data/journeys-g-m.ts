@@ -208,8 +208,9 @@ export const journeysGM: Suite[] = [
         title: "His role assignment is untouched",
         surface: "cli",
         gate: "management",
-        command: `rocketvault vault-access list --vault prod --output json | jq '.[] | select(.principal_username=="marcus")'`,
-        expected: "The Secrets User assignment is still there, unchanged.",
+        command: `rocketvault vault-access list --vault prod`,
+        expected:
+          "The Secrets User assignment is still there, unchanged. Marcus appears by principal id, not by name.",
         assert: "The deny is an overlay, not a revocation",
         why: "The explicit-deny check (Gate 2) and the per-vault role check (Gate 3) are separate gates evaluated in sequence. Writing a deny policy only affects Gate 2; it never modifies the role grant Gate 3 reads, so Marcus's Secrets User assignment is unchanged.",
         related: [{ id: "H2", rel: "depends" }],
@@ -243,10 +244,13 @@ curl -s -o /dev/null -w '%{http_code}\\n' $BASE/vaults/prod/secrets/<secret-id> 
         title: "Capture the assignment id before revoking",
         surface: "cli",
         gate: "management",
-        command: `ASSIGNMENT_ID=$(rocketvault vault-access list --vault prod --output json \\
-  | jq -r '.[] | select(.principal_username=="checkout-api-svc") | .id')`,
+        command: `ASSIGNMENT_ID=$(rocketvault vault-access list --vault prod \\
+  | awk -v p="$SVC_CLIENT_ID" '$3 == p { print $1 }')`,
         expected: "A UUID.",
         assert: "The id is required — revoke takes no principal name",
+        flag: "trap",
+        notes:
+          "`vault-access list` has no JSON output, so match on the PRINCIPAL-ID column rather than piping to `jq`.",
       },
       {
         id: "I2",
@@ -650,8 +654,8 @@ rocketvault audit report --type gdpr --from 2026-07-01 --to 2026-09-30 \\
         gate: "management",
         command: `for V in default dev staging prod; do
   echo "== $V"
-  rocketvault vault-access list --vault "$V" --output json \\
-    | jq -r '.[] | select(.principal_username=="marcus") | "\\(.id) \\(.role)"'
+  rocketvault vault-access list --vault "$V" \\
+    | awk -v p="$MARCUS_ID" '$3 == p { print $1, $2 }'
 done`,
         expected: "Every assignment across every vault.",
         assert: "You must loop — there is no cross-vault listing",

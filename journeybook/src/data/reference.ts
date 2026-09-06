@@ -229,7 +229,7 @@ export const flagTraps: FlagTrap[] = [
   {
     command: "keys create --curve",
     gotcha:
-      'Help omits P-256K, which works. A P-256K key is stored with type ES256K, not ECDSA — tooling asserting type == "ECDSA" misses them silently.',
+      'Reachable only as --type ECDSA --curve P-256K; --type ES256K is rejected. The key is stored with type ES256K, not ECDSA — tooling asserting type == "ECDSA" misses them silently.',
   },
   {
     command: "keys create --type",

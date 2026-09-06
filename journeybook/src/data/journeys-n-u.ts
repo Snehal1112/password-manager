@@ -496,7 +496,7 @@ rocketvault vault-access grant noor --role "Key Vault Certificates Officer" --va
         expected: "The user exists and holds Certificates Officer in prod.",
         assert:
           "Certificates Officer is full control, and is one of Wren's eight",
-        why: "The eight roles a Data Access Administrator like Wren may grant without being a global admin are fixed by `RoleAssignmentService.AssignRole`'s allow-list check, `ErrRoleNotGrantable` otherwise. `Key Vault Certificates Officer` is one of the eight. Journey G enumerates the full list and shows two of the three excluded roles being refused — `Key Vault Purge Operator` and `Key Vault Data Access Administrator`.",
+        why: "The eight roles a Data Access Administrator like Wren may grant without being a global admin are fixed by `RoleAssignmentService.AssignRole`'s allow-list check, `ErrRoleNotGrantable` otherwise. `Key Vault Certificates Officer` is one of the eight. Journey G enumerates the full list and shows all three excluded roles being refused — `Key Vault Purge Operator`, `Key Vault Data Access Administrator` and `Key Vault Certificate User`.",
         source:
           "internal/services/authorization/role_assignment_service.go:19-24,127; VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey G — the eight-role allow-list (lines 505-546)",
       },
