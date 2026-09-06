@@ -32,7 +32,7 @@
 - Consumes: `r-u.json` and R–U entries in the two answer files.
 - Produces: verdicts for 52 cases.
 
-- [ ] **Step 1: Dispatch a fresh agent**
+- [x] **Step 1: Dispatch a fresh agent**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Verify R-U claims"`:
@@ -110,7 +110,7 @@ separate explicit statement of what you found for each of the four
 high-weight claims listed above.
 ```
 
-- [ ] **Step 2: Read the four high-weight findings yourself**
+- [x] **Step 2: Read the four high-weight findings yourself**
 
 ```bash
 cd /tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336-4049-b9b7-1a2c1359825a/scratchpad/enrich
@@ -139,7 +139,7 @@ by hand.
 - Consumes: `v-w.json` and V–W entries in the two answer files.
 - Produces: verdicts for 32 cases.
 
-- [ ] **Step 1: Dispatch a fresh agent**
+- [x] **Step 1: Dispatch a fresh agent**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Verify V-W claims"`:
@@ -209,7 +209,7 @@ Report back: counts per verdict, every non-supported field in full, and an
 explicit statement of what you found on the W allow/deny asymmetry.
 ```
 
-- [ ] **Step 2: Check the asymmetry by hand**
+- [x] **Step 2: Check the asymmetry by hand**
 
 Run the summary script from Task 1 Step 2 against `verdicts-v-w.json`.
 
@@ -231,7 +231,7 @@ survives review. Confirm: **deny matches every vault, allow matches none.**
 - Consumes: the five verdict files.
 - Produces: enrichment files containing only supported claims, and a record of what was removed.
 
-- [ ] **Step 1: Summarise the whole run**
+- [x] **Step 1: Summarise the whole run**
 
 ```bash
 cd /tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336-4049-b9b7-1a2c1359825a/scratchpad/enrich
@@ -250,7 +250,7 @@ bun -e "
 "
 ```
 
-- [ ] **Step 2: Apply each verdict to the enrichment files**
+- [x] **Step 2: Apply each verdict to the enrichment files**
 
 Work through every non-supported field:
 
@@ -267,7 +267,7 @@ Delete the `needs-code` arrays too — they have all been through plan 06 by
 now, and leaving them would make the merge script report resolved questions as
 open.
 
-- [ ] **Step 3: Take the contradictions to the human**
+- [x] **Step 3: Take the contradictions to the human**
 
 A `contradicted` verdict is not a writing mistake. It means a claim traceable
 to a source disagrees with that source, which is either doc rot in
@@ -281,7 +281,7 @@ alongside plan 06's disagreements.
 If there were none, say so explicitly. "Nothing to report" is information;
 its absence is indistinguishable from a step that was skipped.
 
-- [ ] **Step 4: Confirm the files still parse**
+- [x] **Step 4: Confirm the files still parse**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
