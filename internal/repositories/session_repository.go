@@ -434,20 +434,8 @@ func (r *SessionRepository) IsSessionRevoked(ctx context.Context, sessionID uuid
 	return revoked, nil
 }
 
-// executeWithMetrics executes a database operation with performance monitoring.
+// executeWithMetrics wraps database operations with performance monitoring.
+// See KeyRepository.executeWithMetrics for why this stays a method.
 func (r *SessionRepository) executeWithMetrics(operation string, fn func() error) error {
-	start := time.Now()
-	err := fn()
-	duration := time.Since(start)
-
-	// Log slow queries (>100ms)
-	if duration > 100*time.Millisecond {
-		r.logger.WithFields(logrus.Fields{
-			"operation": operation,
-			"duration":  duration.Milliseconds(),
-			"threshold": 100,
-		}).Warn("Slow session repository query detected")
-	}
-
-	return err
+	return withMetrics("user_sessions", operation, fn)
 }

@@ -122,23 +122,9 @@ func (r *SecretRepository) crud() itemLifecycleConfig {
 }
 
 // executeWithMetrics wraps database operations with performance monitoring.
+// See KeyRepository.executeWithMetrics for why this stays a method.
 func (r *SecretRepository) executeWithMetrics(operation string, fn func() error) error {
-	start := time.Now()
-	err := fn()
-	duration := time.Since(start)
-
-	// Record performance metrics
-	db.RecordQueryExecution(duration)
-
-	// Log slow queries
-	if duration > 100*time.Millisecond {
-		logrus.WithFields(logrus.Fields{
-			"operation": operation,
-			"duration":  duration.Milliseconds(),
-		}).Warn("Slow database query detected")
-	}
-
-	return err
+	return withMetrics("secrets", operation, fn)
 }
 
 // NewSecretRepository creates a new SecretRepository instance.

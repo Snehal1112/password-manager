@@ -318,7 +318,6 @@ type CertificateRepository struct {
 	log *logging.Logger
 }
 
-// executeWithMetrics wraps database operations with performance monitoring.
 // crud returns the itemLifecycleConfig for certificates.
 func (r *CertificateRepository) crud() itemLifecycleConfig {
 	return itemLifecycleConfig{
@@ -334,24 +333,10 @@ func (r *CertificateRepository) crud() itemLifecycleConfig {
 	}
 }
 
+// executeWithMetrics wraps database operations with performance monitoring.
+// See KeyRepository.executeWithMetrics for why this stays a method.
 func (r *CertificateRepository) executeWithMetrics(operation string, fn func() error) error {
-	start := time.Now()
-	err := fn()
-	duration := time.Since(start)
-
-	// Record performance metrics
-	db.RecordQueryExecution(duration)
-
-	// Log slow queries
-	if duration > 100*time.Millisecond {
-		logrus.WithFields(logrus.Fields{
-			"operation": operation,
-			"duration":  duration.Milliseconds(),
-			"table":     "certificates",
-		}).Warn("Slow database query detected")
-	}
-
-	return err
+	return withMetrics("certificates", operation, fn)
 }
 
 // NewCertificateRepository creates a new CertificateRepository instance.

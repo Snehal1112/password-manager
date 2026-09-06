@@ -277,24 +277,11 @@ func (r *KeyRepository) crud() itemLifecycleConfig {
 }
 
 // executeWithMetrics wraps database operations with performance monitoring.
+// Delegates to the shared withMetrics helper; kept as a method because
+// crud() assigns it to itemLifecycleConfig.wrap, which needs this exact
+// func(string, func() error) error shape.
 func (r *KeyRepository) executeWithMetrics(operation string, fn func() error) error {
-	start := time.Now()
-	err := fn()
-	duration := time.Since(start)
-
-	// Record performance metrics
-	db.RecordQueryExecution(duration)
-
-	// Log slow queries
-	if duration > 100*time.Millisecond {
-		logrus.WithFields(logrus.Fields{
-			"operation": operation,
-			"duration":  duration.Milliseconds(),
-			"table":     "keys",
-		}).Warn("Slow database query detected")
-	}
-
-	return err
+	return withMetrics("keys", operation, fn)
 }
 
 // NewKeyRepository creates a new KeyRepository instance.
