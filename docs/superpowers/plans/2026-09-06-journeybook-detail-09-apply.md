@@ -32,7 +32,7 @@
 - Consumes: the seven remaining enrichment files (`j.json` is already applied).
 - Produces: 245 cases carrying their verified detail.
 
-- [ ] **Step 1: Dry run the whole set first**
+- [x] **Step 1: Dry run the whole set first**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -50,7 +50,7 @@ what it newly resolved.
 
 `git diff --stat` must be empty after a dry run. Confirm it.
 
-- [ ] **Step 2: Apply**
+- [x] **Step 2: Apply**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -61,7 +61,7 @@ bun scripts/apply-enrichment.mjs \
 bun run format
 ```
 
-- [ ] **Step 3: Confirm it typechecks before going further**
+- [x] **Step 3: Confirm it typechecks before going further**
 
 ```bash
 bun run typecheck && bun run lint && bun run check:links
@@ -90,7 +90,7 @@ is now in `why`, remove the mechanism half and leave the actionable half.
 Never duplicate. **Never drop the actionable half** — it is the part a tester
 acts on, and it was authored deliberately.
 
-- [ ] **Step 1: Work the list**
+- [x] **Step 1: Work the list**
 
 For each case named, open it, read `why` and `notes` together, and edit
 `notes` down to what `why` does not already say. Journey J's J6 is the worked
@@ -100,7 +100,7 @@ rule "purge contents item-by-item first, or accept orphaned rows."
 If a note has nothing left once the mechanism is removed, delete the `notes`
 field rather than leaving an empty string.
 
-- [ ] **Step 2: Sweep for duplicates the list missed**
+- [x] **Step 2: Sweep for duplicates the list missed**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -120,7 +120,7 @@ This is a blunt lexical overlap check, not a judgment. Read each case it
 names and decide for yourself — a high score can be two different points that
 share vocabulary, which is fine.
 
-- [ ] **Step 3: Re-verify**
+- [x] **Step 3: Re-verify**
 
 ```bash
 bun run format && bun run typecheck && bun run lint && bun run check:links
@@ -132,7 +132,7 @@ bun run format && bun run typecheck && bun run lint && bun run check:links
 
 **Files:** none created; this is the review gate.
 
-- [ ] **Step 1: Run the complete check suite**
+- [x] **Step 1: Run the complete check suite**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -149,7 +149,7 @@ Expected: six clean exits, and `dist/journeybook.html` plus `dist/index.html`
 written. Note the file size — the spec estimated ~900 KB, and a wild
 divergence from that is worth understanding before shipping.
 
-- [ ] **Step 2: Read the rendered page, not just the diff**
+- [x] **Step 2: Read the rendered page, not just the diff**
 
 ```bash
 bun run dev
@@ -167,7 +167,7 @@ expanding every case. You are looking for four things:
 4. Anything that reads as hedged. Gate 5 was checked mechanically by grep and
    by the verifiers, but a sentence can hedge without using a hedging word.
 
-- [ ] **Step 3: Read the full diff**
+- [x] **Step 3: Read the full diff**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -179,7 +179,7 @@ All of it. This is 245 cases written by seven agents, and the mechanical
 checks confirm shape and provenance, not judgment. The spec says this out
 loud: the gates make bad output detectable, they do not make it impossible.
 
-- [ ] **Step 4: Present the summary to the human before committing**
+- [x] **Step 4: Present the summary to the human before committing**
 
 Report, from `cuts.md` and the verdict files:
 
@@ -188,7 +188,7 @@ Report, from `cuts.md` and the verdict files:
 - every contradiction and its recorded decision
 - anything you found reading the diff that the gates did not catch
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Fill the counts in from the actual run rather than copying these:
 
