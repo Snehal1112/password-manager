@@ -256,6 +256,22 @@ Order the deletes tags-first so the failure window leaves *tags gone, item prese
 
 Do **not** open a transaction inside `purgeItem` — it cannot know whether `ex` is already one, and `database/sql` does not support nesting. Record this tradeoff in the commit message.
 
+> **Correction (2026-09-07 final review):** the premise above is false and was
+> verified false, not merely disputed. There is no `...Tx` caller of
+> `purgeItem` — grep confirms all three call sites
+> (`key_repository.go:547`, `secret_repository.go:404`,
+> `certificate_repository.go:618`) pass `r.db`, a plain `db.DB` connection,
+> and no `PurgeKeyTx`/`PurgeSecretTx`/`PurgeCertificateTx` exists or ever did.
+> Contrast `softDeleteVaultContents`, which genuinely has both `r.db` and `ex`
+> callers, where `db.DBTX` is load-bearing. `purgeItem`'s parameter was
+> changed from `ex db.DBTX` to `conn db.DB`, and its body now opens its own
+> transaction (`conn.BeginTx` / `defer tx.Rollback()` / `tx.Commit()`) around
+> the tag delete and the item delete, mirroring `deleteItemWithTags` below.
+> The status checks (`deletedAt == nil`, `purgeProtection`) still run before
+> any write, against `conn`, exactly as before. See `.claude/known-bugs.md`
+> § B70 and § B71, and the F5 section of the design spec, both corrected the
+> same day for the same reason.
+
 - [ ] **Step 6: Delete tags inside `purgeVaultContents`**
 
 Replace the single `DELETE FROM`+`cfg.table` statement in `purgeVaultContents` with a tag delete followed by the item delete:

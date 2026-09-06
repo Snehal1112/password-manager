@@ -288,8 +288,21 @@ fix from the deduplication would mean touching the same config twice.
 
 `purgeItem` currently issues a bare `Exec`. Adding a second statement makes it
 two writes that must succeed or fail together, so it moves inside a
-transaction — using the `db.DBTX` executor it already receives when called
-through a `...Tx` path, and opening its own only when handed a plain connection.
+transaction.
+
+**Correction (2026-09-07 final review):** an earlier draft of this section,
+and the task-06 plan, claimed `purgeItem` "already receives" its executor as a
+transaction "when called through a `...Tx` path." That was false — verified
+false, not merely disputed. All three call sites (`key_repository.go:547`,
+`secret_repository.go:404`, `certificate_repository.go:618`) pass `r.db`, a
+plain connection; no `...Tx` caller of `purgeItem` exists or ever did. The
+premise led the original plan to reject opening a transaction inside
+`purgeItem` on the (mistaken) grounds that it "cannot know whether `ex` is
+already one." The fix instead changes `purgeItem`'s parameter from
+`ex db.DBTX` to `conn db.DB` and opens its own transaction around the tag
+delete and the item delete, mirroring `deleteItemWithTags` — the status
+checks (`deletedAt == nil`, `purgeProtection`) still run against `conn`
+before any write. See `.claude/known-bugs.md` § B70/B71.
 
 ## Testing
 

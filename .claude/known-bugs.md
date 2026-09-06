@@ -4122,13 +4122,18 @@ only in table names and log labels — into a shared `deleteItemWithTags`, and
 `SecretRepository.Delete` adopted the same helper, gaining the tag cleanup
 it was missing. See § F5.
 
-**Known limitation accepted**: `purgeItem`'s two writes (tags, then item) are
-not atomic when reached through a non-`Tx` caller (`PurgeKey`/`PurgeSecret`/
-`PurgeCertificate`). `purgeItem` receives a `db.DBTX` executor and cannot
-tell whether it already holds a transaction, and `database/sql` does not
-nest transactions. Tags are deleted first, so the crash window leaves "tags
-gone, item present" — recoverable, since the item row is still there and
-retryable — rather than the orphaned tags the fix exists to prevent.
+**Update (2026-09-07 final review)**: the "known limitation" originally
+recorded here rested on a false premise — that `purgeItem` "cannot know
+whether it already holds a transaction" because it receives `ex db.DBTX`.
+Verified false: all three call sites (`key_repository.go:547`,
+`secret_repository.go:404`, `certificate_repository.go:618`) pass `r.db`, a
+plain connection; no `PurgeKeyTx`/`PurgeSecretTx`/`PurgeCertificateTx` exists
+or ever did. `purgeItem` now takes `conn db.DB` instead of `ex db.DBTX` and
+opens its own transaction (`conn.BeginTx` / `defer tx.Rollback()` /
+`tx.Commit()`) around the tag delete and the item delete, mirroring
+`deleteItemWithTags` in the same file. The status checks (`deletedAt == nil`,
+`purgeProtection`) still run against `conn` before any write. `purgeItem` is
+transactional; the limitation below no longer applies.
 
 ---
 
@@ -4158,14 +4163,30 @@ design doc's "Scope decision" line):
 - `SecretRepository.List` does not load tags; the key and certificate
   equivalents batch-load them.
 
-Two further items were accepted as-is rather than fixed, both noted in
-their own B70/B69 entries above and repeated here for a single point of
-reference:
+**F4's "related inconsistency" was only half-closed (2026-09-07 final
+review).** The design spec's F4 section noted `SecretRepository.Update` and
+`SecretRepository.Delete` were both uninstrumented while their key/certificate
+equivalents were wrapped in metrics. Commit `897610f` instrumented `Update`.
+`Delete` then adopted `deleteItemWithTags` (`1442c2d`), whose `cfg.wrap` for
+secret is `passthroughWrap` — so `Delete` is still uninstrumented. The old
+divergence (secret vs key/cert) has been replaced by a new one *inside*
+`SecretRepository` itself: `Update` records query metrics, `Delete` does not.
+Closing this properly means changing secret's `crud()` to pass
+`r.executeWithMetrics` instead of `passthroughWrap` — but that also
+instruments secret's `SoftDelete`, `Recover`, `PurgeSecret`, and the
+vault-cascade operations, all of which currently share the same `cfg.wrap`.
+That is a wider behavior change than this review authorized, so it is
+recorded here rather than applied.
 
-- `purgeItem`'s tags-then-item write pair is not atomic outside a `Tx`
-  caller (B70).
-- Session's slow-query warning now logs through the unconfigured global
-  `logrus` instead of the rotated injected logger (B69).
+One further item was accepted as-is rather than fixed, noted in its own B69
+entry above and repeated here for a single point of reference: session's
+slow-query warning logs through the unconfigured global `logrus` instead of
+the rotated injected logger (B69).
+
+`purgeItem`'s tags-then-item write pair was listed here as accepted-as-is
+non-atomicity; it no longer is. The premise behind accepting it was false
+(see B70's "Update" paragraph) and the fix landed in the 2026-09-07 final
+review — `purgeItem` is transactional.
 
 One item found during the sweep but outside every plan's file list:
 `rotation_repository.go`'s `RemoveFromSecret` still returns a bare
