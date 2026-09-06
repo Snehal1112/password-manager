@@ -35,8 +35,11 @@ Four structural problems sit on top of that:
    certificates each get a list, a recover and a purge handler written out
    longhand — nine handlers, three shapes.
 4. **21 untyped `map[string]any` response bodies.** These carry no compile-time
-   contract and are invisible to `openapi_drift_test.go`, which can only see
-   registered routes and typed shapes.
+   contract: a renamed or dropped key is a wire break that still compiles. No
+   test in the package guards them either — `openapi_drift_test.go` compares
+   method+path pairs against `docs/api-specification.yaml` and never reads a
+   response schema, so it cannot see a response body of any kind, typed or
+   untyped.
 
 The six `c.xSvc()` accessors in `context.go:231-277` are six copies of the same
 six lines, and `ApiHandler`/`ApiSessionRequired` duplicate ~40 lines of Context
@@ -191,9 +194,12 @@ Found during review, **not** fixed in the mechanical plans:
 - **`getDeletedKey` (`soft_delete.go:169`)** lists every soft-deleted key in
   the vault and linear-scans for one ID. An O(n) full listing to serve a
   single-item GET. Fixed in plan 09.
-- **21 `map[string]any` response bodies** → typed structs, bringing them under
-  the OpenAPI drift test. Plan 10. This is the one change with real wire risk
-  (field ordering, `omitempty` behavior), which is why it is last and alone.
+- **21 `map[string]any` response bodies** → typed structs, giving each one a
+  compile-time contract and pinning its exact bytes in the new
+  `api/response_shape_test.go`. Plan 10. This does not bring them under the
+  OpenAPI drift test, which only checks method+path pairs. This is the one
+  change with real wire risk (field ordering, `omitempty` behavior), which is
+  why it is last and alone.
 - **`SessionRequired` (`context.go:153`)**, a backward-compat alias with no
   in-package caller found. Removal verified against the whole repo in plan 11.
 
