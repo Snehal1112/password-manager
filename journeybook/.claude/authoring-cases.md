@@ -11,8 +11,11 @@ record against it, and is much less likely to need changing than the cases are.
 | `src/data/journeys-a-f.ts` | Journeys A–F |
 | `src/data/journeys-g-m.ts` | Journeys G–M |
 | `src/data/journeys-n-u.ts` | Journeys N–U |
+| `src/data/journeys-v-w.ts` | Journeys V–W |
 | `src/data/reference.ts` | Setup script, cast, gates, error table, capability matrix, flag traps, corrections |
 | `src/data/index.ts` | Flattens the suites, and records which document revision this was built from |
+| `scripts/apply-enrichment.mjs` | Merges enrichment JSON into the case data. Agents never edit `src/data/` directly |
+| `scripts/check-links.mjs` | Fails on a dangling `related` id or a claim with no `source` |
 
 Split by letter only to keep files readable. Nothing about the split is
 meaningful — move a journey between files freely.
@@ -54,6 +57,75 @@ cases carry no flag.
 renders a two-marker subset of markdown — `` `code` `` and `**bold**` — and
 nothing else. Anything else appears literally, deliberately, so a real error
 message containing an asterisk is not silently eaten.
+
+**8. A claim needs a citation or it does not ship.** `why`, `verify` and
+`after` each require `source` — a document section
+(`VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J — the purge trap`) or a code
+location (`internal/services/vaults/vault_service.go:214`).
+`scripts/check-links.mjs` fails the build if one is missing.
+
+**Omission is a correct outcome.** A case with no `why` is honest. A case
+with a plausible-sounding invented one is the failure this rule exists to
+prevent, and it is worse than the thin case it replaced — a thin check sends
+a tester to the document, a confidently wrong one sends them to file a defect
+against working software.
+
+A claim that is true but not supported by *its own* citation still fails this
+rule. When the backfill was verified, nine of the seventeen corrections were
+exactly that: accurate sentences pointing at a section that did not establish
+them. Cite where the fact lives, not where the case sits.
+
+**9. `verify.command` is transcribed or confirmed, never inferred.** Copy it
+from the journeys document, or build it only from flags you have read in the
+cobra registration in `cmd/`. Never from a flag name, a help string, or the
+shape of a neighbouring command. A verification command carrying a flag that
+does not exist teaches a tester to distrust the whole page.
+
+**10. When the document and the code disagree, say so — do not choose.**
+`VAULT_USER_ACCESS_JOURNEYS_v3.md` is dated and the CLI has drifted before. A
+case quietly corrected from the code contradicts the document a tester is
+reading beside it, and hides what may be a real defect. Raise it.
+
+**11. No hedging.** No "should", "presumably", "likely", "appears to". A claim
+you cannot state flatly from a source is not written. Hedged text reads as
+information while carrying none, and a tester cannot act on it.
+
+**12. `why` and `notes` do not overlap.** `why` is the system's mechanism;
+`notes` is what a tester should do or watch out for. Where a note already
+carries mechanism, move that half to `why` and leave the actionable half.
+Never duplicate, and never drop the actionable half. See `J6` for the worked
+split. If nothing survives once the mechanism moves, delete `notes` rather
+than leaving a sentence that repeats `why` in shorter words.
+
+**How much of this is enforced.** Only rule 8 has a mechanical check behind it.
+`check-links.mjs` catches a missing `source` and a dangling `related` id, and
+nothing else here is verifiable by a script — 9 through 12 rely on the reviewer.
+That asymmetry is worth knowing rather than assuming the build has your back:
+provenance is enforced, judgment is not.
+
+## The detail fields
+
+Beyond `command`, `expected` and `assert`, a case can carry five optional
+fields. They render in one fixed order — Why, Before, Run, Expected, Verify,
+After, Note, Related, Source — as a definition list with labels right-aligned
+in a 3.5rem gutter.
+
+| Field | Holds | Required with it |
+| --- | --- | --- |
+| `why` | The mechanism. Why the system behaves this way, not what the command does | `source` |
+| `verify` | `{ command?, look }` — how to settle pass from fail when `expected` leaves a margin | `source` |
+| `after` | What the check leaves behind, and what to undo first | `source` |
+| `related` | `{ id, rel }[]` — `depends`, `diverges` or `contrasts` | ids must resolve |
+| `source` | Provenance. Document section or `file.go:line`, several joined by `; ` | — |
+
+`Suite.context` holds the journey-level prose as one string per paragraph.
+
+Most cases carry none of these — 74 of the 245 are deliberately bare, because
+the sources do not explain them. `verify` earns its place only where the
+expected line genuinely leaves room for doubt; `after` only where the check
+leaves state behind. Journey J is the reference for all of them, and `J2`
+specifically is the precedent for carrying no `why` at all: the document shows
+its command and does not explain it, so nothing was written.
 
 ## When the CLI changes
 
