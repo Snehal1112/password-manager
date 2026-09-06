@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -195,8 +196,8 @@ func scanAccessPolicy(row *sql.Row) (*model.AccessPolicy, error) {
 	var assignStr sql.NullString
 	err := row.Scan(&idStr, &principalStr,
 		&p.PrincipalType, &p.ResourceType, &p.Operation, &p.Effect, &vaultStr, &assignStr, &p.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("access policy not found")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("access policy not found: %w", ErrNotFound)
 	}
 	if err != nil {
 		return nil, err

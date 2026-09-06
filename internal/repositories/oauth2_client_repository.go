@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -107,8 +108,8 @@ func scanOAuth2Client(row *sql.Row) (*model.OAuth2Client, error) {
 	var createdAt time.Time
 
 	err := row.Scan(&idStr, &c.Name, &c.ClientSecret, &c.Description, &c.Enabled, &createdAt, &expiresAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("oauth2 client not found")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("oauth2 client not found: %w", ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scanOAuth2Client: %w", err)

@@ -187,7 +187,7 @@ func (r *UserRepository) Read(ctx context.Context, id uuid.UUID) (*model.User, e
 	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user not found: %w", ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user: %w", err)
@@ -256,7 +256,7 @@ func (r *UserRepository) Update(ctx context.Context, user *model.User) error {
 	if rowsAffected == 0 {
 		_ = tx.Rollback()
 		r.log.LogAuditError(user.ID.String(), "update_user", "failed", "User not found for update", nil)
-		return fmt.Errorf("user not found")
+		return fmt.Errorf("user not found: %w", ErrNotFound)
 	}
 
 	if err := r.replaceUserRoles(ctx, tx, user.ID, normalizedRoles); err != nil {
@@ -330,7 +330,7 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		if rowsAffected == 0 {
 			_ = tx.Rollback()
 			r.log.LogAuditError(id.String(), "delete_user", "failed", "User not found for deletion", nil)
-			return fmt.Errorf("user not found")
+			return fmt.Errorf("user not found: %w", ErrNotFound)
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -449,7 +449,7 @@ func (r *UserRepository) ReadByUsername(ctx context.Context, username string) (m
 	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 
 	if errors.Is(err, sql.ErrNoRows) {
-		return user, fmt.Errorf("user not found")
+		return user, fmt.Errorf("user not found: %w", ErrNotFound)
 	}
 	if err != nil {
 		logrus.WithError(err).Error("Failed to query user by username")
@@ -486,7 +486,7 @@ func (r *UserRepository) ReadByExternalSubject(ctx context.Context, provider, su
 		provider, subject,
 	).Scan(&idStr, &user.Username, &user.PasswordHash, &user.TOTPSecret, &legacyRole, &user.AuthProvider, &externalSubject, &user.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user not found: %w", ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user by external subject: %w", err)
