@@ -1457,6 +1457,16 @@ func getSlowQueryThreshold() time.Duration {
 	return slowQueryThreshold
 }
 
+// SlowQueryThreshold returns the duration above which a query counts as slow,
+// as configured by monitoring.slow_query_threshold. Exported so the repository
+// layer logs slow-query warnings at the same cutoff RecordQueryExecution uses
+// for the SlowQueryCount metric -- they previously disagreed, because every
+// repository hardcoded 100ms while this value was configurable.
+// Safe for concurrent use.
+func SlowQueryThreshold() time.Duration {
+	return getSlowQueryThreshold()
+}
+
 // RecordQueryExecution records query performance metrics.
 func RecordQueryExecution(duration time.Duration) {
 	metrics.mu.Lock()
