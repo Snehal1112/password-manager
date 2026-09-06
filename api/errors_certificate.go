@@ -22,7 +22,7 @@ func writeCertificateError(c *Context, err error) {
 	case errors.Is(err, certServices.ErrCertNotFound):
 		c.SetNotFound("certificate")
 	case errors.Is(err, model.ErrCertPurgeProtected):
-		c.SetPermissionError("certificate has purge protection enabled (directly or via its vault)")
+		c.SetPermissionError(purgeProtectedMessage("certificate"))
 	case errors.Is(err, model.ErrGlobalPurgeProtectionEnabled):
 		c.SetPermissionError(err.Error())
 	default:
