@@ -106,9 +106,15 @@ func (r *secretVersionRepository) GetVersions(ctx context.Context, secretID uuid
 			return nil, fmt.Errorf("failed to scan secret version: %w", err)
 		}
 
-		v.ID, _ = uuid.Parse(id)
-		v.SecretID, _ = uuid.Parse(secretIDStr)
-		v.UserID, _ = uuid.Parse(userIDStr)
+		if v.ID, err = uuid.Parse(id); err != nil {
+			return nil, fmt.Errorf("invalid secret version id: %w", err)
+		}
+		if v.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+			return nil, fmt.Errorf("invalid secret id: %w", err)
+		}
+		if v.UserID, err = uuid.Parse(userIDStr); err != nil {
+			return nil, fmt.Errorf("invalid user id: %w", err)
+		}
 		versions = append(versions, v)
 	}
 
@@ -143,9 +149,15 @@ func (r *secretVersionRepository) GetVersion(ctx context.Context, secretID uuid.
 		return nil, fmt.Errorf("failed to query secret version: %w", err)
 	}
 
-	v.ID, _ = uuid.Parse(id)
-	v.SecretID, _ = uuid.Parse(secretIDStr)
-	v.UserID, _ = uuid.Parse(userIDStr)
+	if v.ID, err = uuid.Parse(id); err != nil {
+		return nil, fmt.Errorf("invalid secret version id: %w", err)
+	}
+	if v.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+		return nil, fmt.Errorf("invalid secret id: %w", err)
+	}
+	if v.UserID, err = uuid.Parse(userIDStr); err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 
 	return &v, nil
 }
@@ -175,9 +187,15 @@ func (r *secretVersionRepository) GetLatestVersion(ctx context.Context, secretID
 		return nil, fmt.Errorf("failed to query latest secret version: %w", err)
 	}
 
-	v.ID, _ = uuid.Parse(id)
-	v.SecretID, _ = uuid.Parse(secretIDStr)
-	v.UserID, _ = uuid.Parse(userIDStr)
+	if v.ID, err = uuid.Parse(id); err != nil {
+		return nil, fmt.Errorf("invalid secret version id: %w", err)
+	}
+	if v.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+		return nil, fmt.Errorf("invalid secret id: %w", err)
+	}
+	if v.UserID, err = uuid.Parse(userIDStr); err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 
 	return &v, nil
 }
