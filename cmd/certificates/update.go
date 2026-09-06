@@ -10,12 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
@@ -51,26 +47,22 @@ cannot clear it.`,
   rocketvault certificate update <id> --purge-protection --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCertificateManager) {
-			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", "forbidden: requires admin or certificate_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "update_certificate", Action: model.ActionCertificatesUpdate, Policy: model.OpSet,
+			Roles:        []string{model.RoleAdmin, model.RoleCertificateManager},
+			AuthzFailMsg: "failed to update certificate",
+		})
+		if err != nil {
+			return err
 		}
 
 		certID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", fmt.Sprintf("invalid certificate ID: %s", err), err)
-			return fmt.Errorf("invalid certificate ID: %w", err)
+			return s.Fail("invalid certificate ID", err)
 		}
 
-		name := viper.GetString("cert-update-name")
-		tagsStr := viper.GetString("cert-update-tags")
+		name, _ := cmd.Flags().GetString("name")
+		tagsStr, _ := cmd.Flags().GetString("tags")
 
 		// Only pass auto-renew if the flag was explicitly set by the caller.
 		var autoRenewPtr *bool
@@ -101,19 +93,10 @@ cannot clear it.`,
 			}
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		certService := serviceContainer.GetCertificateService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesUpdate, model.OpSet)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
-			return fmt.Errorf("failed to update certificate: %w", err)
-		}
+		certService := s.Container.GetCertificateService()
 
 		var namePtr *string
 		if name != "" {
@@ -122,7 +105,7 @@ cannot clear it.`,
 
 		req := certServices.UpdateCertificateRequest{
 			CertID:          certID,
-			Scope:           model.NewVaultScope(vaultID, claims.UserID),
+			Scope:           s.Scope,
 			Name:            namePtr,
 			Tags:            tags,
 			AutoRenew:       autoRenewPtr,
@@ -130,20 +113,19 @@ cannot clear it.`,
 			PurgeProtection: purgeProtectionPtr,
 		}
 
-		err = certService.UpdateCertificate(ctx, req)
+		err = certService.UpdateCertificate(s.Ctx, req)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "update_certificate", "failed", fmt.Sprintf("failed to update certificate: %s", err), err)
-			return fmt.Errorf("failed to update certificate: %w", err)
+			return s.Fail("failed to update certificate", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "update_certificate", "success", fmt.Sprintf("certificate updated: %s", certID))
-		fmt.Printf("Certificate updated successfully: %s\n", certID)
+		s.OK(fmt.Sprintf("certificate updated: %s", certID))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Certificate updated successfully: %s\n", certID)
 		return nil
 	},
 }
 
 // InitCertificatesUpdate initializes the update command for certificates.
-func InitCertificatesUpdate(certificatesCmd *cobra.Command) *cobra.Command {
+func InitCertificatesUpdate(certificatesCmd *cobra.Command) {
 	certificatesCmd.AddCommand(updateCmd)
 
 	updateCmd.Flags().String("name", "", "Updated name for the certificate")
@@ -151,8 +133,4 @@ func InitCertificatesUpdate(certificatesCmd *cobra.Command) *cobra.Command {
 	updateCmd.Flags().Bool("auto-renew", false, "Enable or disable auto-renewal")
 	updateCmd.Flags().Int("renewal-days", 0, "Days before expiry to trigger renewal")
 	updateCmd.Flags().Bool("purge-protection", false, "Protect the certificate from being purged")
-	viper.BindPFlag("cert-update-name", updateCmd.Flags().Lookup("name")) //nolint:errcheck,gosec
-	viper.BindPFlag("cert-update-tags", updateCmd.Flags().Lookup("tags")) //nolint:errcheck,gosec
-
-	return certificatesCmd
 }

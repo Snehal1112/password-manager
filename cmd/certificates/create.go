@@ -7,17 +7,11 @@ package certificates
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
@@ -64,36 +58,31 @@ sent only when the flag is passed explicitly.`,
     --tags prod,tls --auto-renew --renewal-days 45 --vault payments`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "create_certificate", Action: model.ActionCertificatesCreate, Policy: model.OpCreate,
+			Roles:        []string{model.RoleAdmin, model.RoleCertificateManager},
+			AuthzFailMsg: "failed to create certificate",
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCertificateManager) {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "forbidden: requires admin or certificate_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
-		}
-
-		name := viper.GetString("cert-name")
-		keyIDStr := viper.GetString("cert-key-id")
-		validityDays := viper.GetInt("cert-validity-days")
-		tagsStr := viper.GetString("cert-tags")
-		caCertIDStr := viper.GetString("cert-ca-cert-id")
+		name, _ := cmd.Flags().GetString("name")
+		keyIDStr, _ := cmd.Flags().GetString("key-id")
+		validityDays, _ := cmd.Flags().GetInt("validity-days")
+		tagsStr, _ := cmd.Flags().GetString("tags")
+		caCertIDStr, _ := cmd.Flags().GetString("ca-cert-id")
 		autoRenew, _ := cmd.Flags().GetBool("auto-renew")
 		renewalDays, _ := cmd.Flags().GetInt("renewal-days")
 		isCA, _ := cmd.Flags().GetBool("is-ca")
 
 		if name == "" || keyIDStr == "" || validityDays <= 0 {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "name, key-id, and validity-days are required", nil)
-			return fmt.Errorf("name, key-id, and validity-days are required")
+			return s.Fail("name, key-id, and validity-days are required", nil)
 		}
 
 		keyID, err := uuid.Parse(keyIDStr)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
 		var tags []string
@@ -104,19 +93,10 @@ sent only when the flag is passed explicitly.`,
 			}
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		certService := serviceContainer.GetCertificateService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesCreate, model.OpCreate)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
-			return fmt.Errorf("failed to create certificate: %w", err)
-		}
+		certService := s.Container.GetCertificateService()
 
 		// Create certificate request
 		req := certServices.CreateCertificateRequest{
@@ -124,8 +104,8 @@ sent only when the flag is passed explicitly.`,
 			KeyID:        keyID,
 			ValidityDays: validityDays,
 			Tags:         tags,
-			UserID:       claims.UserID,
-			VaultID:      vaultID,
+			UserID:       s.Claims.UserID,
+			VaultID:      s.VaultID,
 			AutoRenew:    autoRenew,
 			RenewalDays:  renewalDays,
 			IsCA:         isCA,
@@ -141,40 +121,27 @@ sent only when the flag is passed explicitly.`,
 			// CA-signed certificate
 			caCertID, parseErr := uuid.Parse(caCertIDStr)
 			if parseErr != nil {
-				log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("invalid CA certificate ID: %s", parseErr), parseErr)
-				return fmt.Errorf("invalid CA certificate ID: %w", parseErr)
+				return s.Fail("invalid CA certificate ID", parseErr)
 			}
 			req.CACertID = &caCertID
-			log.WithField("ca_cert_id", caCertID).Info("Creating CA-signed certificate")
-			result, err = certService.CreateCASignedCertificate(ctx, req)
+			s.Log.WithField("ca_cert_id", caCertID).Info("Creating CA-signed certificate")
+			result, err = certService.CreateCASignedCertificate(s.Ctx, req)
 		} else {
 			// Self-signed certificate
-			result, err = certService.CreateSelfSignedCertificate(ctx, req)
+			result, err = certService.CreateSelfSignedCertificate(s.Ctx, req)
 		}
 
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "create_certificate", "failed", fmt.Sprintf("failed to create certificate: %s", err), err)
-			return fmt.Errorf("failed to create certificate: %w", err)
+			return s.Fail("failed to create certificate", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "create_certificate", "success", fmt.Sprintf("certificate created: %s, ID: %s", result.Name, result.CertID))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-		headers := []string{"ID", "Name", "Created"}
-		row := []string{
-			result.CertID.String(),
-			result.Name,
-			result.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("certificate created: %s, ID: %s", result.Name, result.CertID))
+		return vaultcli.Print(s, createdCertColumns, result)
 	},
 }
 
 // InitCertificatesCreate initializes the create command for certificates.
-func InitCertificatesCreate(certificatesCmd *cobra.Command) *cobra.Command {
+func InitCertificatesCreate(certificatesCmd *cobra.Command) {
 	certificatesCmd.AddCommand(createCmd)
 
 	createCmd.Flags().String("name", "", "Name (Common Name) for the new certificate")
@@ -186,11 +153,4 @@ func InitCertificatesCreate(certificatesCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().Int("renewal-days", 30, "Days before expiry to trigger renewal")
 	createCmd.Flags().Bool("purge-protection", false, "Protect the certificate from being purged")
 	createCmd.Flags().Bool("is-ca", false, "Issue the certificate as a Certificate Authority that can sign other certificates")
-	viper.BindPFlag("cert-name", createCmd.Flags().Lookup("name"))                   //nolint:errcheck,gosec
-	viper.BindPFlag("cert-key-id", createCmd.Flags().Lookup("key-id"))               //nolint:errcheck,gosec
-	viper.BindPFlag("cert-validity-days", createCmd.Flags().Lookup("validity-days")) //nolint:errcheck,gosec
-	viper.BindPFlag("cert-tags", createCmd.Flags().Lookup("tags"))                   //nolint:errcheck,gosec
-	viper.BindPFlag("cert-ca-cert-id", createCmd.Flags().Lookup("ca-cert-id"))       //nolint:errcheck,gosec
-
-	return certificatesCmd
 }

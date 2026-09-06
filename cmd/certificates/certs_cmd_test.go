@@ -5,17 +5,18 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"rocketvault/cmd/testutils"
+	"rocketvault/cmd/vaultcli"
 	"rocketvault/common"
 	"rocketvault/internal/formatter"
 	"rocketvault/internal/logging"
@@ -201,14 +202,33 @@ func buildCertRoleCtx(sc interface{}, role string) context.Context {
 	return ctx
 }
 
-// viperSetCert sets viper values and returns a cleanup function.
-func viperSetCert(kvs map[string]interface{}) func() {
+// setFlags registers each key as a flag on cmd (if not already registered)
+// and sets its value. Commands read their inputs from their own flag set,
+// never from global viper: two commands binding the same viper key overwrite
+// each other process-wide, which is what silently disabled `keys list --tags`.
+func setFlags(cmd *cobra.Command, kvs map[string]any) {
 	for k, v := range kvs {
-		viper.Set(k, v)
-	}
-	return func() {
-		for k := range kvs {
-			viper.Set(k, nil)
+		switch val := v.(type) {
+		case string:
+			if cmd.Flags().Lookup(k) == nil {
+				cmd.Flags().String(k, val, "")
+				continue
+			}
+			_ = cmd.Flags().Set(k, val)
+		case int:
+			if cmd.Flags().Lookup(k) == nil {
+				cmd.Flags().Int(k, val, "")
+				continue
+			}
+			_ = cmd.Flags().Set(k, strconv.Itoa(val))
+		case bool:
+			if cmd.Flags().Lookup(k) == nil {
+				cmd.Flags().Bool(k, val, "")
+				continue
+			}
+			_ = cmd.Flags().Set(k, strconv.FormatBool(val))
+		default:
+			panic("setFlags: unsupported flag type for " + k)
 		}
 	}
 }
@@ -239,23 +259,16 @@ func TestCertCreateCmd_NoClaims(t *testing.T) {
 func TestCertCreateCmd_ForbiddenRole(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertRoleCtx(sc, model.RoleUser)
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name": "mycert", "cert-key-id": uuid.New().String(), "cert-validity-days": 365,
-	})
-	defer cleanup()
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert", "key-id": uuid.New().String(), "validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
 }
 
 func TestCertCreateCmd_NoServiceContainer(t *testing.T) {
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name": "mycert", "cert-key-id": uuid.New().String(), "cert-validity-days": 365,
-	})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
@@ -263,6 +276,7 @@ func TestCertCreateCmd_NoServiceContainer(t *testing.T) {
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert", "key-id": uuid.New().String(), "validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -271,13 +285,10 @@ func TestCertCreateCmd_NoServiceContainer(t *testing.T) {
 func TestCertCreateCmd_MissingName(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertAdminCtx(sc)
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name": "", "cert-key-id": uuid.New().String(), "cert-validity-days": 365,
-	})
-	defer cleanup()
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "", "key-id": uuid.New().String(), "validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "name, key-id, and validity-days are required")
@@ -286,13 +297,10 @@ func TestCertCreateCmd_MissingName(t *testing.T) {
 func TestCertCreateCmd_MissingKeyID(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertAdminCtx(sc)
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name": "mycert", "cert-key-id": "", "cert-validity-days": 365,
-	})
-	defer cleanup()
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert", "key-id": "", "validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "name, key-id, and validity-days are required")
@@ -301,13 +309,10 @@ func TestCertCreateCmd_MissingKeyID(t *testing.T) {
 func TestCertCreateCmd_InvalidValidityDays(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertAdminCtx(sc)
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name": "mycert", "cert-key-id": uuid.New().String(), "cert-validity-days": 0,
-	})
-	defer cleanup()
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert", "key-id": uuid.New().String(), "validity-days": 0})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "name, key-id, and validity-days are required")
@@ -316,13 +321,10 @@ func TestCertCreateCmd_InvalidValidityDays(t *testing.T) {
 func TestCertCreateCmd_InvalidKeyIDUUID(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertAdminCtx(sc)
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name": "mycert", "cert-key-id": "not-a-uuid", "cert-validity-days": 365,
-	})
-	defer cleanup()
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert", "key-id": "not-a-uuid", "validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid key ID")
@@ -351,18 +353,15 @@ func TestCertCreateCmd_SelfSignedSuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "mycert",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "prod",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, buf := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "prod",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -393,18 +392,15 @@ func TestCertCreateCmd_CASignedSuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "casignedcert",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 180,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    caCertID.String(),
-	})
-	defer cleanup()
 
 	cmd, buf := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "casignedcert",
+		"key-id":        keyID.String(),
+		"validity-days": 180,
+		"tags":          "",
+		"ca-cert-id":    caCertID.String()})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -420,18 +416,15 @@ func TestCertCreateCmd_InvalidCACertID(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "mycert",
-		"cert-key-id":        uuid.New().String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "bad-uuid",
-	})
-	defer cleanup()
 
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert",
+		"key-id":        uuid.New().String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    "bad-uuid"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid CA certificate ID")
@@ -451,18 +444,15 @@ func TestCertCreateCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "failcert",
-		"cert-key-id":        uuid.New().String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "failcert",
+		"key-id":        uuid.New().String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to create certificate")
@@ -486,18 +476,14 @@ func TestCertCreateCmd_NoFormatter(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "k",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
-
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "k",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "output formatter not available")
@@ -520,18 +506,15 @@ func TestCertCreateCmd_CertificateManagerRoleAllowed(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "cert",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "cert",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -557,18 +540,15 @@ func TestCertCreateCmd_MultiRoleCaller_PrivilegedRoleNotFirst_Allowed(t *testing
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "cert",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "cert",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -594,18 +574,15 @@ func TestCertCreateCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "mycert",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to create certificate")
@@ -640,18 +617,15 @@ func TestCertCreateCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "mycert",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, _ := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
+	setFlags(cmd, map[string]any{"name": "mycert",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1195,10 +1169,9 @@ func TestCertRenewCmd_InvalidUUID(t *testing.T) {
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
-	defer cleanup()
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{"not-a-uuid"})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid certificate ID")
@@ -1208,10 +1181,9 @@ func TestCertRenewCmd_InvalidValidityDays(t *testing.T) {
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 0})
-	defer cleanup()
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{uuid.New().String()})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 0})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "validity-days must be greater than 0")
@@ -1222,10 +1194,9 @@ func TestCertRenewCmd_NoServiceContainer(t *testing.T) {
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
-	defer cleanup()
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{uuid.New().String()})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -1251,11 +1222,9 @@ func TestCertRenewCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
-	defer cleanup()
-
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1277,11 +1246,9 @@ func TestCertRenewCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 180})
-	defer cleanup()
-
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 180})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to renew certificate")
@@ -1307,11 +1274,9 @@ func TestCertRenewCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
-	defer cleanup()
-
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to renew certificate")
@@ -1347,11 +1312,9 @@ func TestCertRenewCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-renew-validity-days": 365})
-	defer cleanup()
-
 	cmd, _ := newCertCmd(renewCmd.RunE, []string{certID.String()})
 	cmd.Args = cobra.ExactArgs(1)
+	setFlags(cmd, map[string]any{"validity-days": 365})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1378,14 +1341,13 @@ func TestCertUpdateCmd_NoClaims(t *testing.T) {
 func TestCertUpdateCmd_ForbiddenRole(t *testing.T) {
 	sc := &certsTestContainer{MockServiceContainer: &testutils.MockServiceContainer{}}
 	ctx := buildCertRoleCtx(sc, model.RoleUser)
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "n", "cert-update-tags": ""})
-	defer cleanup()
 	cmd, _ := newCertCmd(updateCmd.RunE, []string{uuid.New().String()})
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.Flags().String("name", "", "")
 	cmd.Flags().String("tags", "", "")
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
+	setFlags(cmd, map[string]any{"name": "n", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -1395,14 +1357,13 @@ func TestCertUpdateCmd_InvalidUUID(t *testing.T) {
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "", "cert-update-tags": ""})
-	defer cleanup()
 	cmd, _ := newCertCmd(updateCmd.RunE, []string{"not-a-uuid"})
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.Flags().String("name", "", "")
 	cmd.Flags().String("tags", "", "")
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
+	setFlags(cmd, map[string]any{"name": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid certificate ID")
@@ -1413,14 +1374,13 @@ func TestCertUpdateCmd_NoServiceContainer(t *testing.T) {
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	// No service container.
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "n", "cert-update-tags": ""})
-	defer cleanup()
 	cmd, _ := newCertCmd(updateCmd.RunE, []string{uuid.New().String()})
 	cmd.Args = cobra.ExactArgs(1)
 	cmd.Flags().String("name", "", "")
 	cmd.Flags().String("tags", "", "")
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
+	setFlags(cmd, map[string]any{"name": "n", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -1443,9 +1403,6 @@ func TestCertUpdateCmd_SuccessWithNameUpdate(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "newname", "cert-update-tags": ""})
-	defer cleanup()
-
 	// Use a fresh command with args so viper picks up the name correctly.
 	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	var buf bytes.Buffer
@@ -1456,6 +1413,7 @@ func TestCertUpdateCmd_SuccessWithNameUpdate(t *testing.T) {
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
 	cmd.SetArgs([]string{certID.String()})
+	setFlags(cmd, map[string]any{"name": "newname", "tags": ""})
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
@@ -1480,9 +1438,6 @@ func TestCertUpdateCmd_SuccessWithAutoRenewFlagChanged(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "", "cert-update-tags": ""})
-	defer cleanup()
-
 	// Register flags and set args so that --auto-renew is marked Changed.
 	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	var buf bytes.Buffer
@@ -1493,6 +1448,7 @@ func TestCertUpdateCmd_SuccessWithAutoRenewFlagChanged(t *testing.T) {
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
 	cmd.SetArgs([]string{certID.String(), "--auto-renew=true"})
+	setFlags(cmd, map[string]any{"name": "", "tags": ""})
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
@@ -1517,9 +1473,6 @@ func TestCertUpdateCmd_SuccessWithRenewalDaysFlagChanged(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "", "cert-update-tags": ""})
-	defer cleanup()
-
 	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
@@ -1529,6 +1482,7 @@ func TestCertUpdateCmd_SuccessWithRenewalDaysFlagChanged(t *testing.T) {
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
 	cmd.SetArgs([]string{certID.String(), "--renewal-days=60"})
+	setFlags(cmd, map[string]any{"name": "", "tags": ""})
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
@@ -1551,9 +1505,6 @@ func TestCertUpdateCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "n", "cert-update-tags": ""})
-	defer cleanup()
-
 	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
@@ -1563,6 +1514,7 @@ func TestCertUpdateCmd_ServiceError(t *testing.T) {
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
 	cmd.SetArgs([]string{certID.String()})
+	setFlags(cmd, map[string]any{"name": "n", "tags": ""})
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
@@ -1589,9 +1541,6 @@ func TestCertUpdateCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "n", "cert-update-tags": ""})
-	defer cleanup()
-
 	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
@@ -1601,6 +1550,7 @@ func TestCertUpdateCmd_Denied(t *testing.T) {
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
 	cmd.SetArgs([]string{certID.String()})
+	setFlags(cmd, map[string]any{"name": "n", "tags": ""})
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
@@ -1634,9 +1584,6 @@ func TestCertUpdateCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSetCert(map[string]interface{}{"cert-update-name": "newname", "cert-update-tags": ""})
-	defer cleanup()
-
 	cmd := &cobra.Command{Use: "test", Args: cobra.ExactArgs(1), RunE: updateCmd.RunE}
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
@@ -1646,6 +1593,7 @@ func TestCertUpdateCmd_Authorized(t *testing.T) {
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 0, "")
 	cmd.SetArgs([]string{certID.String()})
+	setFlags(cmd, map[string]any{"name": "newname", "tags": ""})
 	cmd.SetContext(ctx)
 
 	err := cmd.Execute()
@@ -1655,16 +1603,20 @@ func TestCertUpdateCmd_Authorized(t *testing.T) {
 	policies.AssertExpectations(t)
 }
 
-// ========== formatOptionalTime tests ==========
+// ========== optional-time cell tests ==========
+//
+// This package's own formatOptionalTime is gone; the shared
+// vaultcli.CellOptTime replaces it (cmd/secrets had an identical copy). These
+// tests stay here because they cover what the Expires column renders.
 
 func TestFormatOptionalTime_Nil(t *testing.T) {
-	result := formatOptionalTime(nil)
+	result := vaultcli.CellOptTime(nil)
 	assert.Equal(t, "", result)
 }
 
 func TestFormatOptionalTime_NonNil(t *testing.T) {
 	ts := time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC)
-	result := formatOptionalTime(&ts)
+	result := vaultcli.CellOptTime(&ts)
 	assert.Equal(t, ts.Format(time.RFC3339), result)
 	assert.Contains(t, result, "2026-01-15")
 }
@@ -1693,20 +1645,17 @@ func TestCertCreateCmd_IsCAFlagOptsIn(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "issuing-ca",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 3650,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, buf := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
 	cmd.Flags().Bool("is-ca", false, "")
 	assert.NoError(t, cmd.Flags().Set("is-ca", "true"))
+	setFlags(cmd, map[string]any{"name": "issuing-ca",
+		"key-id":        keyID.String(),
+		"validity-days": 3650,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1738,19 +1687,16 @@ func TestCertCreateCmd_WithoutIsCAFlagRequestsALeaf(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newCertLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newCertFmtr())
-	cleanup := viperSetCert(map[string]interface{}{
-		"cert-name":          "tls-server",
-		"cert-key-id":        keyID.String(),
-		"cert-validity-days": 365,
-		"cert-tags":          "",
-		"cert-ca-cert-id":    "",
-	})
-	defer cleanup()
 
 	cmd, buf := newCertCmd(createCmd.RunE, nil)
 	cmd.Flags().Bool("auto-renew", false, "")
 	cmd.Flags().Int("renewal-days", 30, "")
 	cmd.Flags().Bool("is-ca", false, "")
+	setFlags(cmd, map[string]any{"name": "tls-server",
+		"key-id":        keyID.String(),
+		"validity-days": 365,
+		"tags":          "",
+		"ca-cert-id":    ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)

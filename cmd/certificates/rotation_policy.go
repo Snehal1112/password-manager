@@ -456,7 +456,7 @@ process; "certificates renew" is the only way to renew from the CLI.`,
 
 // InitCertificatesRotationPolicy adds the "rotation-policy" command, and its
 // get, set, delete, list and status subcommands, to the certificates command.
-func InitCertificatesRotationPolicy(certificatesCmd *cobra.Command) *cobra.Command {
+func InitCertificatesRotationPolicy(certificatesCmd *cobra.Command) {
 	certificatesCmd.AddCommand(rotationPolicyCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicyGetCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicySetCmd)
@@ -473,6 +473,4 @@ func InitCertificatesRotationPolicy(certificatesCmd *cobra.Command) *cobra.Comma
 	rotationPolicySetCmd.Flags().Bool("auto-renew", false, "Whether to automatically renew before expiry")
 	rotationPolicySetCmd.Flags().Int("days-before-expiry", 0, "Days before expiry to trigger auto-renewal")
 	rotationPolicySetCmd.Flags().String("issuer-name", "", "Issuer to request the certificate from")
-
-	return certificatesCmd
 }

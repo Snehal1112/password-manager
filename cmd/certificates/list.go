@@ -6,17 +6,10 @@ package certificates
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -45,67 +38,30 @@ other vaults are never included; list them one vault at a time.`,
   rocketvault certificate list --output json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "list_certificates", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		certService := serviceContainer.GetCertificateService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "list_certificates", Action: model.ActionCertificatesRead, Policy: model.OpGet,
+			AuthzFailMsg: "failed to list certificates",
+		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_certificates", "failed", fmt.Sprintf("authorization failed: %s", err), err)
-			return fmt.Errorf("failed to list certificates: %w", err)
+			return err
 		}
 
-		certs, err := certService.ListCertificates(ctx, model.NewVaultScope(vaultID, claims.UserID), model.CertificateFilter{})
+		if err := s.Authorize(); err != nil {
+			return err
+		}
+		certService := s.Container.GetCertificateService()
+
+		certs, err := certService.ListCertificates(s.Ctx, s.Scope, model.CertificateFilter{})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_certificates", "failed", fmt.Sprintf("failed to list certificates: %s", err), err)
-			return fmt.Errorf("failed to list certificates: %w", err)
+			return s.Fail("failed to list certificates", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "list_certificates", "success", fmt.Sprintf("listed %d certificates", len(certs)))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"ID", "Name", "Tags", "Expires", "AutoRenew", "Created"}
-		rows := make([][]string, len(certs))
-		for i, c := range certs {
-			rows[i] = []string{
-				c.ID.String(),
-				c.Name,
-				strings.Join(c.Tags, ","),
-				formatOptionalTime(c.ExpiresAt),
-				strconv.FormatBool(c.AutoRenew),
-				c.CreatedAt.Format(time.RFC3339),
-			}
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+		s.OK(fmt.Sprintf("listed %d certificates", len(certs)))
+		return vaultcli.Print(s, certColumns, certs...)
 	},
 }
 
-// formatOptionalTime formats a pointer to time.Time as RFC3339, returning empty string for nil.
-func formatOptionalTime(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return t.Format(time.RFC3339)
-}
-
 // InitCertificatesList initializes the list command for certificates.
-func InitCertificatesList(certificatesCmd *cobra.Command) *cobra.Command {
+func InitCertificatesList(certificatesCmd *cobra.Command) {
 	certificatesCmd.AddCommand(listCmd)
-	return certificatesCmd
 }

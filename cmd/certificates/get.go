@@ -6,18 +6,11 @@ package certificates
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -46,61 +39,34 @@ already expired is refused as inaccessible rather than printed.`,
   rocketvault certificate get <id> --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "get_certificate", Action: model.ActionCertificatesRead, Policy: model.OpGet,
+			AuthzFailMsg: "failed to get certificate",
+		})
+		if err != nil {
+			return err
 		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
 		certID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("invalid certificate ID: %s", err), err)
-			return fmt.Errorf("invalid certificate ID: %w", err)
+			return s.Fail("invalid certificate ID", err)
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		certService := serviceContainer.GetCertificateService()
+		certService := s.Container.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
+		cert, err := certService.GetCertificate(s.Ctx, certID, s.Scope)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("authorization failed: %s", err), err)
-			return fmt.Errorf("failed to get certificate: %w", err)
+			return s.Fail("failed to get certificate", err)
 		}
 
-		cert, err := certService.GetCertificate(ctx, certID, model.NewVaultScope(vaultID, claims.UserID))
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate", "failed", fmt.Sprintf("failed to get certificate: %s", err), err)
-			return fmt.Errorf("failed to get certificate: %w", err)
-		}
-
-		log.LogAuditInfo(claims.UserID.String(), "get_certificate", "success", fmt.Sprintf("certificate retrieved: %s", cert.Name))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"ID", "Name", "Tags", "Expires", "AutoRenew", "Created"}
-		row := []string{
-			cert.ID.String(),
-			cert.Name,
-			strings.Join(cert.Tags, ","),
-			formatOptionalTime(cert.ExpiresAt),
-			strconv.FormatBool(cert.AutoRenew),
-			cert.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("certificate retrieved: %s", cert.Name))
+		return vaultcli.Print(s, certColumns, *cert)
 	},
 }
 
 // InitCertificatesGet initializes the get command for certificates.
-func InitCertificatesGet(certificatesCmd *cobra.Command) *cobra.Command {
+func InitCertificatesGet(certificatesCmd *cobra.Command) {
 	certificatesCmd.AddCommand(getCmd)
-	return certificatesCmd
 }
