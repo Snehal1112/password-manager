@@ -3739,7 +3739,7 @@ system user row already present.
 
 **Status**: Open (deferred 2026-09-06)
 **Severity**: Low — performance only, no correctness or authorization defect
-**Files**: `api/soft_delete.go` (lines 270-310),
+**Files**: `api/soft_delete.go` (lines 326-366),
 `internal/repositories/key_repository.go`, `internal/services/keys/key_service.go`
 
 `api/soft_delete.go`'s `getDeletedKey` calls `KeyService.ListDeletedKeys` for

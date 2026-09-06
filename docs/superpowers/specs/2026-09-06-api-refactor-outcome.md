@@ -52,7 +52,7 @@ the same logic written out N times:
 
 | Logic | Before | After |
 |---|---|---|
-| JSON response writing | 78 sites | 1 helper pair (`writeJSON` / `writeJSONStatus`) |
+| JSON response writing | 76 sites | 1 helper pair (`writeJSON` / `writeJSONStatus`) |
 | Request parsing | 79 sites | 3 helpers (`decodeBody`, `resourceID`, `b64Field`) |
 | Service accessors | 6 copies + 57 call sites | 1 generic (`svc[T]`) |
 | The ten-step crypto order | 6 copies | 1 spine (`cryptoOp`) |
@@ -62,7 +62,7 @@ Raw idiom counts, baseline to now:
 
 | idiom | baseline | now |
 |---|---|---|
-| `json.NewEncoder(w).Encode` | 78 | 3 |
+| `json.NewEncoder(w).Encode` | 76 | 3 |
 | `json.NewDecoder(r.Body).Decode` | 20 | 6 |
 | `uuid.Parse(c.Params...)` | 51 | **0** |
 | `map[string]any{` response bodies | 21 | 11 |
