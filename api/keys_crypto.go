@@ -57,11 +57,13 @@ type cryptoOp[Req any, In any, Res any] struct {
 	AlgorithmField func(*Req) *string
 
 	// Required returns an empty string when the request carries everything the
-	// operation needs, and otherwise the exact message for the 400.
+	// operation needs, and otherwise the exact message for the 400. Nil means
+	// the operation has no required fields.
 	Required func(Req) string
 
 	// Decode turns the request's base64 fields into binary. It sets c.Err and
-	// returns false on a malformed field.
+	// returns false on a malformed field. Nil means the operation takes no
+	// binary input, and In is left as its zero value.
 	Decode func(c *Context, req Req) (In, bool)
 
 	// Invoke performs the operation and builds the response body. Its error is
@@ -88,9 +90,12 @@ func (op cryptoOp[Req, In, Res]) handler() func(*Context, http.ResponseWriter, *
 			return
 		}
 
-		if msg := op.Required(req); msg != "" {
-			c.SetInvalidParam(msg)
-			return
+		// A nil Required means the operation has no required fields.
+		if op.Required != nil {
+			if msg := op.Required(req); msg != "" {
+				c.SetInvalidParam(msg)
+				return
+			}
 		}
 
 		if op.AlgorithmField != nil {
@@ -99,9 +104,14 @@ func (op cryptoOp[Req, In, Res]) handler() func(*Context, http.ResponseWriter, *
 			}
 		}
 
-		in, ok := op.Decode(c, req)
-		if !ok {
-			return
+		// A nil Decode means the operation takes no binary input, so In stays
+		// its zero value.
+		var in In
+		if op.Decode != nil {
+			in, ok = op.Decode(c, req)
+			if !ok {
+				return
+			}
 		}
 
 		cs, ok := svc(c, container.ServiceContainerInterface.GetCryptoService)
