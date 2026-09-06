@@ -4,10 +4,17 @@ A single-file, offline HTML page that walks a QA engineer through every
 RocketVault vault, user and access journey — 23 journeys, 245 checks — and
 records a pass or fail against each one.
 
+Most checks carry more than a command and an expected line: why the system
+behaves that way, how to settle a result the expected line leaves ambiguous,
+what the check leaves behind, and which other checks it depends on or
+contradicts. A tester whose run does not match has something to reason with
+rather than only a mismatch.
+
 Built from [`docs/VAULT_USER_ACCESS_JOURNEYS_v3.md`](../docs/VAULT_USER_ACCESS_JOURNEYS_v3.md).
 Every command and every expected line is transcribed from that document, never
 invented. Where a capability has no CLI equivalent, the check says so rather
-than showing a plausible-looking invocation.
+than showing a plausible-looking invocation. Cases the sources do not explain
+carry no explanation — an absent field is honest, an invented one is not.
 
 ## For the QA team
 
@@ -60,7 +67,7 @@ bun run format      # prettier --write
 `bun run build` emits two identical files into `dist/`: `index.html` (so
 `bun run preview` works) and `journeybook.html` (the one you hand to QA).
 Both are fully self-contained — JS, CSS and the JetBrains Mono woff2 subsets
-are inlined, roughly 553 kB, 215 kB gzipped.
+are inlined, roughly 678 kB, 250 kB gzipped.
 
 Two flags in those scripts are load-bearing, and for the same reasons they are
 in `../web`:
@@ -75,6 +82,12 @@ in `../web`:
 The cases are the contract. When the CLI changes, this page is wrong until
 somebody updates it — see [`.claude/authoring-cases.md`](.claude/authoring-cases.md)
 for how the data is structured and what the rules are for editing it.
+
+Every explanation a case carries cites where it came from — a section of the
+journeys document, or a `file.go:line`. That is not decoration: `bun run
+check:links` fails the build on a claim with no citation, or on a
+cross-reference pointing at a case id that does not exist. If you cannot cite
+it, delete it.
 
 If a check and the code disagree, read the code, then fix whichever one is
 wrong. A check that has quietly drifted is worse than no check.

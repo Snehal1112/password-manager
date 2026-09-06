@@ -106,6 +106,17 @@ without its reason.
 
 ## Things that will bite
 
+- **A `why`, `verify` or `after` with no `source` fails `bun run check:links`.**
+  That is deliberate, not a lint annoyance: a claim a reader cannot trace is
+  the one failure mode this page cannot survive. If you cannot cite it, delete
+  it — an absent field is honest. Note that a claim can be *true* and still
+  fail the spirit of this: cite where the fact actually lives, not the nearest
+  plausible section.
+- **Enrichment is applied by `scripts/apply-enrichment.mjs`, not by hand.** It
+  locates the case object structurally and refuses to apply a field twice.
+  Hand-editing 245 cases is how transcription errors get back in. The refusal
+  is a feature — during the backfill it caught three separate collisions that
+  would otherwise have silently overwritten or duplicated a field.
 - `bunx shadcn add` needs network access to `ui.shadcn.com`. When that is
   unavailable, copy the component from `../web/src/components/ui/`, which
   vendors the full registry at the same `base-luma`/`mist` settings.
