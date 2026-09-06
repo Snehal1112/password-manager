@@ -10,10 +10,15 @@
  *   bun scripts/apply-enrichment.mjs out/a-f.json out/g-m.json ...
  *   bun scripts/apply-enrichment.mjs --dry-run out/a-f.json
  *
- * The insertion is brace-matched rather than regex-replaced: it finds the case
- * object containing `id: "<ID>"`, walks to its matching close brace while
- * skipping strings and comments, and inserts before it. Anything ambiguous is
- * a hard failure -- a partially applied data file is worse than none.
+ * Case objects are located structurally, not by searching for `id: "<ID>"` as
+ * raw text: enrichment adds `related: [{ id: "K3", rel: "diverges" }]` arrays,
+ * so that text can legitimately appear twice in a file -- once as some other
+ * case's cross-reference, once as K3's own id. This walks each `cases: [...]`
+ * array and records only each element's own top-level id, skipping strings,
+ * templates and comments throughout, so a related item's nested id never
+ * enters the map and an id-shaped string inside a command or expected value
+ * never confuses the walk. Anything ambiguous is a hard failure -- a
+ * partially applied data file is worse than none.
  *
  * Two or more input files may cover the same case id, as long as they supply
  * different fields for it -- a later code-answering pass fills in `after` for
@@ -174,57 +179,174 @@ function lit(s) {
 }
 
 /**
+ * If position `i` in `src` starts a line comment, a block comment or a
+ * string/template literal, returns the index just past it. Otherwise -1.
+ * Every walker below shares this so a brace, colon or the word "cases"
+ * inside a command or expected-output value is never mistaken for
+ * structure.
+ */
+function skipNonStructural(src, i) {
+  const c = src[i]
+  if (c === "/" && src[i + 1] === "/") {
+    const nl = src.indexOf("\n", i)
+    return nl === -1 ? src.length : nl
+  }
+  if (c === "/" && src[i + 1] === "*") {
+    const end = src.indexOf("*/", i + 2)
+    return end === -1 ? src.length : end + 2
+  }
+  if (c === '"' || c === "'" || c === "`") {
+    const quote = c
+    let j = i + 1
+    while (j < src.length && src[j] !== quote) {
+      if (src[j] === "\\") j++
+      j++
+    }
+    return j + 1
+  }
+  return -1
+}
+
+/**
  * Walks the object literal starting at `open` (its opening brace), skipping
  * string literals, template literals and comments so a brace or a bare word
  * inside an expected-output line cannot be mistaken for structure. Returns
- * the index of the object's matching close brace, and the set of its own
+ * the index of the object's matching close brace, the set of its own
  * top-level property names -- properties of any object nested inside it
- * (`verify: { ... }`, `related: [{ ... }]`) are not included.
+ * (`verify: { ... }`, `related: [{ ... }]`) are not included -- and, when
+ * present, the string value of its own top-level `id` property.
  *
- * Both matchBrace's old job and the double-application guard's job need this
- * exact walk, so there is one walker rather than a brace-matcher plus a
- * separate regex that does not know where the strings are.
+ * The double-application guard's job and the case-locator's job both need
+ * this exact walk, so there is one walker rather than a brace-matcher plus a
+ * separate pass that does not know where the strings are.
  */
 function scanObject(src, open) {
   let depth = 0
   const topKeys = new Set()
-  for (let i = open; i < src.length; i++) {
+  const values = {}
+  for (let i = open; i < src.length; ) {
+    const skip = skipNonStructural(src, i)
+    if (skip !== -1) {
+      i = skip
+      continue
+    }
     const c = src[i]
-    if (c === "/" && src[i + 1] === "/") {
-      i = src.indexOf("\n", i)
-      if (i === -1) return { close: -1, topKeys }
-      continue
-    }
-    if (c === "/" && src[i + 1] === "*") {
-      i = src.indexOf("*/", i + 2)
-      if (i === -1) return { close: -1, topKeys }
-      i++
-      continue
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      const quote = c
-      i++
-      while (i < src.length && src[i] !== quote) {
-        if (src[i] === "\\") i++
-        i++
-      }
-      continue
-    }
     if (depth === 1 && /[A-Za-z_$]/.test(c)) {
       const ident = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(src.slice(i))[0]
       let j = i + ident.length
       while (src[j] === " " || src[j] === "\t") j++
-      if (src[j] === ":") topKeys.add(ident)
-      i = j - 1
+      if (src[j] === ":") {
+        topKeys.add(ident)
+        if (ident === "id") {
+          let k = j + 1
+          while (src[k] === " " || src[k] === "\t") k++
+          if (src[k] === '"' || src[k] === "'" || src[k] === "`") {
+            const quote = src[k]
+            let m = k + 1
+            let value = ""
+            while (m < src.length && src[m] !== quote) {
+              if (src[m] === "\\") {
+                value += src[m + 1]
+                m += 2
+                continue
+              }
+              value += src[m]
+              m++
+            }
+            values.id = value
+          }
+        }
+      }
+      i = j
       continue
     }
-    if (c === "{") depth++
-    else if (c === "}") {
+    if (c === "{") {
+      depth++
+      i++
+      continue
+    }
+    if (c === "}") {
       depth--
-      if (depth === 0) return { close: i, topKeys }
+      if (depth === 0) return { close: i, topKeys, values }
+      i++
+      continue
+    }
+    i++
+  }
+  return { close: -1, topKeys, values }
+}
+
+/**
+ * Finds every `cases: [...]` array in the file and returns the offset just
+ * past its opening `[`. Skips a match found inside a string, template or
+ * comment via the same shared walk, so an expected-output value that happens
+ * to contain the text "cases: [" cannot be mistaken for a real array.
+ */
+function findCasesArrayStarts(src) {
+  const starts = []
+  for (let i = 0; i < src.length; ) {
+    const skip = skipNonStructural(src, i)
+    if (skip !== -1) {
+      i = skip
+      continue
+    }
+    const prev = src[i - 1]
+    if (src.startsWith("cases", i) && !/[A-Za-z0-9_$]/.test(prev ?? "")) {
+      const m = /^cases\s*:\s*\[/.exec(src.slice(i))
+      if (m) {
+        starts.push(i + m[0].length)
+        i += m[0].length
+        continue
+      }
+    }
+    i++
+  }
+  return starts
+}
+
+/**
+ * Maps each case id in `src` to its own object's brace span, by walking only
+ * the direct elements of every `cases: [...]` array. An id nested inside a
+ * `related: [...]` entry lives at depth 2 relative to its enclosing case
+ * object and is never a direct array element, so it can never enter this
+ * map -- the ambiguity that made raw `id: "<ID>"` text search unsafe once
+ * `related` existed cannot occur here. Two distinct case objects genuinely
+ * declaring the same id is still a real authoring error and fails loudly.
+ */
+function collectCaseSpans(src, fileName) {
+  const spans = new Map()
+  for (const arrayStart of findCasesArrayStarts(src)) {
+    let i = arrayStart
+    while (i < src.length) {
+      const skip = skipNonStructural(src, i)
+      if (skip !== -1) {
+        i = skip
+        continue
+      }
+      const c = src[i]
+      if (c === " " || c === "\t" || c === "\n" || c === "\r" || c === ",") {
+        i++
+        continue
+      }
+      if (c === "]") break
+      if (c !== "{") {
+        i++
+        continue
+      }
+      const { close, topKeys, values } = scanObject(src, i)
+      if (close === -1) {
+        fail(`malformed case object in ${fileName} (unbalanced braces at offset ${i}).`)
+      }
+      if (values.id !== undefined) {
+        if (spans.has(values.id)) {
+          fail(`${values.id} appears in two case objects in ${fileName}.`)
+        }
+        spans.set(values.id, { open: i, close, topKeys })
+      }
+      i = close + 1
     }
   }
-  return { close: -1, topKeys }
+  return spans
 }
 
 /** Render the enrichment for one case as TypeScript object properties. */
@@ -266,27 +388,20 @@ for (const name of DATA_FILES) {
   let src = readFileSync(path, "utf8")
   let touched = 0
 
+  const caseSpans = collectCaseSpans(src, name)
+
   // Apply from the end of the file backwards, so every insertion offset
   // computed before it stays valid.
   const targets = []
   for (const [id, merged] of enrichment) {
-    const needle = `id: ${JSON.stringify(id)},`
-    const at = src.indexOf(needle)
-    if (at === -1) continue
-    if (src.indexOf(needle, at + 1) !== -1) {
-      fail(`${id} matches ${needle} more than once in ${name}.`)
-    }
-    targets.push({ id, merged, at })
+    const span = caseSpans.get(id)
+    if (!span) continue
+    targets.push({ id, merged, span })
     found.add(id)
   }
-  targets.sort((a, b) => b.at - a.at)
+  targets.sort((a, b) => b.span.open - a.span.open)
 
-  for (const { id, merged, at } of targets) {
-    const open = src.lastIndexOf("{", at)
-    if (open === -1) fail(`${id}: no opening brace before its id.`)
-    const { close, topKeys } = scanObject(src, open)
-    if (close === -1) fail(`${id}: unbalanced braces from its object.`)
-
+  for (const { id, merged, span } of targets) {
     const props = properties(merged.fields)
     if (props.length === 0) continue
 
@@ -297,12 +412,12 @@ for (const name of DATA_FILES) {
     // contain a line that looks like "source:" without being one.
     for (const p of props) {
       const key = p.slice(0, p.indexOf(":"))
-      if (topKeys.has(key)) {
+      if (span.topKeys.has(key)) {
         fail(`${id} already has a "${key}" property. Refusing to apply twice.`)
       }
     }
 
-    src = src.slice(0, close) + props.join("\n") + "\n" + src.slice(close)
+    src = src.slice(0, span.close) + props.join("\n") + "\n" + src.slice(span.close)
     applied.add(id)
     touched++
   }
