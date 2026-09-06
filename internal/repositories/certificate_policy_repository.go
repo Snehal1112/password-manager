@@ -73,6 +73,25 @@ func (r *CertificatePolicyRepository) Upsert(ctx context.Context, p *model.Certi
 	return err
 }
 
+// parseCertificatePolicyIDs fills p's three UUID fields from their string
+// column values. Errors are returned rather than discarded: a malformed
+// column would otherwise yield uuid.Nil, and p.UserID feeds ownership checks
+// where a nil value is not an obviously-invalid sentinel. Mirrors
+// parseRoleAssignmentIDs in role_assignment_repository.go.
+func parseCertificatePolicyIDs(p *model.CertificatePolicy, idStr, cidStr, uidStr string) error {
+	var err error
+	if p.ID, err = uuid.Parse(idStr); err != nil {
+		return fmt.Errorf("invalid certificate policy id: %w", err)
+	}
+	if p.CertificateID, err = uuid.Parse(cidStr); err != nil {
+		return fmt.Errorf("invalid certificate id: %w", err)
+	}
+	if p.UserID, err = uuid.Parse(uidStr); err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	return nil
+}
+
 // GetByCertificateID retrieves the policy scoped to a certificate and its owner.
 func (r *CertificatePolicyRepository) GetByCertificateID(ctx context.Context, certID, userID uuid.UUID) (*model.CertificatePolicy, error) {
 	row := r.db.QueryRowContext(ctx, `
@@ -90,9 +109,9 @@ func (r *CertificatePolicyRepository) GetByCertificateID(ctx context.Context, ce
 		&p.IssuerName, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
-	p.ID, _ = uuid.Parse(idStr)
-	p.CertificateID, _ = uuid.Parse(cidStr)
-	p.UserID, _ = uuid.Parse(uidStr)
+	if err := parseCertificatePolicyIDs(&p, idStr, cidStr, uidStr); err != nil {
+		return nil, err
+	}
 	return &p, nil
 }
 
@@ -188,9 +207,9 @@ func (r *CertificatePolicyRepository) GetByCertificateIDAny(ctx context.Context,
 		&p.IssuerName, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
-	p.ID, _ = uuid.Parse(idStr)
-	p.CertificateID, _ = uuid.Parse(cidStr)
-	p.UserID, _ = uuid.Parse(uidStr)
+	if err := parseCertificatePolicyIDs(&p, idStr, cidStr, uidStr); err != nil {
+		return nil, err
+	}
 	return &p, nil
 }
 
