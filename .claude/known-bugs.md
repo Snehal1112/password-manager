@@ -3807,6 +3807,79 @@ work, since both need the same new repository method.
 
 ---
 
+### B61 — `vault-webhook delete` reports "deleted" even when nothing was configured
+
+**Status**: Open, found 2026-09-06
+**Severity**: Cosmetic — `Delete` is correctly idempotent (returns success,
+no error) when a vault has no webhook configured, matching its documented
+contract. The defect is purely in the message text, not the behavior.
+**Files**: `cmd/vault-webhook/delete.go`
+
+**Symptom**: reproduced live against a scratch instance —
+`rocketvault vault-webhook delete --vault webhook-happy`, run a second time
+immediately after a first successful delete (config already gone), still
+prints:
+```
+webhook configuration deleted for vault "webhook-happy"
+```
+An operator re-running the command, or scripting it defensively, has no way
+to tell from the output whether it actually removed a config or found
+nothing to remove.
+
+**Fix recipe**: have `VaultWebhookService.Delete` report whether a row
+existed (e.g. return a `bool` alongside the error, or a typed
+`ErrWebhookNotFound`-vs-nil distinction the CLI already imports for `get`),
+and have `delete.go` print a different message for the no-op case, e.g. "no
+webhook was configured for vault %q" vs. today's single message for both
+cases. Mirrors the `get` command's existing `errors.Is(err,
+vaultServices.ErrWebhookNotFound)` handling — `delete.go` doesn't do the
+equivalent check today because `Delete` doesn't surface the distinction.
+
+**Found**: manual CLI test pass of `vault-webhook set/get/delete`, step 14 of
+the happy-path scenario (idempotent double-delete check).
+
+---
+
+### B62 — `vault-webhook get`/`set`/`delete` against an unknown vault name double-wraps the "not found" error
+
+**Status**: Open, found 2026-09-06
+**Severity**: Cosmetic — the caller still gets a clear, non-crashing error;
+the defect is redundant wording, not a wrong or misleading outcome.
+**Files**: `internal/services/vaults/vault_service.go:517` (`getByName`),
+`cmd/vaultcli/vault.go:31` (`ResolveVaultID`) — two layers each add their own
+"vault %q ... not found" wording around the same error.
+
+**Symptom**: reproduced live —
+`rocketvault vault-webhook get --vault does-not-exist-xyz`:
+```
+Error: vault "does-not-exist-xyz" not found: vault "does-not-exist-xyz": vault not found
+```
+The vault name and "not found" both appear twice, once from each wrapping
+layer.
+
+**Root cause**: `vaultService.getByName` already produces a fully-formed,
+name-bearing message — `fmt.Errorf("vault %q: %w", name, ErrVaultNotFound)`,
+i.e. `vault "X": vault not found`
+(`internal/services/vaults/vault_service.go:517`). `cmd/vaultcli.ResolveVaultID`
+then wraps that error a second time with its own name-bearing prefix —
+`fmt.Errorf("vault %q not found: %w", name, err)`
+(`cmd/vaultcli/vault.go:31`) — without knowing the inner error already said
+the same thing. This is shared plumbing every vault-scoped CLI command goes
+through, not something specific to `vault-webhook`, which just happened to
+be the command under test when this was noticed.
+
+**Fix recipe**: pick one layer to own the message. Either have
+`ResolveVaultID` wrap with a generic, name-free prefix (e.g. `"resolve
+vault: %w"`, since the inner error already names the vault), or have it
+special-case `errors.Is(err, vaultServices.ErrVaultNotFound)` and pass the
+inner error through unwrapped. Since this is shared plumbing
+(`vaultcli.ResolveVaultID`), the fix is one place, not three.
+
+**Found**: manual CLI test pass of `vault-webhook set/get/delete`, step 15
+of the happy-path scenario (`get` against a nonexistent vault name).
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
