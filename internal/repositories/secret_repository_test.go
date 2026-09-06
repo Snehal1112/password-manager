@@ -41,6 +41,16 @@ func setupSecretTestDB(t *testing.T) *sql.DB {
 		not_before       TIMESTAMP NULL
 	)`)
 	require.NoError(t, err)
+	// secret_tags backs deleteItemWithTags/purgeItem's tag cleanup. It
+	// declares ON DELETE CASCADE exactly as production does, and, exactly as
+	// in production, that cascade never fires -- see item_lifecycle.go.
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS secret_tags (
+		secret_id TEXT NOT NULL,
+		tag       TEXT NOT NULL,
+		PRIMARY KEY (secret_id, tag),
+		FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE
+	)`)
+	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() }) //nolint:errcheck,gosec
 	return db
 }

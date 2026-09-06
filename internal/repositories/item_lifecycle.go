@@ -27,11 +27,18 @@ import (
 //   - notFoundIsSentinel is true only for secret: SetPurgeProtection's
 //     not-found error wraps the shared ErrNotFound sentinel, while key's and
 //     certificate's return a plain, unwrapped error.
+//   - tagTable/tagFK identify the item's tag join table. Each declares
+//     ON DELETE CASCADE, but SQLite runs with the foreign_keys pragma off
+//     project-wide, so the cascade never fires and the rows must be deleted
+//     explicitly -- the same reason RoleAssignmentRepository.DeleteByVault and
+//     AccessPolicyRepository.DeleteByVault exist.
 type itemLifecycleConfig struct {
 	table              string // SQL table name, plural: "secrets" / "keys" / "certificates"
 	item               string // singular label: "secret" / "key" / "certificate"
 	itemCap            string // capitalized singular label: "Secret" / "Key" / "Certificate"
 	idField            string // logrus field key for id-scoped debug logs: "secret_id" / "key_id" / "cert_id"
+	tagTable           string // join table holding this item's tags: "secret_tags" / "key_tags" / "certificate_tags"
+	tagFK              string // the tag table's column referencing the item: "secret_id" / "key_id" / "certificate_id"
 	auditActor         string
 	purgeErr           error
 	notFoundIsSentinel bool
@@ -135,6 +142,16 @@ func purgeItem(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, id uuid
 			return cfg.purgeErr
 		}
 
+		// Tag rows first, then the item, both against ex. The tag table
+		// declares ON DELETE CASCADE, but SQLite runs with the foreign_keys
+		// pragma off project-wide, so that cascade never fires -- without this
+		// the tags outlive the item as unreachable rows nothing ever sweeps.
+		if _, tagErr := ex.ExecContext(ctx,
+			"DELETE FROM "+cfg.tagTable+" WHERE "+cfg.tagFK+" = ?", id.String()); tagErr != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to purge "+cfg.item+" tags", tagErr)
+			return fmt.Errorf("failed to purge %s tags: %w", cfg.item, tagErr)
+		}
+
 		result, err := ex.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE id = ?", id.String())
 		if err != nil {
 			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to purge "+cfg.item, err)
@@ -232,6 +249,15 @@ func purgeVaultContents(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig
 	op := "purge_vault_" + cfg.table
 	return cfg.wrap(op, func() error {
 		logrus.WithField("vault_id", vaultID.String()).Debug("Purging all " + cfg.table + " in vault")
+
+		// Same cascade caveat as purgeItem: delete the vault's tag rows via a
+		// subquery over the items about to be removed, before removing them.
+		if _, tagErr := ex.ExecContext(ctx,
+			"DELETE FROM "+cfg.tagTable+" WHERE "+cfg.tagFK+
+				" IN (SELECT id FROM "+cfg.table+" WHERE vault_id = ?)", vaultID.String()); tagErr != nil {
+			cfg.log.LogAuditError(vaultID.String(), op, "failed", "Failed to purge vault "+cfg.tagTable, tagErr)
+			return fmt.Errorf("failed to purge vault %s: %w", cfg.tagTable, tagErr)
+		}
 
 		_, err := ex.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE vault_id = ?", vaultID.String())
 		if err != nil {

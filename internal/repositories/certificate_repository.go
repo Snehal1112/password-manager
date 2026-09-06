@@ -325,6 +325,8 @@ func (r *CertificateRepository) crud() itemLifecycleConfig {
 		item:               "certificate",
 		itemCap:            "Certificate",
 		idField:            "cert_id",
+		tagTable:           "certificate_tags",
+		tagFK:              "certificate_id",
 		auditActor:         uuid.Nil.String(),
 		purgeErr:           ErrCertPurgeProtected,
 		notFoundIsSentinel: false,

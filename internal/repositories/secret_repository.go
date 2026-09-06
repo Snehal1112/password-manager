@@ -113,6 +113,8 @@ func (r *SecretRepository) crud() itemLifecycleConfig {
 		item:               "secret",
 		itemCap:            "Secret",
 		idField:            "secret_id",
+		tagTable:           "secret_tags",
+		tagFK:              "secret_id",
 		auditActor:         "",
 		purgeErr:           ErrSecretPurgeProtected,
 		notFoundIsSentinel: true,

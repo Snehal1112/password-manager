@@ -268,6 +268,8 @@ func (r *KeyRepository) crud() itemLifecycleConfig {
 		item:               "key",
 		itemCap:            "Key",
 		idField:            "key_id",
+		tagTable:           "key_tags",
+		tagFK:              "key_id",
 		auditActor:         uuid.Nil.String(),
 		purgeErr:           ErrKeyPurgeProtected,
 		notFoundIsSentinel: false,

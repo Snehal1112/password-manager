@@ -1,0 +1,130 @@
+// internal/repositories/tag_orphan_test.go
+package repositories_test
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/stretchr/testify/require"
+
+	rvdb "rocketvault/internal/db"
+	"rocketvault/internal/logging"
+	"rocketvault/internal/repositories"
+	"rocketvault/model"
+)
+
+// setupTagOrphanTestDB creates an in-memory SQLite database with the keys and
+// key_tags tables. The FOREIGN KEY ... ON DELETE CASCADE is declared exactly as
+// production declares it -- and, exactly as in production, SQLite leaves the
+// foreign_keys pragma off, so it never fires. That is the whole point of the
+// test: the cascade looks like it handles this and does not.
+//
+// Named distinctly from the package-scope setupTestDB, setupRotationTestDB,
+// setupSessionTestDB, setupCertListAllTestDB, setupRoleAssignmentTestDB and
+// setupCertLifecycleTestDB helpers that already exist in this test package.
+func setupTagOrphanTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+
+	dsn := "file:tagorphan_" + uuid.NewString() + "?mode=memory&cache=shared"
+	raw, err := sql.Open("sqlite3", dsn)
+	require.NoError(t, err, "open in-memory database")
+	t.Cleanup(func() { _ = raw.Close() })
+
+	_, err = raw.Exec(`
+		CREATE TABLE keys (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			vault_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			value TEXT NOT NULL,
+			type TEXT NOT NULL,
+			revoked BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			expires_at TIMESTAMP,
+			not_before TIMESTAMP,
+			bits INTEGER NOT NULL DEFAULT 0,
+			curve TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMP,
+			deleted_at TIMESTAMP,
+			scheduled_purge_at TIMESTAMP,
+			purge_protection BOOLEAN NOT NULL DEFAULT FALSE
+		);
+		CREATE TABLE key_tags (
+			key_id TEXT NOT NULL,
+			tag TEXT NOT NULL,
+			PRIMARY KEY (key_id, tag),
+			FOREIGN KEY (key_id) REFERENCES keys(id) ON DELETE CASCADE
+		);
+	`)
+	require.NoError(t, err, "create keys schema")
+
+	return raw
+}
+
+func countKeyTags(t *testing.T, raw *sql.DB, keyID uuid.UUID) int {
+	t.Helper()
+	var n int
+	require.NoError(t, raw.QueryRow(
+		"SELECT COUNT(*) FROM key_tags WHERE key_id = ?", keyID.String()).Scan(&n))
+	return n
+}
+
+// TestPurgeKeyRemovesItsTags pins the F5 fix. key_tags declares ON DELETE
+// CASCADE, but SQLite runs with the foreign_keys pragma off project-wide, so
+// the cascade never fires and purging a key strands every tag row it owned --
+// unreachable through any route and never swept.
+func TestPurgeKeyRemovesItsTags(t *testing.T) {
+	raw := setupTagOrphanTestDB(t)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(raw, rvdb.SQLite), logging.InitLogger())
+
+	ctx := context.Background()
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		VaultID:   uuid.New(),
+		Name:      "signing-key",
+		Value:     "ENCRYPTED",
+		Type:      "RSA",
+		CreatedAt: time.Now(),
+		Enabled:   true,
+		Tags:      []string{"prod", "signing"},
+	}
+	require.NoError(t, repo.Create(ctx, key))
+	require.Equal(t, 2, countKeyTags(t, raw, key.ID), "tags were stored")
+
+	require.NoError(t, repo.SoftDelete(ctx, key.ID))
+	require.NoError(t, repo.PurgeKey(ctx, key.ID))
+
+	require.Equal(t, 0, countKeyTags(t, raw, key.ID),
+		"purging a key must remove its tag rows; SQLite's declared cascade does not fire")
+}
+
+// TestDeleteKeyRemovesItsTags confirms the hard-delete path, which key and
+// certificate already handled explicitly and secret did not.
+func TestDeleteKeyRemovesItsTags(t *testing.T) {
+	raw := setupTagOrphanTestDB(t)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(raw, rvdb.SQLite), logging.InitLogger())
+
+	ctx := context.Background()
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		VaultID:   uuid.New(),
+		Name:      "throwaway",
+		Value:     "ENCRYPTED",
+		Type:      "RSA",
+		CreatedAt: time.Now(),
+		Enabled:   true,
+		Tags:      []string{"temp"},
+	}
+	require.NoError(t, repo.Create(ctx, key))
+	require.Equal(t, 1, countKeyTags(t, raw, key.ID))
+
+	require.NoError(t, repo.Delete(ctx, key.ID))
+	require.Equal(t, 0, countKeyTags(t, raw, key.ID))
+}
