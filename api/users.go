@@ -196,9 +196,8 @@ func listUsers(c *Context, w http.ResponseWriter, r *http.Request) {
 // getUser handles the HTTP request to retrieve a user by its ID.
 // Users can get their own profile; admins can get any user profile.
 func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, err := uuid.Parse(c.Params.UserID)
-	if err != nil {
-		c.SetInvalidParam("user_id")
+	userID, ok := resourceID(c, c.Params.UserID, "user_id")
+	if !ok {
 		return
 	}
 
@@ -238,9 +237,8 @@ func getUser(c *Context, w http.ResponseWriter, r *http.Request) {
 // updateUser handles the HTTP request to update a user by its ID.
 // Users can update their own profile; admins can update any user.
 func updateUser(c *Context, w http.ResponseWriter, r *http.Request) {
-	userID, err := uuid.Parse(c.Params.UserID)
-	if err != nil {
-		c.SetInvalidParam("user_id")
+	userID, ok := resourceID(c, c.Params.UserID, "user_id")
+	if !ok {
 		return
 	}
 
@@ -356,9 +354,8 @@ func deleteUser(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, err := uuid.Parse(c.Params.UserID)
-	if err != nil {
-		c.SetInvalidParam("user_id")
+	userID, ok := resourceID(c, c.Params.UserID, "user_id")
+	if !ok {
 		return
 	}
 

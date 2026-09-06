@@ -5,8 +5,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/google/uuid"
-
 	keyServices "rocketvault/internal/services/keys"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
@@ -14,9 +12,8 @@ import (
 
 // getKeyRotationPolicy returns the rotation policy for a key.
 func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -45,9 +42,8 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // upsertKeyRotationPolicy creates or replaces the rotation policy for a key.
 func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -90,9 +86,8 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 
 // deleteKeyRotationPolicy removes the rotation policy for a key.
 func deleteKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 

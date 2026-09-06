@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"rocketvault/common"
 	"rocketvault/internal/middleware"
 	auditSvc "rocketvault/internal/services/audit"
@@ -257,9 +255,8 @@ func getServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		c.SetInvalidParam("service_account_id")
+	id, ok := resourceID(c, c.Params.ServiceAccountID, "service_account_id")
+	if !ok {
 		return
 	}
 
@@ -281,9 +278,8 @@ func deleteServiceAccount(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		c.SetInvalidParam("service_account_id")
+	id, ok := resourceID(c, c.Params.ServiceAccountID, "service_account_id")
+	if !ok {
 		return
 	}
 
@@ -308,9 +304,8 @@ func rotateServiceAccountSecret(c *Context, w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	id, err := uuid.Parse(c.Params.ServiceAccountID)
-	if err != nil {
-		c.SetInvalidParam("service_account_id")
+	id, ok := resourceID(c, c.Params.ServiceAccountID, "service_account_id")
+	if !ok {
 		return
 	}
 

@@ -81,9 +81,8 @@ func (api *API) registerSecretRoutes(s *mux.Router, scope string) {
 
 // listSecretVersionsHandler lists all versions of a secret.
 func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -113,9 +112,8 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 
 // getSecretVersionHandler retrieves a specific version of a secret.
 func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 	versionNum := c.Params.Version
@@ -140,9 +138,8 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 
 // getLatestSecretVersionHandler retrieves the latest version of a secret.
 func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -452,9 +449,8 @@ func listSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 // getSecret handles the HTTP request to retrieve a secret by its ID.
 // Returns the secret with its decrypted value.
 func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -498,9 +494,8 @@ func getSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 // updateSecret handles the HTTP request to update a secret by its ID.
 // Increments the version on change.
 func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -631,9 +626,8 @@ func updateSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteSecret handles the HTTP request to delete a secret by its ID.
 func deleteSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 

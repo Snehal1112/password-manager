@@ -57,9 +57,8 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // recoverSecret restores a soft-deleted secret by ID.
 func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -83,9 +82,8 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeSecret permanently deletes a soft-deleted secret by ID.
 func purgeSecret(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -173,9 +171,8 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -207,9 +204,8 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // recoverKey restores a soft-deleted key by ID.
 func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -233,9 +229,8 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeKey permanently deletes a soft-deleted key by ID.
 func purgeKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -303,9 +298,8 @@ func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request)
 
 // recoverCertificate restores a soft-deleted certificate by ID.
 func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -329,9 +323,8 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // purgeCertificate permanently deletes a soft-deleted certificate by ID.
 func purgeCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 

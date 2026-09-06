@@ -23,7 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -214,11 +213,10 @@ func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body struct {
+	body, ok := decodeBody[struct {
 		RetentionDays int `json:"retention_days"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		c.SetInvalidParam("request body")
+	}](c, r)
+	if !ok {
 		return
 	}
 	if body.RetentionDays <= 0 {

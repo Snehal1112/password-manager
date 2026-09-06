@@ -5,17 +5,14 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/google/uuid"
-
 	certServices "rocketvault/internal/services/certificates"
 	"rocketvault/model"
 )
 
 // getCertificatePolicy returns the policy for a certificate.
 func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -44,9 +41,8 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // upsertCertificatePolicy creates or replaces the policy for a certificate.
 func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -81,9 +77,8 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 
 // deleteCertificatePolicy removes the policy for a certificate.
 func deleteCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 

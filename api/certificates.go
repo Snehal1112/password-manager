@@ -23,7 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -137,9 +136,8 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 	// the Microsoft.KeyVault/vaults/certificates/create data action, granted by
 	// Key Vault Certificates Officer or Key Vault Administrator in this vault.
 
-	var req CreateCertificateAPIRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[CreateCertificateAPIRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -271,9 +269,8 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getCertificate retrieves a specific certificate by ID.
 func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
@@ -298,15 +295,13 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // updateCertificate updates an existing certificate's metadata.
 func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 
-	var req UpdateCertificateAPIRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[UpdateCertificateAPIRequest](c, r)
+	if !bodyOK {
 		return
 	}
 
@@ -358,9 +353,8 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteCertificate removes a certificate from the system.
 func deleteCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 

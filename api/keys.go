@@ -333,9 +333,8 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Crypto Officer or Key Vault Administrator in this vault. A second gate on
 	// the caller's global role would contradict that per-vault decision.
 
-	var req CreateKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[CreateKeyRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -459,9 +458,8 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 	// Microsoft.KeyVault/vaults/keys/import/action data action, granted by
 	// Key Vault Crypto Officer or Key Vault Administrator in this vault.
 
-	var req ImportKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[ImportKeyRequest](c, r)
+	if !ok {
 		return
 	}
 	if req.Name == "" || len(req.JWK) == 0 {
@@ -568,9 +566,8 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // getKey retrieves a specific cryptographic key by ID.
 func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -595,15 +592,13 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // updateKey updates a cryptographic key.
 func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
-	var req UpdateKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, ok := decodeBody[UpdateKeyRequest](c, r)
+	if !ok {
 		return
 	}
 
@@ -660,9 +655,8 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // deleteKey deletes a cryptographic key.
 func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -704,9 +698,8 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.
 func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -740,9 +733,8 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // listKeyVersions returns the version history for a key, excluding raw key material.
 func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -776,9 +768,8 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 // getKeyVersion retrieves metadata for one version of the vault key
 // identified by {key_id}. Never returns key material — see model.KeyVersion.
 func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -810,9 +801,8 @@ func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // wrapKey wraps plaintext key material using the vault key identified by {key_id}.
 func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -821,9 +811,8 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req WrapKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[WrapKeyRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.PlaintextKey == "" {
@@ -834,9 +823,8 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		req.Algorithm = "RSA-OAEP"
 	}
 
-	plaintextBytes, err := base64.StdEncoding.DecodeString(req.PlaintextKey)
-	if err != nil {
-		c.SetInvalidParam("plaintext_key: must be valid base64")
+	plaintextBytes, plaintextOK := b64Field(c, req.PlaintextKey, "plaintext_key")
+	if !plaintextOK {
 		return
 	}
 
@@ -868,9 +856,8 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // unwrapKey recovers plaintext key material from wrapped bytes using the vault key identified by {key_id}.
 func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -879,9 +866,8 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req UnwrapKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[UnwrapKeyRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.WrappedKey == "" {
@@ -892,9 +878,8 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		req.Algorithm = "RSA-OAEP"
 	}
 
-	wrappedBytes, err := base64.StdEncoding.DecodeString(req.WrappedKey)
-	if err != nil {
-		c.SetInvalidParam("wrapped_key: must be valid base64")
+	wrappedBytes, wrappedOK := b64Field(c, req.WrappedKey, "wrapped_key")
+	if !wrappedOK {
 		return
 	}
 
@@ -926,9 +911,8 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // signKey signs data using the vault key identified by {key_id}.
 func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -937,9 +921,8 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req SignKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[SignKeyRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.Value == "" {
@@ -950,9 +933,8 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		req.Algorithm = "RS256"
 	}
 
-	data, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
+	data, dataOK := b64Field(c, req.Value, "value")
+	if !dataOK {
 		return
 	}
 
@@ -985,9 +967,8 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // verifyKey verifies a signature using the vault key identified by {key_id}.
 func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -996,9 +977,8 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req VerifyKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[VerifyKeyRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.Value == "" || req.Signature == "" {
@@ -1006,14 +986,12 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
+	data, dataOK := b64Field(c, req.Value, "value")
+	if !dataOK {
 		return
 	}
-	sig, err := base64.StdEncoding.DecodeString(req.Signature)
-	if err != nil {
-		c.SetInvalidParam("signature: must be valid base64")
+	sig, sigOK := b64Field(c, req.Signature, "signature")
+	if !sigOK {
 		return
 	}
 
@@ -1047,9 +1025,8 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // encryptKey encrypts data using the vault key identified by {key_id}.
 func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -1058,9 +1035,8 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req EncryptKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[EncryptKeyRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.Value == "" {
@@ -1071,9 +1047,8 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		req.Algorithm = "RSA-OAEP"
 	}
 
-	plaintext, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
+	plaintext, plaintextOK := b64Field(c, req.Value, "value")
+	if !plaintextOK {
 		return
 	}
 
@@ -1111,9 +1086,8 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // decryptKey decrypts data using the vault key identified by {key_id}.
 func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -1122,9 +1096,8 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req DecryptKeyRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[DecryptKeyRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	if req.Value == "" {
@@ -1132,17 +1105,16 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ciphertext, err := base64.StdEncoding.DecodeString(req.Value)
-	if err != nil {
-		c.SetInvalidParam("value: must be valid base64")
+	ciphertext, ciphertextOK := b64Field(c, req.Value, "value")
+	if !ciphertextOK {
 		return
 	}
 
 	var nonce []byte
 	if req.Nonce != "" {
-		nonce, err = base64.StdEncoding.DecodeString(req.Nonce)
-		if err != nil {
-			c.SetInvalidParam("nonce: must be valid base64")
+		var nonceOK bool
+		nonce, nonceOK = b64Field(c, req.Nonce, "nonce")
+		if !nonceOK {
 			return
 		}
 	}

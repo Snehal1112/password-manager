@@ -176,9 +176,8 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		c.SetPermissionError("admin, vaults/manage, or Key Vault Data Access Administrator required")
 		return
 	}
-	id, err := uuid.Parse(c.Params.AssignmentID)
-	if err != nil {
-		c.SetInvalidParam("assignment_id")
+	id, idOK := resourceID(c, c.Params.AssignmentID, "assignment_id")
+	if !idOK {
 		return
 	}
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()
@@ -219,9 +218,8 @@ func deleteRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	isGlobalAdmin := common.HasAnyRole(roles, string(model.RoleAdmin))
-	id, err := uuid.Parse(c.Params.AssignmentID)
-	if err != nil {
-		c.SetInvalidParam("assignment_id")
+	id, idOK := resourceID(c, c.Params.AssignmentID, "assignment_id")
+	if !idOK {
 		return
 	}
 	svc := c.App.ServiceContainer.GetRoleAssignmentService()

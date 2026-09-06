@@ -77,9 +77,8 @@ type restoreRequest struct {
 
 // backupSecretHandler creates a backup blob for a secret and returns it.
 func backupSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	secretID, err := uuid.Parse(c.Params.SecretID)
-	if err != nil {
-		c.SetInvalidParam("secret_id")
+	secretID, secretOK := resourceID(c, c.Params.SecretID, "secret_id")
+	if !secretOK {
 		return
 	}
 
@@ -150,9 +149,8 @@ func restoreSecretHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // backupKeyHandler creates a backup blob for a key and returns it.
 func backupKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	keyID, err := uuid.Parse(c.Params.KeyID)
-	if err != nil {
-		c.SetInvalidParam("key_id")
+	keyID, keyOK := resourceID(c, c.Params.KeyID, "key_id")
+	if !keyOK {
 		return
 	}
 
@@ -223,9 +221,8 @@ func restoreKeyHandler(c *Context, w http.ResponseWriter, r *http.Request) {
 
 // backupCertificateHandler creates a backup blob for a certificate and returns it.
 func backupCertificateHandler(c *Context, w http.ResponseWriter, r *http.Request) {
-	certID, err := uuid.Parse(c.Params.CertificateID)
-	if err != nil {
-		c.SetInvalidParam("certificate_id")
+	certID, certOK := resourceID(c, c.Params.CertificateID, "certificate_id")
+	if !certOK {
 		return
 	}
 

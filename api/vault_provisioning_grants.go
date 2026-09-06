@@ -25,7 +25,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -72,14 +71,12 @@ func upsertVaultProvisioningGrant(c *Context, w http.ResponseWriter, r *http.Req
 	if !requireGrantAdmin(c) {
 		return
 	}
-	principalID, err := uuid.Parse(c.Params.PrincipalID)
-	if err != nil {
-		c.SetInvalidParam("principal_id")
+	principalID, ok := resourceID(c, c.Params.PrincipalID, "principal_id")
+	if !ok {
 		return
 	}
-	var req IssueGrantRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		c.SetInvalidParam("request body")
+	req, bodyOK := decodeBody[IssueGrantRequest](c, r)
+	if !bodyOK {
 		return
 	}
 	issuerID, err := uuid.Parse(c.Claims.UserID)
@@ -133,9 +130,8 @@ func deleteVaultProvisioningGrant(c *Context, w http.ResponseWriter, r *http.Req
 	if !requireGrantAdmin(c) {
 		return
 	}
-	principalID, err := uuid.Parse(c.Params.PrincipalID)
-	if err != nil {
-		c.SetInvalidParam("principal_id")
+	principalID, ok := resourceID(c, c.Params.PrincipalID, "principal_id")
+	if !ok {
 		return
 	}
 	revokedBy, err := uuid.Parse(c.Claims.UserID)
