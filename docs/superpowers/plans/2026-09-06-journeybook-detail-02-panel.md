@@ -34,7 +34,7 @@
 - Produces: `Terminal` with `label?: string`. When `label` is absent and `copy` is false, no header bar renders at all and the `<pre>` aligns flush with the top of its container — which is what lets a shell block sit in Task 2's gutter layout without printing a second, redundant label beside the `<dt>`.
 - Existing callers in `gate-diagram.tsx`, `reference-panels.tsx` and `case-row.tsx` all pass `label` and are unaffected.
 
-- [ ] **Step 1: Make the prop optional**
+- [x] **Step 1: Make the prop optional**
 
 In `journeybook/src/components/terminal.tsx`, change the props type:
 
@@ -58,7 +58,7 @@ export function Terminal({
 }) {
 ```
 
-- [ ] **Step 2: Render the header bar only when it has something in it**
+- [x] **Step 2: Render the header bar only when it has something in it**
 
 Replace the header `<div>` (currently lines 45-61) with:
 
@@ -88,13 +88,13 @@ An absent `label` leaves an empty `<span>`, and `justify-between` still pushes
 the Copy button to the right edge. That is deliberate: it keeps the button in
 the same place whether or not the bar carries a word.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `cd journeybook && bun run typecheck && bun run lint`
 Expected: both exit 0. `label` becoming optional is a widening, so no caller
 breaks.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -129,7 +129,7 @@ case exists, or what is easy to get wrong" — and it is not the same thing as
 `why`, which is the system's mechanism. Keep both; do not migrate one into the
 other.
 
-- [ ] **Step 1: Add the relation labels and the row helper**
+- [x] **Step 1: Add the relation labels and the row helper**
 
 In `journeybook/src/components/case-row.tsx`, after the existing `flagLabel`
 constant (line 24), add:
@@ -200,7 +200,7 @@ Line 5 becomes:
 import type { Case, Relation } from "@/data/types"
 ```
 
-- [ ] **Step 2: Replace the expanded panel**
+- [x] **Step 2: Replace the expanded panel**
 
 Replace the whole `{open ? ( ... ) : null}` block (lines 121-149) with:
 
@@ -295,7 +295,7 @@ Three things here are load-bearing:
   with no JavaScript, and `App.tsx`'s bare-letter shortcut handler ignores
   anchors, so `j`/`k` keep working with one focused.
 
-- [ ] **Step 3: Render the suite context**
+- [x] **Step 3: Render the suite context**
 
 In `journeybook/src/App.tsx`, after the `premise` paragraph (line 519-521),
 add:
@@ -315,7 +315,7 @@ The key is a prefix of the paragraph rather than the index, because these are
 authored content with stable text — if a paragraph is inserted mid-journey,
 keying on the index would remount every paragraph after it.
 
-- [ ] **Step 4: Look at it**
+- [x] **Step 4: Look at it**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -335,7 +335,7 @@ Open `http://localhost:5174`, expand any case, and confirm four things:
 4. Toggle the theme. `bun scripts/check-contrast.mjs` reports zero failures,
    which is the standing requirement in `journeybook/CLAUDE.md`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -369,7 +369,7 @@ triageable. One that adds the mechanism tells whoever picks the ticket up
 where to look, and this is the highest-value placement of the new text — it
 costs a tester nothing at read time and travels with the defect.
 
-- [ ] **Step 1: Add the two lines**
+- [x] **Step 1: Add the two lines**
 
 In `journeybook/src/lib/report.ts`, inside the `for (const c of fail)` loop,
 after the `expected:` push and before `lines.push("")`:
@@ -388,7 +388,7 @@ collapse to spaces — a report is pasted into a ticket field where a hard
 newline breaks the two-space indent. `verify.command` takes only its first
 line, matching how `command` is already truncated two lines above.
 
-- [ ] **Step 2: Update the doc comment**
+- [x] **Step 2: Update the doc comment**
 
 Replace the comment above `buildReport` (lines 4-8) with:
 
@@ -402,7 +402,7 @@ Replace the comment above `buildReport` (lines 4-8) with:
  */
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -415,7 +415,7 @@ Expected: all three exit 0, and `dist/journeybook.html` plus
 text has no `why:` or `verify:` line yet — nothing is authored until plan 03 —
 which is the correct output today.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault

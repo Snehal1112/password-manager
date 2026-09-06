@@ -38,7 +38,7 @@
 **Read first:** `docs/VAULT_USER_ACCESS_JOURNEYS_v3.md` lines 644–693, which is
 the whole of Journey J. Everything below is transcribed from it.
 
-- [ ] **Step 1: Write the enrichment file**
+- [x] **Step 1: Write the enrichment file**
 
 ```bash
 mkdir -p /tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336-4049-b9b7-1a2c1359825a/scratchpad/enrich
@@ -50,7 +50,7 @@ Create `/tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336
 {
   "J1": {
     "why": {
-      "text": "The cascade stamps every contained secret, key and certificate with the vault's own `deleted_at`, not with a timestamp of its own. That shared value is what makes J3's recovery possible, and it is the same fact that makes J4's earlier-deleted secret unrecoverable.",
+      "text": "The cascade stamps every contained secret, key and certificate with the vault's own `deleted_at`, not with a timestamp of its own. That shared value is what makes J3's recovery possible, and it is the same fact that excludes J4's earlier-deleted secret from the cascade.",
       "source": "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J"
     },
     "verify": {
@@ -115,7 +115,7 @@ Create `/tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336
 
   "J7": {
     "why": {
-      "text": "The one guardrail that does exist in the other direction, and it fails closed: a vault holding any purge-protected item refuses the bulk purge outright rather than purging everything it is allowed to and leaving the rest.",
+      "text": "The one guardrail that does exist in the other direction, and it fails closed: a vault holding any purge-protected item refuses the bulk purge.",
       "source": "VAULT_USER_ACCESS_JOURNEYS_v3.md § Journey J"
     },
     "related": [{ "id": "J5", "rel": "contrasts" }]
@@ -123,7 +123,7 @@ Create `/tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336
 }
 ```
 
-- [ ] **Step 2: Check it against the three judgment calls it encodes**
+- [x] **Step 2: Check it against the three judgment calls it encodes**
 
 These are the calls a later subagent will have to make hundreds of times, so
 confirm each is right here before it becomes precedent:
@@ -139,7 +139,7 @@ confirm each is right here before it becomes precedent:
 3. **J5's `why` cites Journey K, not Journey J.** The admin-bypass fact lives
    in K's section. Cite where the claim actually is, not where the case sits.
 
-- [ ] **Step 3: Validate the JSON parses and every id exists**
+- [x] **Step 3: Validate the JSON parses and every id exists**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -162,7 +162,7 @@ unresolved, for the phase 2 code pass:`. `git diff --stat` must be empty.
 - Consumes: `j.json` from Task 1.
 - Produces: seven enriched cases and one rewritten `notes`, which plan 04's subagents read as the worked example.
 
-- [ ] **Step 1: Apply**
+- [x] **Step 1: Apply**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -171,7 +171,7 @@ bun scripts/apply-enrichment.mjs \
 bun run format
 ```
 
-- [ ] **Step 2: Split J6's `notes`**
+- [x] **Step 2: Split J6's `notes`**
 
 J6's existing `notes` carries both the mechanism and the actionable rule. The
 mechanism half is now in `why`, so leaving it in `notes` prints the same
@@ -191,7 +191,7 @@ vault row"``. Replace the entire string with:
           "**Purge a vault's contents item-by-item before purging the vault**, or accept permanently orphaned rows.",
 ```
 
-- [ ] **Step 3: Add the journey context**
+- [x] **Step 3: Add the journey context**
 
 In the same file, in the `J` suite object, after the `premise` field and
 before `cases:`, add:
@@ -203,7 +203,7 @@ before `cases:`, add:
     ],
 ```
 
-- [ ] **Step 4: Verify the whole toolchain**
+- [x] **Step 4: Verify the whole toolchain**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -214,7 +214,7 @@ Expected: all six exit 0. `check-links` reports `245 cases, 6 carrying
 detail, 0 problems.` — six, not seven, because J2 has only a `related` and
 carries no claim of its own.
 
-- [ ] **Step 5: Read the rendered result**
+- [x] **Step 5: Read the rendered result**
 
 ```bash
 bun run dev
@@ -234,7 +234,7 @@ Check specifically:
   keyboard navigation still works with an anchor focused.
 - Both themes. Then re-run `bun scripts/check-contrast.mjs`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault
@@ -263,7 +263,7 @@ Three precedents set here for the remaining 22 journeys:
 
 **Files:** none.
 
-- [ ] **Step 1: Present the pilot**
+- [x] **Step 1: Present the pilot**
 
 Show the human the rendered Journey J and state plainly:
 
@@ -273,7 +273,7 @@ Show the human the rendered Journey J and state plainly:
 - The three precedents from Task 2 Step 6's commit message, since each one
   multiplies by 22 journeys if it is wrong.
 
-- [ ] **Step 2: Stop**
+- [x] **Step 2: Stop**
 
 **Do not start plan 04.** Fanning out to five subagents before a human has
 confirmed the shape is how a misread turns into 245 cases of rework. Wait for
