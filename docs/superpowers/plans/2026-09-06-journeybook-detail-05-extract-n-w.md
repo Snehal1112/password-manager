@@ -32,7 +32,7 @@
 - Consumes: `journeybook/.claude/enrichment-brief.md` from plan 04 Task 1.
 - Produces: enrichment for 47 cases — N1–N5, O1–O11, P1–P15, Q1–Q16.
 
-- [ ] **Step 1: Dispatch**
+- [x] **Step 1: Dispatch**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Extract N-Q case detail"`:
@@ -83,7 +83,7 @@ without a why and why that was right, and every needs-code question in full.
 Quote any DISAGREEMENT entries verbatim.
 ```
 
-- [ ] **Step 2: Check the output**
+- [x] **Step 2: Check the output**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -111,7 +111,7 @@ returns nothing); and some cases are deliberately bare.
 - Consumes: the same brief.
 - Produces: enrichment for 52 cases — R1–R11, S1–S12, T1–T20, U1–U9.
 
-- [ ] **Step 1: Dispatch**
+- [x] **Step 1: Dispatch**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Extract R-U case detail"`:
@@ -168,7 +168,7 @@ without a why and why that was right, and every needs-code question in full.
 Quote any DISAGREEMENT entries verbatim.
 ```
 
-- [ ] **Step 2: Check the output**
+- [x] **Step 2: Check the output**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
@@ -195,7 +195,7 @@ that never happened. If its `why` is vague, send it back.
 - Consumes: the same brief.
 - Produces: enrichment for 32 cases — V1–V20, W1–W12.
 
-- [ ] **Step 1: Dispatch**
+- [x] **Step 1: Dispatch**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Extract V-W case detail"`:
@@ -249,7 +249,7 @@ without a why and why that was right, and every needs-code question in full.
 Quote any DISAGREEMENT entries verbatim.
 ```
 
-- [ ] **Step 2: Check the output, and check the deny/allow direction by hand**
+- [x] **Step 2: Check the output, and check the deny/allow direction by hand**
 
 ```bash
 cd /home/numericlabs/data/rocket/rocketvault/journeybook
