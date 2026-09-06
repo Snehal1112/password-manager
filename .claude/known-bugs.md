@@ -3735,7 +3735,7 @@ system user row already present.
 
 ---
 
-### B39 — `getDeletedKey` lists an entire vault to serve one id
+### B61 — `getDeletedKey` lists an entire vault to serve one id
 
 **Status**: Open (deferred 2026-09-06)
 **Severity**: Low — performance only, no correctness or authorization defect
