@@ -357,28 +357,7 @@ func (r *SecretRepository) List(ctx context.Context, scope model.Scope, filter S
 //
 //	An error if the deletion fails.
 func (r *SecretRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	logrus.WithField("secret_id", id.String()).Debug("Deleting secret from database")
-
-	result, err := r.db.ExecContext(ctx, "DELETE FROM secrets WHERE id = ?", id.String())
-	if err != nil {
-		r.log.LogAuditError("", "delete_secret", "failed", "Failed to delete secret", err)
-		return fmt.Errorf("failed to delete secret: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		r.log.LogAuditError("", "delete_secret", "failed", "Failed to get rows affected", err)
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	if rowsAffected == 0 {
-		r.log.LogAuditError("", "delete_secret", "failed", "Secret not found for deletion", nil)
-		return fmt.Errorf("secret not found")
-	}
-
-	r.log.LogAuditInfo("", "delete_secret", "success", "Secret deleted successfully")
-	logrus.WithField("secret_id", id.String()).Debug("Secret deleted successfully")
-
-	return nil
+	return deleteItemWithTags(ctx, r.db, r.crud(), id)
 }
 
 // SoftDelete marks a secret as deleted without removing it from the database.

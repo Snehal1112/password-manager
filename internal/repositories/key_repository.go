@@ -465,50 +465,7 @@ func (r *KeyRepository) ReadDeleted(ctx context.Context, id uuid.UUID) (*model.K
 //
 //	An error if the deletion fails.
 func (r *KeyRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return r.executeWithMetrics("delete_key", func() error {
-		logrus.WithField("key_id", id.String()).Debug("Deleting key from database")
-
-		tx, err := r.db.BeginTx(ctx, nil)
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Failed to begin transaction", err)
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		defer tx.Rollback() //nolint:errcheck
-
-		// Delete tags first
-		_, err = tx.ExecContext(ctx, "DELETE FROM key_tags WHERE key_id = ?", id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Failed to delete tags", err)
-			return fmt.Errorf("failed to delete tags: %w", err)
-		}
-
-		// Delete key
-		result, err := tx.ExecContext(ctx, "DELETE FROM keys WHERE id = ?", id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Failed to delete key", err)
-			return fmt.Errorf("failed to delete key: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Key not found for deletion", nil)
-			return fmt.Errorf("key not found")
-		}
-
-		if err := tx.Commit(); err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_key", "failed", "Failed to commit transaction", err)
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-
-		r.log.LogAuditInfo(uuid.Nil.String(), "delete_key", "success", "Key deleted successfully")
-		logrus.WithField("key_id", id.String()).Debug("Key deleted successfully")
-
-		return nil
-	})
+	return deleteItemWithTags(ctx, r.db, r.crud(), id)
 }
 
 // UpdateRevocationStatus updates only the revocation status of a key.

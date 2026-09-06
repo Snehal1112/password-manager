@@ -270,6 +270,60 @@ func purgeVaultContents(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig
 	})
 }
 
+// deleteItemWithTags hard-deletes one row and its tag rows in a single
+// transaction, tags first. Unlike the other functions in this file it takes a
+// db.DB rather than a db.DBTX, because it begins the transaction itself.
+//
+// The tag delete is not optional bookkeeping: the tag tables declare
+// ON DELETE CASCADE, but SQLite runs with the foreign_keys pragma off
+// project-wide, so the cascade never fires. Before this helper, secret's
+// Delete omitted the tag cleanup entirely while key's and certificate's
+// performed it -- the divergence this consolidates away.
+func deleteItemWithTags(ctx context.Context, conn db.DB, cfg itemLifecycleConfig, id uuid.UUID) error {
+	op := "delete_" + cfg.item
+	return cfg.wrap(op, func() error {
+		logrus.WithField(cfg.idField, id.String()).Debug("Deleting " + cfg.item + " from database")
+
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to begin transaction", err)
+			return fmt.Errorf("failed to begin transaction: %w", err)
+		}
+		defer tx.Rollback() //nolint:errcheck
+
+		if _, err := tx.ExecContext(ctx,
+			"DELETE FROM "+cfg.tagTable+" WHERE "+cfg.tagFK+" = ?", id.String()); err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to delete tags", err)
+			return fmt.Errorf("failed to delete tags: %w", err)
+		}
+
+		result, err := tx.ExecContext(ctx, "DELETE FROM "+cfg.table+" WHERE id = ?", id.String())
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to delete "+cfg.item, err)
+			return fmt.Errorf("failed to delete %s: %w", cfg.item, err)
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to get rows affected", err)
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		if rowsAffected == 0 {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", cfg.itemCap+" not found for deletion", nil)
+			return fmt.Errorf("%s not found", cfg.item)
+		}
+
+		if err := tx.Commit(); err != nil {
+			cfg.log.LogAuditError(cfg.auditActor, op, "failed", "Failed to commit transaction", err)
+			return fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		cfg.log.LogAuditInfo(cfg.auditActor, op, "success", cfg.itemCap+" deleted successfully")
+		logrus.WithField(cfg.idField, id.String()).Debug(cfg.itemCap + " deleted successfully")
+		return nil
+	})
+}
+
 // hasProtectedContent reports whether any row in vaultID, active or
 // soft-deleted, has purge_protection enabled.
 func hasProtectedContent(ctx context.Context, ex db.DBTX, cfg itemLifecycleConfig, vaultID uuid.UUID) (bool, error) {

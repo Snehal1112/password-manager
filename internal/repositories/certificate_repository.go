@@ -466,50 +466,7 @@ func (r *CertificateRepository) insertCertAndTags(ctx context.Context, ex db.DBT
 //
 //	An error if the deletion fails.
 func (r *CertificateRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	return r.executeWithMetrics("delete_certificate", func() error {
-		logrus.WithField("cert_id", id.String()).Debug("Deleting certificate from database")
-
-		tx, err := r.db.BeginTx(ctx, nil)
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Failed to begin transaction", err)
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-		defer tx.Rollback() //nolint:errcheck
-
-		// Delete tags first
-		_, err = tx.ExecContext(ctx, "DELETE FROM certificate_tags WHERE certificate_id = ?", id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Failed to delete tags", err)
-			return fmt.Errorf("failed to delete tags: %w", err)
-		}
-
-		// Delete certificate
-		result, err := tx.ExecContext(ctx, "DELETE FROM certificates WHERE id = ?", id.String())
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Failed to delete certificate", err)
-			return fmt.Errorf("failed to delete certificate: %w", err)
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Failed to get rows affected", err)
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rowsAffected == 0 {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Certificate not found for deletion", nil)
-			return fmt.Errorf("certificate not found")
-		}
-
-		if err := tx.Commit(); err != nil {
-			r.log.LogAuditError(uuid.Nil.String(), "delete_certificate", "failed", "Failed to commit transaction", err)
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-
-		r.log.LogAuditInfo(uuid.Nil.String(), "delete_certificate", "success", "Certificate deleted successfully")
-		logrus.WithField("cert_id", id.String()).Debug("Certificate deleted successfully")
-
-		return nil
-	})
+	return deleteItemWithTags(ctx, r.db, r.crud(), id)
 }
 
 // Revoke adds a certificate to the CRL (Certificate Revocation List).

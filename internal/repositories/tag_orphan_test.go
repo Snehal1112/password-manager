@@ -128,3 +128,35 @@ func TestDeleteKeyRemovesItsTags(t *testing.T) {
 	require.NoError(t, repo.Delete(ctx, key.ID))
 	require.Equal(t, 0, countKeyTags(t, raw, key.ID))
 }
+
+// TestDeleteKeyIsAtomic pins the transaction the shared helper opens: if the
+// item delete finds no row, the tag delete that ran first must roll back
+// rather than leaving the key present with its tags gone.
+func TestDeleteKeyIsAtomic(t *testing.T) {
+	raw := setupTagOrphanTestDB(t)
+	repo := repositories.NewKeyRepository(rvdb.NewConn(raw, rvdb.SQLite), logging.InitLogger())
+
+	ctx := context.Background()
+	key := &model.Key{
+		ID:        uuid.New(),
+		UserID:    uuid.New(),
+		VaultID:   uuid.New(),
+		Name:      "keeper",
+		Value:     "ENCRYPTED",
+		Type:      "RSA",
+		CreatedAt: time.Now(),
+		Enabled:   true,
+		Tags:      []string{"keep-me"},
+	}
+	require.NoError(t, repo.Create(ctx, key))
+
+	// Delete a key that does not exist. The helper deletes tags first, so
+	// without a rollback this would strip the real key's tags -- except the
+	// id does not match, so nothing should change at all.
+	err := repo.Delete(ctx, uuid.New())
+	require.Error(t, err, "deleting an absent key is an error")
+	require.Contains(t, err.Error(), "key not found")
+
+	require.Equal(t, 1, countKeyTags(t, raw, key.ID),
+		"an unrelated failed delete must not touch this key's tags")
+}
