@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -40,8 +39,7 @@ func getCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSON(w, policy)
 }
 
 // upsertCertificatePolicy creates or replaces the policy for a certificate.
@@ -78,9 +76,7 @@ func upsertCertificatePolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, policy)
 }
 
 // deleteCertificatePolicy removes the policy for a certificate.

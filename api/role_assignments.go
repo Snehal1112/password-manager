@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -110,9 +109,7 @@ func createRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildRoleAssignmentResponse(c, r, ra)) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, buildRoleAssignmentResponse(c, r, ra))
 }
 
 // listRoleAssignments returns all role assignments scoped to a vault.
@@ -151,8 +148,7 @@ func listRoleAssignments(c *Context, w http.ResponseWriter, r *http.Request) {
 	for _, ra := range list {
 		responses = append(responses, buildRoleAssignmentResponse(c, r, ra))
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(model.ListRoleAssignmentsResponse{RoleAssignments: responses, Total: len(responses)}) //nolint:errcheck,gosec
+	writeJSON(w, model.ListRoleAssignmentsResponse{RoleAssignments: responses, Total: len(responses)})
 }
 
 // getRoleAssignment returns a single role assignment by id within a vault.
@@ -193,8 +189,7 @@ func getRoleAssignment(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 	for _, ra := range list {
 		if ra.ID == id {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(buildRoleAssignmentResponse(c, r, ra)) //nolint:errcheck,gosec
+			writeJSON(w, buildRoleAssignmentResponse(c, r, ra))
 			return
 		}
 	}

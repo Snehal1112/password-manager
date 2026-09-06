@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -53,8 +52,7 @@ func listDeletedSecrets(c *Context, w http.ResponseWriter, r *http.Request) {
 		deleted = []map[string]any{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"deleted_secrets": deleted, "total": len(deleted)}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"deleted_secrets": deleted, "total": len(deleted)})
 }
 
 // recoverSecret restores a soft-deleted secret by ID.
@@ -80,8 +78,7 @@ func recoverSecret(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"message": "Secret recovered successfully", "id": secretID.String()}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"message": "Secret recovered successfully", "id": secretID.String()})
 }
 
 // purgeSecret permanently deletes a soft-deleted secret by ID.
@@ -157,8 +154,7 @@ func listDeletedKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"deleted_keys": items, "total": len(items)}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"deleted_keys": items, "total": len(items)})
 }
 
 // getDeletedKey returns a single soft-deleted key by its UUID, resolved
@@ -196,8 +192,7 @@ func getDeletedKey(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	for _, k := range keys {
 		if k.ID == keyID {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+			writeJSON(w, map[string]any{
 				"id":               k.ID.String(),
 				"name":             k.Name,
 				"type":             k.Type,
@@ -233,8 +228,7 @@ func recoverKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"message": "Key recovered successfully", "id": keyID.String()}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"message": "Key recovered successfully", "id": keyID.String()})
 }
 
 // purgeKey permanently deletes a soft-deleted key by ID.
@@ -304,8 +298,7 @@ func listDeletedCertificates(c *Context, w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"deleted_certificates": items, "total": len(items)}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"deleted_certificates": items, "total": len(items)})
 }
 
 // recoverCertificate restores a soft-deleted certificate by ID.
@@ -331,8 +324,7 @@ func recoverCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"message": "Certificate recovered successfully", "id": certID.String()}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"message": "Certificate recovered successfully", "id": certID.String()})
 }
 
 // purgeCertificate permanently deletes a soft-deleted certificate by ID.

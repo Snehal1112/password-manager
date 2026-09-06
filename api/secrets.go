@@ -23,7 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -109,8 +108,7 @@ func listSecretVersionsHandler(c *Context, w http.ResponseWriter, r *http.Reques
 		writeSecretError(c, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versions) //nolint:errcheck,gosec
+	writeJSON(w, versions)
 }
 
 // getSecretVersionHandler retrieves a specific version of a secret.
@@ -137,8 +135,7 @@ func getSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Request)
 		writeSecretError(c, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
+	writeJSON(w, version)
 }
 
 // getLatestSecretVersionHandler retrieves the latest version of a secret.
@@ -164,8 +161,7 @@ func getLatestSecretVersionHandler(c *Context, w http.ResponseWriter, r *http.Re
 		writeSecretError(c, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(version) //nolint:errcheck,gosec
+	writeJSON(w, version)
 }
 
 // exportSecrets handles the export of secrets to encrypted files.

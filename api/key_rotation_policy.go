@@ -2,7 +2,6 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -41,8 +40,7 @@ func getKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSON(w, policy)
 }
 
 // upsertKeyRotationPolicy creates or replaces the rotation policy for a key.
@@ -87,9 +85,7 @@ func upsertKeyRotationPolicy(c *Context, w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(policy) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusOK, policy)
 }
 
 // deleteKeyRotationPolicy removes the rotation policy for a key.

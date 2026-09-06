@@ -23,7 +23,6 @@ THE SOFTWARE.
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -527,8 +526,7 @@ func listUserSessions(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send response using json encoder for non-model map type.
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"sessions": items, "total": len(items)}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{"sessions": items, "total": len(items)})
 }
 
 // revokeSession handles the HTTP request to revoke a specific session.

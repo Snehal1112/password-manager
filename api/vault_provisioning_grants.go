@@ -120,9 +120,7 @@ func upsertVaultProvisioningGrant(c *Context, w http.ResponseWriter, r *http.Req
 	if existed {
 		status = http.StatusOK // an existing grant was re-quotaed, not created
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(g)
+	writeJSONStatus(w, status, g)
 }
 
 // deleteVaultProvisioningGrant revokes a principal's provisioning grant.
@@ -168,6 +166,5 @@ func listVaultProvisioningGrants(c *Context, w http.ResponseWriter, r *http.Requ
 	if grants == nil {
 		grants = []*model.VaultProvisioningGrant{}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(grants)
+	writeJSON(w, grants)
 }

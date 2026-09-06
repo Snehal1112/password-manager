@@ -83,8 +83,7 @@ func getAuditLogs(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck,gosec
+	writeJSON(w, map[string]any{
 		"logs":         logs,
 		"total":        total,
 		"integrity_ok": integrityOK,
@@ -131,8 +130,7 @@ func getSOC2Report(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report) //nolint:errcheck,gosec
+	writeJSON(w, report)
 }
 
 // getGDPRReport handles GET /audit/reports/gdpr.
@@ -181,8 +179,7 @@ func getGDPRReport(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(report) //nolint:errcheck,gosec
+	writeJSON(w, report)
 }
 
 // getAuditConfig handles GET /audit/config and returns the current retention_days.
@@ -205,8 +202,7 @@ func getAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"retention_days": days}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]int{"retention_days": days})
 }
 
 // patchAuditConfig handles PATCH /audit/config and updates retention_days.
@@ -240,8 +236,7 @@ func patchAuditConfig(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"retention_days": body.RetentionDays}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]int{"retention_days": body.RetentionDays})
 }
 
 // parseAuditFilter builds an AuditFilter from URL query parameters.

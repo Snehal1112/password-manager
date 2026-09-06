@@ -235,9 +235,7 @@ func createCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		NotBefore:   req.NotBefore,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, response)
 }
 
 // listCertificates lists certificates. Legacy flat routes list the default
@@ -268,8 +266,7 @@ func listCertificates(c *Context, w http.ResponseWriter, r *http.Request) {
 		response.Certificates[i] = certToDomainResponse(&certs[i])
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSON(w, response)
 }
 
 // getCertificate retrieves a specific certificate by ID.
@@ -296,8 +293,7 @@ func getCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck,gosec
+	writeJSON(w, certToDomainResponse(cert))
 }
 
 // updateCertificate updates an existing certificate's metadata.
@@ -357,8 +353,7 @@ func updateCertificate(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(certToDomainResponse(cert)) //nolint:errcheck,gosec
+	writeJSON(w, certToDomainResponse(cert))
 }
 
 // deleteCertificate removes a certificate from the system.

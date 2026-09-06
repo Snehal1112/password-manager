@@ -450,9 +450,7 @@ func createKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0))) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0)))
 }
 
 // importKey imports a cryptographic key from caller-supplied JWK material.
@@ -530,9 +528,7 @@ func importKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0))) //nolint:errcheck,gosec
+	writeJSONStatus(w, http.StatusCreated, buildKeyResponse(key, keyJWK(c, r, keyService, result.KeyID, createScope, 0)))
 }
 
 // listKeys lists cryptographic keys. Legacy flat routes list the default
@@ -567,8 +563,7 @@ func listKeys(c *Context, w http.ResponseWriter, r *http.Request) {
 		response.Keys[i] = buildKeyResponse(&keysList[i], nil)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response) //nolint:errcheck,gosec
+	writeJSON(w, response)
 }
 
 // getKey retrieves a specific cryptographic key by ID.
@@ -595,8 +590,7 @@ func getKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
+	writeJSON(w, buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0)))
 }
 
 // updateKey updates a cryptographic key.
@@ -661,8 +655,7 @@ func updateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
+	writeJSON(w, buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0)))
 }
 
 // deleteKey deletes a cryptographic key.
@@ -706,8 +699,7 @@ func deleteKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		RecoveryID:       "/deleted/keys/" + deleted.ID.String() + "/restore",
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
+	writeJSON(w, resp)
 }
 
 // rotateKey rotates a cryptographic key by generating a new key pair and revoking the old key.
@@ -743,8 +735,7 @@ func rotateKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0))) //nolint:errcheck,gosec
+	writeJSON(w, buildKeyResponse(key, keyJWK(c, r, keyService, key.ID, scope, 0)))
 }
 
 // listKeyVersions returns the version history for a key, excluding raw key material.
@@ -779,8 +770,7 @@ func listKeyVersions(c *Context, w http.ResponseWriter, r *http.Request) {
 		versions = []model.KeyVersion{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"versions": versions}) //nolint:errcheck,gosec
+	writeJSON(w, map[string]interface{}{"versions": versions})
 }
 
 // getKeyVersion retrieves metadata for one version of the vault key
@@ -815,8 +805,7 @@ func getKeyVersion(c *Context, w http.ResponseWriter, r *http.Request) {
 		resp.N, resp.E, resp.X, resp.Y = jwk.N, jwk.E, jwk.X, jwk.Y
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
+	writeJSON(w, resp)
 }
 
 // wrapKey wraps plaintext key material using the vault key identified by {key_id}.
@@ -870,8 +859,7 @@ func wrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(WrapKeyResponse{ //nolint:errcheck,gosec
+	writeJSON(w, WrapKeyResponse{
 		WrappedKey: base64.StdEncoding.EncodeToString(result.WrappedKey),
 		Algorithm:  result.Algorithm,
 		Version:    result.Version,
@@ -929,8 +917,7 @@ func unwrapKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(UnwrapKeyResponse{ //nolint:errcheck,gosec
+	writeJSON(w, UnwrapKeyResponse{
 		PlaintextKey: base64.StdEncoding.EncodeToString(result.PlaintextKey),
 		Algorithm:    result.Algorithm,
 		Version:      result.Version,
@@ -988,8 +975,7 @@ func signKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(SignKeyResponse{ //nolint:errcheck,gosec
+	writeJSON(w, SignKeyResponse{
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Signature),
@@ -1051,8 +1037,7 @@ func verifyKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(VerifyKeyResponse{ //nolint:errcheck,gosec
+	writeJSON(w, VerifyKeyResponse{
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Valid:     result.Valid,
@@ -1121,8 +1106,7 @@ func encryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		resp.Nonce = base64.StdEncoding.EncodeToString(result.Nonce)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp) //nolint:errcheck,gosec
+	writeJSON(w, resp)
 }
 
 // decryptKey decrypts data using the vault key identified by {key_id}.
@@ -1183,8 +1167,7 @@ func decryptKey(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(DecryptKeyResponse{ //nolint:errcheck,gosec
+	writeJSON(w, DecryptKeyResponse{
 		KeyID:     keyID.String(),
 		Algorithm: string(result.Algorithm),
 		Value:     base64.StdEncoding.EncodeToString(result.Plaintext),
