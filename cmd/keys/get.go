@@ -24,18 +24,11 @@ package keys
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -64,58 +57,32 @@ even though it exists.`,
   rocketvault keys get <key-id> --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "get_key", Action: model.ActionKeysRead, Policy: model.OpGet,
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "get_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		keyService := serviceContainer.GetKeyService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead, model.OpGet)
+		// Access control is handled by the service layer, via s.Scope.
+		key, err := s.Container.GetKeyService().GetKey(s.Ctx, keyID, s.Scope)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+			return s.Fail("failed to get key", err)
 		}
 
-		key, err := keyService.GetKey(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID))
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_key", "failed", fmt.Sprintf("failed to get key: %s", err), err)
-			return fmt.Errorf("failed to get key: %w", err)
-		}
-
-		// Access control is now handled by the service layer
-
-		log.LogAuditInfo(claims.UserID.String(), "get_key", "success", fmt.Sprintf("key retrieved: %s", key.Name))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"ID", "Name", "Type", "Revoked", "Tags", "Created"}
-		row := []string{
-			key.ID.String(),
-			key.Name,
-			key.Type,
-			strconv.FormatBool(key.Revoked),
-			strings.Join(key.Tags, ","),
-			key.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("key retrieved: %s", key.Name))
+		return vaultcli.Print(s, keyColumns, *key)
 	},
 }
 
@@ -129,16 +96,10 @@ even though it exists.`,
 //
 // - keysCmd: The parent command under which the get command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized get command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The get command is a subcommand of the keys command and is used to retrieve information about a specific key.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
-func InitKeysGet(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysGet(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(getCmd)
-
-	return keysCmd
 }

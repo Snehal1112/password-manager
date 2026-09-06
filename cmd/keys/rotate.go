@@ -30,9 +30,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -63,46 +60,32 @@ would.`,
   rocketvault keys rotate <key-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "rotate_key", Action: model.ActionKeysRotate, Policy: model.OpRotate,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
-		// Get service container
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		keyService := serviceContainer.GetKeyService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotate, model.OpRotate)
+		// Rotate the key, scoped to the resolved --vault.
+		newKey, err := s.Container.GetKeyService().RotateKey(s.Ctx, keyID, s.Scope)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+			return s.Fail("failed to rotate key", err)
 		}
 
-		// Rotate key using service, scoped to the resolved --vault.
-		newKey, err := keyService.RotateKey(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID))
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "rotate_key", "failed", fmt.Sprintf("failed to rotate key: %s", err), err)
-			return fmt.Errorf("failed to rotate key: %w", err)
-		}
-
-		log.LogAuditInfo(claims.UserID.String(), "rotate_key", "success", fmt.Sprintf("key rotated: %s", newKey.KeyID))
+		s.OK(fmt.Sprintf("key rotated: %s", newKey.KeyID))
 		fmt.Fprintf(cmd.OutOrStdout(), "Key rotated successfully: ID=%s, Name=%s, Type=%s, CreatedAt=%s, Tags=%v\n", //nolint:errcheck
 			newKey.KeyID, newKey.Name, newKey.Type, newKey.CreatedAt.Format(time.RFC3339), newKey.Tags)
 		return nil
@@ -111,7 +94,6 @@ would.`,
 
 // InitKeysRotate initializes the rotate command for keys.
 // It adds the rotate command to the keys command. Authentication flags are inherited from the root command.
-func InitKeysRotate(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysRotate(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(rotateCmd)
-	return keysCmd
 }

@@ -28,13 +28,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
 	"rocketvault/internal/crypto"
-	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -67,27 +63,21 @@ not-before/expiry window is refused.`,
   # Sign with an earlier version of a rotated key
   rocketvault keys sign --key-id <uuid> --data <base64> --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "sign_key", Action: model.ActionKeysSign, Policy: model.OpSign,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
-		}
-
-		keyIDStr := viper.GetString("sign-key-id")
-		dataB64 := viper.GetString("sign-data")
-		algorithm := viper.GetString("sign-algorithm")
-		version := viper.GetInt("sign-version")
+		keyIDStr, _ := cmd.Flags().GetString("key-id")
+		dataB64, _ := cmd.Flags().GetString("data")
+		algorithm, _ := cmd.Flags().GetString("algorithm")
+		version, _ := cmd.Flags().GetInt("version")
 
 		if keyIDStr == "" || dataB64 == "" {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", "--key-id and --data are required", nil)
-			return fmt.Errorf("--key-id and --data are required")
+			return s.Fail("--key-id and --data are required", nil)
 		}
 		if algorithm == "" {
 			algorithm = "RS256"
@@ -95,48 +85,37 @@ not-before/expiry window is refused.`,
 
 		keyID, err := uuid.Parse(keyIDStr)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
 		data, err := base64.StdEncoding.DecodeString(dataB64)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", "failed to decode data", err)
-			return fmt.Errorf("failed to decode --data (must be standard base64): %w", err)
+			return s.Fail("failed to decode --data (must be standard base64)", err)
 		}
 
-		// Get service container from context.
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysSign, model.OpSign)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
+		cryptoService := s.Container.GetCryptoService()
 
-		cryptoService := serviceContainer.GetCryptoService()
-
-		result, err := cryptoService.Sign(ctx, keyServices.SignRequest{
+		result, err := cryptoService.Sign(s.Ctx, keyServices.SignRequest{
 			KeyID:     keyID,
 			Data:      data,
 			Algorithm: crypto.SignatureAlgorithm(algorithm),
-			UserID:    claims.UserID,
-			VaultID:   vaultID,
-			Scope:     model.NewVaultScope(vaultID, claims.UserID),
+			UserID:    s.Claims.UserID,
+			VaultID:   s.VaultID,
+			Scope:     s.Scope,
 			Version:   version,
 		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "sign_key", "failed", fmt.Sprintf("sign failed: %s", err), err)
-			return fmt.Errorf("sign failed: %w", err)
+			return s.Fail("sign failed", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "sign_key", "success",
-			fmt.Sprintf("data signed with vault key %s", keyID))
-		fmt.Println(base64.StdEncoding.EncodeToString(result.Signature))
+		s.OK(fmt.Sprintf("data signed with vault key %s", keyID))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), base64.StdEncoding.EncodeToString(result.Signature))
 		return nil
 	},
 }
@@ -147,17 +126,11 @@ func NewSignCmd() *cobra.Command {
 }
 
 // InitKeysSign adds the sign subcommand to the keys command.
-func InitKeysSign(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysSign(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(signCmd)
 
 	signCmd.Flags().String("key-id", "", "UUID of the vault key used to sign")
 	signCmd.Flags().String("data", "", "Base64-encoded data to sign")
 	signCmd.Flags().String("algorithm", "RS256", "Signature algorithm (RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512)")
 	signCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
-	viper.BindPFlag("sign-key-id", signCmd.Flags().Lookup("key-id"))       //nolint:errcheck,gosec
-	viper.BindPFlag("sign-data", signCmd.Flags().Lookup("data"))           //nolint:errcheck,gosec
-	viper.BindPFlag("sign-algorithm", signCmd.Flags().Lookup("algorithm")) //nolint:errcheck,gosec
-	viper.BindPFlag("sign-version", signCmd.Flags().Lookup("version"))     //nolint:errcheck,gosec
-
-	return keysCmd
 }

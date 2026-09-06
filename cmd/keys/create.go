@@ -25,16 +25,10 @@ package keys
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -69,32 +63,27 @@ The key is created in the vault named by --vault, which defaults to
   rocketvault keys create --name <name> --type RSA --bits 4096 \
     --purge-protection`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "create_key", Action: model.ActionKeysCreate, Policy: model.OpCreate,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
-		}
-		name := viper.GetString("key-name")
-		keyType := viper.GetString("key-type")
-		bits := viper.GetInt("key-bits")
-		curve := viper.GetString("key-curve")
-		tagsStr := viper.GetString("key-tags")
+		name, _ := cmd.Flags().GetString("name")
+		keyType, _ := cmd.Flags().GetString("type")
+		bits, _ := cmd.Flags().GetInt("bits")
+		curve, _ := cmd.Flags().GetString("curve")
+		tagsStr, _ := cmd.Flags().GetString("tags")
 
 		if name == "" || keyType == "" {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "name and type are required", nil)
-			return fmt.Errorf("name and type are required")
+			return s.Fail("name and type are required", nil)
 		}
 
 		keyType = strings.ToUpper(keyType)
 		if keyType != "RSA" && keyType != "ECDSA" {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "invalid key type: must be RSA or ECDSA", nil)
-			return fmt.Errorf("invalid key type: must be RSA or ECDSA")
+			return s.Fail("invalid key type: must be RSA or ECDSA", nil)
 		}
 
 		var tags []string
@@ -105,29 +94,20 @@ The key is created in the vault named by --vault, which defaults to
 			}
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		keyService := serviceContainer.GetKeyService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysCreate, model.OpCreate)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
-		// Create key request
 		req := keyServices.CreateKeyRequest{
 			Name:    name,
 			Type:    keyType,
 			Bits:    bits,
 			Curve:   curve,
 			Tags:    tags,
-			UserID:  claims.UserID,
-			VaultID: vaultID,
+			UserID:  s.Claims.UserID,
+			VaultID: s.VaultID,
 		}
 		// Only send purge protection when the flag was explicitly passed.
 		if cmd.Flags().Changed("purge-protection") {
@@ -135,34 +115,19 @@ The key is created in the vault named by --vault, which defaults to
 			req.PurgeProtection = &purgeProtection
 		}
 
+		keyService := s.Container.GetKeyService()
 		var result *keyServices.CreateKeyResult
-
 		if keyType == "RSA" {
-			result, err = keyService.CreateRSAKey(ctx, req)
+			result, err = keyService.CreateRSAKey(s.Ctx, req)
 		} else {
-			result, err = keyService.CreateECDSAKey(ctx, req)
+			result, err = keyService.CreateECDSAKey(s.Ctx, req)
 		}
-
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "create_key", "failed", fmt.Sprintf("failed to create key: %s", err), err)
-			return fmt.Errorf("failed to create key: %w", err)
+			return s.Fail("failed to create key", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "create_key", "success", fmt.Sprintf("key created: %s, ID: %s", result.Name, result.KeyID))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-		headers := []string{"ID", "Name", "Type", "Tags", "Created"}
-		row := []string{
-			result.KeyID.String(),
-			result.Name,
-			result.Type,
-			strings.Join(result.Tags, ","),
-			result.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("key created: %s, ID: %s", result.Name, result.KeyID))
+		return vaultcli.Print(s, createdKeyColumns, result)
 	},
 }
 
@@ -175,15 +140,11 @@ The key is created in the vault named by --vault, which defaults to
 //
 // - keysCmd: The parent command under which the create command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized create command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The create command is a subcommand of the keys command and is used to create a new key.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
-func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysCreate(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(createCmd)
 
 	createCmd.Flags().String("name", "", "Name for the new key")
@@ -192,11 +153,4 @@ func InitKeysCreate(keysCmd *cobra.Command) *cobra.Command {
 	createCmd.Flags().String("curve", "P-256", "ECDSA curve (P-256, P-384, P-521, P-256K)")
 	createCmd.Flags().String("tags", "", "Comma-separated tags for the key")
 	createCmd.Flags().Bool("purge-protection", false, "Protect the key from being purged")
-	viper.BindPFlag("key-name", createCmd.Flags().Lookup("name"))   //nolint:errcheck,gosec
-	viper.BindPFlag("key-type", createCmd.Flags().Lookup("type"))   //nolint:errcheck,gosec
-	viper.BindPFlag("key-bits", createCmd.Flags().Lookup("bits"))   //nolint:errcheck,gosec
-	viper.BindPFlag("key-curve", createCmd.Flags().Lookup("curve")) //nolint:errcheck,gosec
-	viper.BindPFlag("key-tags", createCmd.Flags().Lookup("tags"))   //nolint:errcheck,gosec
-
-	return keysCmd
 }

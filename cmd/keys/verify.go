@@ -25,18 +25,12 @@ package keys
 import (
 	"encoding/base64"
 	"fmt"
-	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
 	"rocketvault/internal/crypto"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -73,28 +67,22 @@ outside its not-before/expiry window is refused.`,
   rocketvault keys verify --key-id <uuid> --data <base64> \
     --signature <base64> --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "verify_key", Action: model.ActionKeysVerify, Policy: model.OpVerify,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
-		}
-
-		keyIDStr := viper.GetString("verify-key-id")
-		dataB64 := viper.GetString("verify-data")
-		signatureB64 := viper.GetString("verify-signature")
-		algorithm := viper.GetString("verify-algorithm")
-		version := viper.GetInt("verify-version")
+		keyIDStr, _ := cmd.Flags().GetString("key-id")
+		dataB64, _ := cmd.Flags().GetString("data")
+		signatureB64, _ := cmd.Flags().GetString("signature")
+		algorithm, _ := cmd.Flags().GetString("algorithm")
+		version, _ := cmd.Flags().GetInt("version")
 
 		if keyIDStr == "" || dataB64 == "" || signatureB64 == "" {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "--key-id, --data, and --signature are required", nil)
-			return fmt.Errorf("--key-id, --data, and --signature are required")
+			return s.Fail("--key-id, --data, and --signature are required", nil)
 		}
 		if algorithm == "" {
 			algorithm = "RS256"
@@ -102,66 +90,44 @@ outside its not-before/expiry window is refused.`,
 
 		keyID, err := uuid.Parse(keyIDStr)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
 		data, err := base64.StdEncoding.DecodeString(dataB64)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "failed to decode data", err)
-			return fmt.Errorf("failed to decode --data (must be standard base64): %w", err)
+			return s.Fail("failed to decode --data (must be standard base64)", err)
 		}
 
 		signature, err := base64.StdEncoding.DecodeString(signatureB64)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "failed to decode signature", err)
-			return fmt.Errorf("failed to decode --signature (must be standard base64): %w", err)
+			return s.Fail("failed to decode --signature (must be standard base64)", err)
 		}
 
-		// Get service container from context.
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysVerify, model.OpVerify)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
+		cryptoService := s.Container.GetCryptoService()
 
-		cryptoService := serviceContainer.GetCryptoService()
-
-		result, err := cryptoService.Verify(ctx, keyServices.VerifyRequest{
+		result, err := cryptoService.Verify(s.Ctx, keyServices.VerifyRequest{
 			KeyID:     keyID,
 			Data:      data,
 			Signature: signature,
 			Algorithm: crypto.SignatureAlgorithm(algorithm),
-			UserID:    claims.UserID,
-			VaultID:   vaultID,
-			Scope:     model.NewVaultScope(vaultID, claims.UserID),
+			UserID:    s.Claims.UserID,
+			VaultID:   s.VaultID,
+			Scope:     s.Scope,
 			Version:   version,
 		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "verify_key", "failed", fmt.Sprintf("verify failed: %s", err), err)
-			return fmt.Errorf("verify failed: %w", err)
+			return s.Fail("verify failed", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "verify_key", "success",
-			fmt.Sprintf("signature check for vault key %s: valid=%v", keyID, result.Valid))
+		s.OK(fmt.Sprintf("signature check for vault key %s: valid=%v", keyID, result.Valid))
 
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-		headers := []string{"Key ID", "Algorithm", "Valid"}
-		row := []string{
-			result.KeyID.String(),
-			string(result.Algorithm),
-			strconv.FormatBool(result.Valid),
-		}
-		if err := fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row}); err != nil {
+		if err := vaultcli.Print(s, verifyColumns, result); err != nil {
 			return err
 		}
 
@@ -178,7 +144,7 @@ func NewVerifyCmd() *cobra.Command {
 }
 
 // InitKeysVerify adds the verify subcommand to the keys command.
-func InitKeysVerify(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysVerify(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(verifyCmd)
 
 	verifyCmd.Flags().String("key-id", "", "UUID of the vault key used to verify")
@@ -186,11 +152,4 @@ func InitKeysVerify(keysCmd *cobra.Command) *cobra.Command {
 	verifyCmd.Flags().String("signature", "", "Base64-encoded signature to verify")
 	verifyCmd.Flags().String("algorithm", "RS256", "Signature algorithm (RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512)")
 	verifyCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
-	viper.BindPFlag("verify-key-id", verifyCmd.Flags().Lookup("key-id"))       //nolint:errcheck,gosec
-	viper.BindPFlag("verify-data", verifyCmd.Flags().Lookup("data"))           //nolint:errcheck,gosec
-	viper.BindPFlag("verify-signature", verifyCmd.Flags().Lookup("signature")) //nolint:errcheck,gosec
-	viper.BindPFlag("verify-algorithm", verifyCmd.Flags().Lookup("algorithm")) //nolint:errcheck,gosec
-	viper.BindPFlag("verify-version", verifyCmd.Flags().Lookup("version"))     //nolint:errcheck,gosec
-
-	return keysCmd
 }

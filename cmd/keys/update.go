@@ -29,11 +29,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -70,37 +67,31 @@ every crypto operation on it fail.`,
   rocketvault keys update <key-id> --purge-protection=false`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "update_key", Action: model.ActionKeysUpdate, Policy: model.OpSet,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			return fmt.Errorf("invalid key ID: %w", err)
-		}
-
-		sc, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || sc == nil {
-			return fmt.Errorf("service container not available in context")
+			return s.Fail("invalid key ID", err)
 		}
 
 		newName, _ := cmd.Flags().GetString("name")
 		tagsStr, _ := cmd.Flags().GetString("tags")
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, sc, claims.UserID, model.ActionKeysUpdate, model.OpSet)
-		if err != nil {
-			return fmt.Errorf("vault authorization failed: %w", err)
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
 		req := keyServices.UpdateKeyRequest{
 			KeyID: keyID,
-			Scope: model.NewVaultScope(vaultID, claims.UserID),
+			Scope: s.Scope,
 		}
 
 		hasUpdate := false
@@ -130,27 +121,24 @@ every crypto operation on it fail.`,
 		}
 
 		if !hasUpdate {
-			return fmt.Errorf("at least one update field (name, revoked, tags, purge-protection) must be provided")
+			return s.Fail("at least one update field (name, revoked, tags, purge-protection) must be provided", nil)
 		}
 
-		if err := sc.GetKeyService().UpdateKey(ctx, req); err != nil {
-			return fmt.Errorf("failed to update key: %w", err)
+		if err := s.Container.GetKeyService().UpdateKey(s.Ctx, req); err != nil {
+			return s.Fail("failed to update key", err)
 		}
 
-		fmt.Printf("Key %s updated successfully at %s\n", keyID, time.Now().Format(time.RFC3339))
+		s.OK(fmt.Sprintf("key updated: %s", keyID))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Key %s updated successfully at %s\n", keyID, time.Now().Format(time.RFC3339))
 		return nil
 	},
 }
 
 // InitKeysUpdate adds the update subcommand to the keys command.
-func InitKeysUpdate(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysUpdate(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(updateCmd)
 	updateCmd.Flags().String("name", "", "New name for the key")
 	updateCmd.Flags().Bool("revoked", false, "Set key revocation status")
 	updateCmd.Flags().String("tags", "", "Comma-separated tags to replace existing tags")
 	updateCmd.Flags().Bool("purge-protection", false, "Protect the key from being purged")
-	viper.BindPFlag("name", updateCmd.Flags().Lookup("name"))       //nolint:errcheck,gosec
-	viper.BindPFlag("revoked", updateCmd.Flags().Lookup("revoked")) //nolint:errcheck,gosec
-	viper.BindPFlag("tags", updateCmd.Flags().Lookup("tags"))       //nolint:errcheck,gosec
-	return keysCmd
 }

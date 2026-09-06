@@ -29,9 +29,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -57,47 +54,32 @@ Only keys in the vault named by --vault are addressable, defaulting to
   rocketvault keys delete <key-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "delete_key", Action: model.ActionKeysDelete, Policy: model.OpDelete,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		keyService := serviceContainer.GetKeyService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysDelete, model.OpDelete)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
 		// Service layer handles ownership validation and deletion.
-		_, err = keyService.DeleteKey(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID))
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key", "failed", fmt.Sprintf("failed to delete key: %s", err), err)
-			return fmt.Errorf("failed to delete key: %w", err)
+		if _, err := s.Container.GetKeyService().DeleteKey(s.Ctx, keyID, s.Scope); err != nil {
+			return s.Fail("failed to delete key", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "delete_key", "success", fmt.Sprintf("key deleted: %s", keyID))
-		fmt.Printf("Key %s deleted successfully\n", keyID)
+		s.OK(fmt.Sprintf("key deleted: %s", keyID))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Key %s deleted successfully\n", keyID)
 		return nil
 	},
 }
@@ -111,18 +93,13 @@ Only keys in the vault named by --vault are addressable, defaulting to
 //
 // - keysCmd: The parent command under which the delete command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized delete command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The delete command is a subcommand of the keys command and is used to delete a specific key.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
-func InitKeysDelete(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysDelete(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(deleteCmd)
 
-	return keysCmd
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

@@ -28,12 +28,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -67,72 +63,55 @@ or outside its not-before/expiry window is refused.`,
   rocketvault keys unwrap --key-id <uuid> --wrapped-key <base64> \
     --version 1`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "unwrap_key", Action: model.ActionKeysUnwrap, Policy: model.OpCreate,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
-		}
-
-		keyIDStr := viper.GetString("unwrap-key-id")
-		wrappedKeyB64 := viper.GetString("unwrap-wrapped-key")
-		version := viper.GetInt("unwrap-version")
+		keyIDStr, _ := cmd.Flags().GetString("key-id")
+		wrappedKeyB64, _ := cmd.Flags().GetString("wrapped-key")
+		version, _ := cmd.Flags().GetInt("version")
 
 		if keyIDStr == "" || wrappedKeyB64 == "" {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "--key-id and --wrapped-key are required", nil)
-			return fmt.Errorf("--key-id and --wrapped-key are required")
+			return s.Fail("--key-id and --wrapped-key are required", nil)
 		}
 
 		keyID, err := uuid.Parse(keyIDStr)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
 		wrappedKey, err := base64.StdEncoding.DecodeString(wrappedKeyB64)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "failed to decode wrapped key", err)
-			return fmt.Errorf("failed to decode --wrapped-key (must be standard base64): %w", err)
+			return s.Fail("failed to decode --wrapped-key (must be standard base64)", err)
 		}
 
-		// Get service container from context.
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysUnwrap, model.OpCreate)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
+		cryptoService := s.Container.GetCryptoService()
 
-		cryptoService := serviceContainer.GetCryptoService()
-
-		result, err := cryptoService.UnwrapKey(ctx, keyServices.UnwrapKeyRequest{
+		result, err := cryptoService.UnwrapKey(s.Ctx, keyServices.UnwrapKeyRequest{
 			KeyID:      keyID,
-			UserID:     claims.UserID,
-			VaultID:    vaultID,
-			Scope:      model.NewVaultScope(vaultID, claims.UserID),
+			UserID:     s.Claims.UserID,
+			VaultID:    s.VaultID,
+			Scope:      s.Scope,
 			WrappedKey: wrappedKey,
 			Algorithm:  "RSA-OAEP",
 			Version:    version,
 		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "unwrap_key", "failed", fmt.Sprintf("unwrap failed: %s", err), err)
-			return fmt.Errorf("unwrap failed: %w", err)
+			return s.Fail("unwrap failed", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "unwrap_key", "success",
-			fmt.Sprintf("key material unwrapped with vault key %s", keyID))
-		fmt.Println(base64.StdEncoding.EncodeToString(result.PlaintextKey))
+		s.OK(fmt.Sprintf("key material unwrapped with vault key %s", keyID))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), base64.StdEncoding.EncodeToString(result.PlaintextKey))
 		return nil
 	},
 }
@@ -143,15 +122,10 @@ func NewUnwrapCmd() *cobra.Command {
 }
 
 // InitKeysUnwrap adds the unwrap subcommand to the keys command.
-func InitKeysUnwrap(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysUnwrap(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(unwrapCmd)
 
 	unwrapCmd.Flags().String("key-id", "", "UUID of the vault RSA key used for unwrapping")
 	unwrapCmd.Flags().String("wrapped-key", "", "Base64-encoded wrapped key material to unwrap")
 	unwrapCmd.Flags().Int("version", 0, "Key version to use (0 or omitted = the key's current version)")
-	viper.BindPFlag("unwrap-key-id", unwrapCmd.Flags().Lookup("key-id"))           //nolint:errcheck,gosec
-	viper.BindPFlag("unwrap-wrapped-key", unwrapCmd.Flags().Lookup("wrapped-key")) //nolint:errcheck,gosec
-	viper.BindPFlag("unwrap-version", unwrapCmd.Flags().Lookup("version"))         //nolint:errcheck,gosec
-
-	return keysCmd
 }

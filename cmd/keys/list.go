@@ -24,18 +24,11 @@ package keys
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -67,15 +60,15 @@ carrying at least one of the listed tags.`,
   rocketvault keys list --output json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Begin(cmd, vaultcli.Op{
+			Audit: "list_keys", Action: model.ActionKeysRead, Policy: model.OpGet,
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		keyType := viper.GetString("type")
-		tagsStr := viper.GetString("tags")
+		keyType, _ := cmd.Flags().GetString("type")
+		tagsStr, _ := cmd.Flags().GetString("tags")
 
 		var tags []string
 		if tagsStr != "" {
@@ -85,46 +78,14 @@ carrying at least one of the listed tags.`,
 			}
 		}
 
-		// Get service container from context
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		keyService := serviceContainer.GetKeyService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRead, model.OpGet)
+		keys, err := s.Container.GetKeyService().ListKeys(s.Ctx, s.Scope,
+			model.KeyFilter{Type: keyType, Tags: tags})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+			return s.Fail("failed to list keys", err)
 		}
 
-		keys, err := keyService.ListKeys(ctx, model.NewVaultScope(vaultID, claims.UserID), model.KeyFilter{Type: keyType, Tags: tags})
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_keys", "failed", fmt.Sprintf("failed to list keys: %s", err), err)
-			return fmt.Errorf("failed to list keys: %w", err)
-		}
-
-		log.LogAuditInfo(claims.UserID.String(), "list_keys", "success", fmt.Sprintf("listed %d keys", len(keys)))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"ID", "Name", "Type", "Revoked", "Tags", "Created"}
-		rows := make([][]string, len(keys))
-		for i, k := range keys {
-			rows[i] = []string{
-				k.ID.String(),
-				k.Name,
-				k.Type,
-				strconv.FormatBool(k.Revoked),
-				strings.Join(k.Tags, ","),
-				k.CreatedAt.Format(time.RFC3339),
-			}
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+		s.OK(fmt.Sprintf("listed %d keys", len(keys)))
+		return vaultcli.Print(s, keyColumns, keys...)
 	},
 }
 
@@ -137,23 +98,16 @@ carrying at least one of the listed tags.`,
 //
 // - keysCmd: The parent command under which the list command will be added.
 //
-// returns:
-//
-// - *cobra.Command: The initialized list command.
-//
 // This function is called in the main function of the application to set up the command structure.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
 // The list command is a subcommand of the keys command and is used to retrieve a list of all keys.
 // It is part of the Cobra library, which is used for creating command-line applications in Go.
-func InitKeysList(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysList(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(listCmd)
 
 	listCmd.Flags().String("type", "", "Filter by key type (RSA, ECDSA)")
 	listCmd.Flags().String("tags", "", "Comma-separated tags to filter keys")
-	viper.BindPFlag("type", listCmd.Flags().Lookup("type")) //nolint:errcheck,gosec
-	viper.BindPFlag("tags", listCmd.Flags().Lookup("tags")) //nolint:errcheck,gosec
 
-	return keysCmd
 	// Here you will define your flags and configuration settings.
 
 	// Cobra supports Persistent Flags which will work for this command

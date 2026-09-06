@@ -26,16 +26,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	keyServices "rocketvault/internal/services/keys"
 	"rocketvault/model"
 )
@@ -61,46 +55,36 @@ The key is created in the vault named by --vault, which defaults to
   # Import from inline JSON
   rocketvault keys import --name <name> --jwk '{"kty":"RSA","n":"...","e":"AQAB","d":"..."}'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "import_key", Action: model.ActionKeysImport, Policy: model.OpCreate,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
-		}
-
-		name := viper.GetString("key-import-name")
-		jwkInline := viper.GetString("key-import-jwk")
-		jwkFile := viper.GetString("key-import-jwk-file")
-		tagsStr := viper.GetString("key-import-tags")
+		name, _ := cmd.Flags().GetString("name")
+		jwkInline, _ := cmd.Flags().GetString("jwk")
+		jwkFile, _ := cmd.Flags().GetString("jwk-file")
+		tagsStr, _ := cmd.Flags().GetString("tags")
 
 		if name == "" {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", "name is required", nil)
-			return fmt.Errorf("name is required")
+			return s.Fail("name is required", nil)
 		}
 		if jwkInline == "" && jwkFile == "" {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", "one of --jwk or --jwk-file is required", nil)
-			return fmt.Errorf("one of --jwk or --jwk-file is required")
+			return s.Fail("one of --jwk or --jwk-file is required", nil)
 		}
 		if jwkInline != "" && jwkFile != "" {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", "--jwk and --jwk-file are mutually exclusive", nil)
-			return fmt.Errorf("--jwk and --jwk-file are mutually exclusive")
+			return s.Fail("--jwk and --jwk-file are mutually exclusive", nil)
 		}
 
-		var jwkBytes []byte
+		jwkBytes := []byte(jwkInline)
 		if jwkFile != "" {
-			data, err := os.ReadFile(jwkFile)
-			if err != nil {
-				log.LogAuditError(claims.UserID.String(), "import_key", "failed", fmt.Sprintf("failed to read jwk file: %s", err), err)
-				return fmt.Errorf("failed to read jwk file: %w", err)
+			data, readErr := os.ReadFile(jwkFile) //nolint:gosec // operator-supplied path, same as any CLI file argument
+			if readErr != nil {
+				return s.Fail("failed to read jwk file", readErr)
 			}
 			jwkBytes = data
-		} else {
-			jwkBytes = []byte(jwkInline)
 		}
 
 		var tags []string
@@ -111,58 +95,37 @@ The key is created in the vault named by --vault, which defaults to
 			}
 		}
 
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		keyService := serviceContainer.GetKeyService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysImport, model.OpCreate)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+		// Authorize only after the input is known good, so a malformed
+		// argument still reports itself rather than a permission error.
+		if err := s.Authorize(); err != nil {
+			return err
 		}
 
 		req := keyServices.ImportKeyRequest{
 			Name:    name,
 			JWK:     jwkBytes,
 			Tags:    tags,
-			UserID:  claims.UserID,
-			VaultID: vaultID,
+			UserID:  s.Claims.UserID,
+			VaultID: s.VaultID,
 		}
 		if cmd.Flags().Changed("purge-protection") {
 			purgeProtection, _ := cmd.Flags().GetBool("purge-protection")
 			req.PurgeProtection = &purgeProtection
 		}
 
-		result, err := keyService.ImportKey(ctx, req)
+		result, err := s.Container.GetKeyService().ImportKey(s.Ctx, req)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "import_key", "failed", fmt.Sprintf("failed to import key: %s", err), err)
-			return fmt.Errorf("failed to import key: %w", err)
+			return s.Fail("failed to import key", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "import_key", "success", fmt.Sprintf("key imported: %s, ID: %s", result.Name, result.KeyID))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-		headers := []string{"ID", "Name", "Type", "Tags", "Created"}
-		row := []string{
-			result.KeyID.String(),
-			result.Name,
-			result.Type,
-			strings.Join(result.Tags, ","),
-			result.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("key imported: %s, ID: %s", result.Name, result.KeyID))
+		return vaultcli.Print(s, createdKeyColumns, result)
 	},
 }
 
 // InitKeysImport initializes the import command for keys and adds it to the
 // keys command.
-func InitKeysImport(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysImport(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(importCmd)
 
 	importCmd.Flags().String("name", "", "Name for the imported key")
@@ -170,10 +133,4 @@ func InitKeysImport(keysCmd *cobra.Command) *cobra.Command {
 	importCmd.Flags().String("jwk-file", "", "Path to a file containing JWK JSON")
 	importCmd.Flags().String("tags", "", "Comma-separated tags for the key")
 	importCmd.Flags().Bool("purge-protection", false, "Protect the key from being purged")
-	viper.BindPFlag("key-import-name", importCmd.Flags().Lookup("name"))         //nolint:errcheck,gosec
-	viper.BindPFlag("key-import-jwk", importCmd.Flags().Lookup("jwk"))           //nolint:errcheck,gosec
-	viper.BindPFlag("key-import-jwk-file", importCmd.Flags().Lookup("jwk-file")) //nolint:errcheck,gosec
-	viper.BindPFlag("key-import-tags", importCmd.Flags().Lookup("tags"))         //nolint:errcheck,gosec
-
-	return keysCmd
 }

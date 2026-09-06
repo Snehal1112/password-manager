@@ -449,7 +449,7 @@ process; "keys rotate" is the only way to rotate from the CLI.`,
 
 // InitKeysRotationPolicy adds the "rotation-policy" command, and its get,
 // set, delete, list and status subcommands, to the keys command.
-func InitKeysRotationPolicy(keysCmd *cobra.Command) *cobra.Command {
+func InitKeysRotationPolicy(keysCmd *cobra.Command) {
 	keysCmd.AddCommand(rotationPolicyCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicyGetCmd)
 	rotationPolicyCmd.AddCommand(rotationPolicySetCmd)
@@ -461,6 +461,4 @@ func InitKeysRotationPolicy(keysCmd *cobra.Command) *cobra.Command {
 	rotationPolicySetCmd.Flags().Int("notify-before-expiry-days", 0, "Days before a version's expiry to fire a notification")
 	rotationPolicySetCmd.Flags().Int("expiry-days", 0, "Lifetime in days stamped on each newly rotated version")
 	rotationPolicySetCmd.Flags().Bool("enabled", false, "Whether the policy is active (required)")
-
-	return keysCmd
 }

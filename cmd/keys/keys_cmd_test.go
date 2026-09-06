@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -352,14 +352,33 @@ func newTestCmd(runE func(*cobra.Command, []string) error, args []string) (*cobr
 	return cmd, &buf
 }
 
-// viperSet sets viper keys and returns a cleanup func.
-func viperSet(kvs map[string]any) func() {
+// setFlags registers each key as a flag on cmd (if not already registered)
+// and sets its value. Commands read their inputs from their own flag set,
+// never from global viper: two commands binding the same viper key overwrite
+// each other process-wide, which is what silently disabled `keys list --tags`.
+func setFlags(cmd *cobra.Command, kvs map[string]any) {
 	for k, v := range kvs {
-		viper.Set(k, v)
-	}
-	return func() {
-		for k := range kvs {
-			viper.Set(k, nil)
+		switch val := v.(type) {
+		case string:
+			if cmd.Flags().Lookup(k) == nil {
+				cmd.Flags().String(k, val, "")
+				continue
+			}
+			_ = cmd.Flags().Set(k, val)
+		case int:
+			if cmd.Flags().Lookup(k) == nil {
+				cmd.Flags().Int(k, val, "")
+				continue
+			}
+			_ = cmd.Flags().Set(k, strconv.Itoa(val))
+		case bool:
+			if cmd.Flags().Lookup(k) == nil {
+				cmd.Flags().Bool(k, val, "")
+				continue
+			}
+			_ = cmd.Flags().Set(k, strconv.FormatBool(val))
+		default:
+			panic("setFlags: unsupported flag type for " + k)
 		}
 	}
 }
@@ -377,27 +396,21 @@ func TestCreateCmd_NoClaims(t *testing.T) {
 func TestCreateCmd_ForbiddenRole(t *testing.T) {
 	sc := &testutils.MockServiceContainer{}
 	ctx := buildUserCtx(sc, model.RoleUser)
-	cleanup := viperSet(map[string]any{
-		"key-name": "k", "key-type": "RSA",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "k", "type": "RSA"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
 }
 
 func TestCreateCmd_NoServiceContainer(t *testing.T) {
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048,
-	})
-	defer cleanup()
 	ctx := context.Background()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	// No ServiceContainerKey in context.
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": "RSA", "bits": 2048})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -408,11 +421,8 @@ func TestCreateCmd_MissingName(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-name": "", "key-type": "RSA",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "", "type": "RSA"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "name and type are required")
@@ -423,11 +433,8 @@ func TestCreateCmd_MissingType(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "name and type are required")
@@ -438,11 +445,8 @@ func TestCreateCmd_InvalidType(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "INVALID",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": "INVALID"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid key type")
@@ -465,12 +469,8 @@ func TestCreateCmd_RSASuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, buf := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": "RSA", "bits": 2048, "curve": "P-256", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -485,11 +485,8 @@ func TestImportCmd_MissingName(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-import-name": "", "key-import-jwk": `{"kty":"RSA"}`,
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(importCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "", "jwk": `{"kty":"RSA"}`})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "name is required")
@@ -500,11 +497,8 @@ func TestImportCmd_MissingJWK(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-import-name": "imported-key", "key-import-jwk": "", "key-import-jwk-file": "",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(importCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "imported-key", "jwk": "", "jwk-file": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "--jwk or --jwk-file is required")
@@ -515,11 +509,8 @@ func TestImportCmd_BothJWKFlags_MutuallyExclusive(t *testing.T) {
 		MockServiceContainer: &testutils.MockServiceContainer{},
 	}
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-import-name": "imported-key", "key-import-jwk": `{"kty":"RSA"}`, "key-import-jwk-file": "/tmp/x.json",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(importCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "imported-key", "jwk": `{"kty":"RSA"}`, "jwk-file": "/tmp/x.json"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "mutually exclusive")
@@ -542,12 +533,8 @@ func TestImportCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-import-name": "imported-key", "key-import-jwk": `{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`, "key-import-tags": "",
-	})
-	defer cleanup()
-
 	cmd, buf := newTestCmd(importCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "imported-key", "jwk": `{"kty":"RSA","n":"...","e":"AQAB","d":"..."}`, "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -568,12 +555,9 @@ func TestImportCmd_JWKFile(t *testing.T) {
 	keySvc.On("ImportKey", mock.Anything, mock.Anything).Return(result, nil)
 
 	ctx := buildAdminCtx(sc)
-	cleanup := viperSet(map[string]any{
-		"key-import-name": "from-file", "key-import-jwk-file": tmpFile.Name(), "key-import-jwk": "",
-	})
-	defer cleanup()
 
 	cmd, buf := newTestCmd(importCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "from-file", "jwk-file": tmpFile.Name(), "jwk": ""})
 	cmd.SetContext(ctx)
 	err = cmd.Execute()
 	assert.NoError(t, err)
@@ -600,12 +584,8 @@ func TestCreateCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": "RSA", "bits": 2048, "curve": "P-256", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -640,12 +620,8 @@ func TestCreateCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": "RSA", "bits": 2048, "curve": "P-256", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -674,12 +650,8 @@ func TestCreateCmd_MultiRoleCaller_PrivilegedRoleNotFirst_Allowed(t *testing.T) 
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "mykey", "key-type": "RSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "mykey", "type": "RSA", "bits": 2048, "curve": "P-256", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -703,12 +675,8 @@ func TestCreateCmd_RSAWithTags(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "tagged-key", "key-type": "rsa", "key-bits": 2048, "key-curve": "P-256", "key-tags": "prod,infra",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "tagged-key", "type": "rsa", "bits": 2048, "curve": "P-256", "tags": "prod,infra"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -732,12 +700,8 @@ func TestCreateCmd_ECDSASuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "eckey", "key-type": "ECDSA", "key-bits": 2048, "key-curve": "P-256", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "eckey", "type": "ECDSA", "bits": 2048, "curve": "P-256", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -756,12 +720,8 @@ func TestCreateCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "failkey", "key-type": "RSA", "key-bits": 2048, "key-curve": "", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "failkey", "type": "RSA", "bits": 2048, "curve": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to create key")
@@ -780,12 +740,8 @@ func TestCreateCmd_NoFormatter(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	// No OutputFormatterKey.
 
-	cleanup := viperSet(map[string]any{
-		"key-name": "k", "key-type": "RSA", "key-bits": 2048, "key-curve": "", "key-tags": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(createCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"name": "k", "type": "RSA", "bits": 2048, "curve": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "output formatter not available")
@@ -807,8 +763,6 @@ func TestListCmd_NoServiceContainer(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
 	cmd.SetContext(ctx)
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
 }
@@ -830,10 +784,8 @@ func TestListCmd_NonAdminSuccess(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
-
 	cmd, buf := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -852,10 +804,8 @@ func TestListCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -888,10 +838,8 @@ func TestListCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -913,10 +861,8 @@ func TestListCmd_NonAdminWithTags(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{"type": "RSA", "tags": "prod,secure"})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "RSA", "tags": "prod,secure"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -938,10 +884,8 @@ func TestListCmd_AdminRoleAloneDoesNotBypassVaultAuthorization(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -964,10 +908,8 @@ func TestListCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to list keys")
@@ -986,10 +928,8 @@ func TestListCmd_NoFormatter(t *testing.T) {
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 	// No OutputFormatterKey.
 
-	cleanup := viperSet(map[string]any{"type": "", "tags": ""})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(listCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"type": "", "tags": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "output formatter not available")
@@ -1404,57 +1344,52 @@ func TestRotateCmd_ServiceError(t *testing.T) {
 
 func TestWrapCmd_NoClaims(t *testing.T) {
 	ctx := context.Background()
-	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": "dGVzdA=="})
-	defer cleanup()
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "key-material": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "unauthorized")
 }
 
 func TestWrapCmd_MissingKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]any{"wrap-key-id": "", "wrap-key-material": "dGVzdA=="})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "", "key-material": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "--key-id and --key-material are required")
 }
 
 func TestWrapCmd_MissingKeyMaterial(t *testing.T) {
-	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": ""})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "key-material": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "--key-id and --key-material are required")
 }
 
 func TestWrapCmd_InvalidKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]any{"wrap-key-id": "not-a-uuid", "wrap-key-material": "dGVzdA=="})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "not-a-uuid", "key-material": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid key ID")
 }
 
 func TestWrapCmd_InvalidBase64(t *testing.T) {
-	cleanup := viperSet(map[string]any{"wrap-key-id": uuid.New().String(), "wrap-key-material": "not!!valid@@base64"})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "key-material": "not!!valid@@base64"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to decode --key-material")
@@ -1462,13 +1397,12 @@ func TestWrapCmd_InvalidBase64(t *testing.T) {
 
 func TestWrapCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
-	cleanup := viperSet(map[string]any{"wrap-key-id": keyID.String(), "wrap-key-material": "dGVzdA=="})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	// No service container.
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "key-material": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -1491,14 +1425,10 @@ func TestWrapCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":       keyID.String(),
-		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
-	})
-	defer cleanup()
-
 	// wrapCmd uses fmt.Println (writes to os.Stdout), not cmd.OutOrStdout().
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"key-material": base64.StdEncoding.EncodeToString(plaintext)})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1516,13 +1446,9 @@ func TestWrapCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":       keyID.String(),
-		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("plaintext")),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"key-material": base64.StdEncoding.EncodeToString([]byte("plaintext"))})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -1556,13 +1482,9 @@ func TestWrapCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":       keyID.String(),
-		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"key-material": base64.StdEncoding.EncodeToString(plaintext)})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1583,13 +1505,9 @@ func TestWrapCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":       keyID.String(),
-		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("plaintext")),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"key-material": base64.StdEncoding.EncodeToString([]byte("plaintext"))})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "wrap failed")
@@ -1598,58 +1516,53 @@ func TestWrapCmd_ServiceError(t *testing.T) {
 // ========== unwrapCmd tests ==========
 
 func TestUnwrapCmd_NoClaims(t *testing.T) {
-	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "dGVzdA=="})
-	defer cleanup()
 	ctx := context.Background()
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "wrapped-key": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "unauthorized")
 }
 
 func TestUnwrapCmd_MissingKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]any{"unwrap-key-id": "", "unwrap-wrapped-key": "dGVzdA=="})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "", "wrapped-key": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "--key-id and --wrapped-key are required")
 }
 
 func TestUnwrapCmd_MissingWrappedKey(t *testing.T) {
-	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": ""})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "wrapped-key": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "--key-id and --wrapped-key are required")
 }
 
 func TestUnwrapCmd_InvalidKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]any{"unwrap-key-id": "bad-uuid", "unwrap-wrapped-key": "dGVzdA=="})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "bad-uuid", "wrapped-key": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid key ID")
 }
 
 func TestUnwrapCmd_InvalidBase64(t *testing.T) {
-	cleanup := viperSet(map[string]any{"unwrap-key-id": uuid.New().String(), "unwrap-wrapped-key": "not!!base64"})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "wrapped-key": "not!!base64"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to decode --wrapped-key")
@@ -1657,12 +1570,11 @@ func TestUnwrapCmd_InvalidBase64(t *testing.T) {
 
 func TestUnwrapCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
-	cleanup := viperSet(map[string]any{"unwrap-key-id": keyID.String(), "unwrap-wrapped-key": "dGVzdA=="})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "wrapped-key": "dGVzdA=="})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -1685,14 +1597,10 @@ func TestUnwrapCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":      keyID.String(),
-		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
-	})
-	defer cleanup()
-
 	// unwrapCmd uses fmt.Println (writes to os.Stdout), not cmd.OutOrStdout().
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes)})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1710,13 +1618,9 @@ func TestUnwrapCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":      keyID.String(),
-		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped"))})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -1750,13 +1654,9 @@ func TestUnwrapCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":      keyID.String(),
-		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"wrapped-key": base64.StdEncoding.EncodeToString(wrappedBytes)})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1777,13 +1677,9 @@ func TestUnwrapCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":      keyID.String(),
-		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped"))})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "unwrap failed")
@@ -1805,13 +1701,9 @@ func TestWrapCmd_SetsResolvedVaultID(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":       keyID.String(),
-		"wrap-key-material": base64.StdEncoding.EncodeToString(plaintext),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"key-material": base64.StdEncoding.EncodeToString(plaintext)})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1834,13 +1726,9 @@ func TestUnwrapCmd_SetsResolvedVaultID(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":      keyID.String(),
-		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString(wrapped),
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"wrapped-key": base64.StdEncoding.EncodeToString(wrapped)})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1851,45 +1739,41 @@ func TestUnwrapCmd_SetsResolvedVaultID(t *testing.T) {
 
 func TestSignCmd_NoClaims(t *testing.T) {
 	ctx := context.Background()
-	cleanup := viperSet(map[string]any{"sign-key-id": uuid.New().String(), "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
-	defer cleanup()
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "data": "dGVzdA==", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "unauthorized")
 }
 
 func TestSignCmd_MissingKeyIDOrData(t *testing.T) {
-	cleanup := viperSet(map[string]any{"sign-key-id": "", "sign-data": "", "sign-algorithm": "RS256"})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "", "data": "", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "--key-id and --data are required")
 }
 
 func TestSignCmd_InvalidKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]any{"sign-key-id": "not-a-uuid", "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "not-a-uuid", "data": "dGVzdA==", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid key ID")
 }
 
 func TestSignCmd_InvalidBase64(t *testing.T) {
-	cleanup := viperSet(map[string]any{"sign-key-id": uuid.New().String(), "sign-data": "not!!valid@@base64", "sign-algorithm": "RS256"})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "data": "not!!valid@@base64", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to decode --data")
@@ -1897,13 +1781,12 @@ func TestSignCmd_InvalidBase64(t *testing.T) {
 
 func TestSignCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
-	cleanup := viperSet(map[string]any{"sign-key-id": keyID.String(), "sign-data": "dGVzdA==", "sign-algorithm": "RS256"})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	// No service container.
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": "dGVzdA==", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -1927,14 +1810,10 @@ func TestSignCmd_DefaultsAlgorithmToRS256(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString(data),
-		"sign-algorithm": "",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString(data),
+		"algorithm": ""})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1959,14 +1838,10 @@ func TestSignCmd_Success(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString(data),
-		"sign-algorithm": "ES256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString(data),
+		"algorithm": "ES256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -1984,14 +1859,10 @@ func TestSignCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
-		"sign-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -2025,14 +1896,10 @@ func TestSignCmd_Authorized(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString(data),
-		"sign-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString(data),
+		"algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -2053,14 +1920,10 @@ func TestSignCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
-		"sign-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "sign failed")
@@ -2081,14 +1944,10 @@ func TestSignCmd_SetsResolvedVaultID(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
-		"sign-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -2099,12 +1958,9 @@ func TestSignCmd_SetsResolvedVaultID(t *testing.T) {
 
 func TestVerifyCmd_NoClaims(t *testing.T) {
 	ctx := context.Background()
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": uuid.New().String(), "verify-data": "dGVzdA==",
-		"verify-signature": "c2ln", "verify-algorithm": "RS256",
-	})
-	defer cleanup()
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "data": "dGVzdA==",
+		"signature": "c2ln", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "unauthorized")
@@ -2123,15 +1979,14 @@ func TestVerifyCmd_MissingRequiredFlags(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cleanup := viperSet(map[string]any{
-				"verify-key-id": tc.keyID, "verify-data": tc.data,
-				"verify-signature": tc.signature, "verify-algorithm": "RS256",
-			})
-			defer cleanup()
 			claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 			ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 			ctx = context.WithValue(ctx, common.LogKey, newLogger())
 			cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+			setFlags(cmd, map[string]any{
+				"key-id": tc.keyID, "data": tc.data,
+				"signature": tc.signature, "algorithm": "RS256",
+			})
 			cmd.SetContext(ctx)
 			err := cmd.Execute()
 			assert.ErrorContains(t, err, "--key-id, --data, and --signature are required")
@@ -2140,45 +1995,36 @@ func TestVerifyCmd_MissingRequiredFlags(t *testing.T) {
 }
 
 func TestVerifyCmd_InvalidKeyID(t *testing.T) {
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": "not-a-uuid", "verify-data": "dGVzdA==",
-		"verify-signature": "c2ln", "verify-algorithm": "RS256",
-	})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": "not-a-uuid", "data": "dGVzdA==",
+		"signature": "c2ln", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "invalid key ID")
 }
 
 func TestVerifyCmd_InvalidDataBase64(t *testing.T) {
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": uuid.New().String(), "verify-data": "not!!valid@@base64",
-		"verify-signature": "c2ln", "verify-algorithm": "RS256",
-	})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "data": "not!!valid@@base64",
+		"signature": "c2ln", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to decode --data")
 }
 
 func TestVerifyCmd_InvalidSignatureBase64(t *testing.T) {
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": uuid.New().String(), "verify-data": "dGVzdA==",
-		"verify-signature": "not!!valid@@base64", "verify-algorithm": "RS256",
-	})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": uuid.New().String(), "data": "dGVzdA==",
+		"signature": "not!!valid@@base64", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "failed to decode --signature")
@@ -2186,15 +2032,12 @@ func TestVerifyCmd_InvalidSignatureBase64(t *testing.T) {
 
 func TestVerifyCmd_NoServiceContainer(t *testing.T) {
 	keyID := uuid.New()
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": keyID.String(), "verify-data": "dGVzdA==",
-		"verify-signature": "c2ln", "verify-algorithm": "RS256",
-	})
-	defer cleanup()
 	claims := &model.Claims{UserID: uuid.New(), Roles: []string{model.RoleAdmin}}
 	ctx := context.WithValue(context.Background(), common.ClaimsKey, claims)
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": "dGVzdA==",
+		"signature": "c2ln", "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "service container not available")
@@ -2211,13 +2054,9 @@ func TestVerifyCmd_Denied(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": keyID.String(), "verify-data": base64.StdEncoding.EncodeToString([]byte("data")),
-		"verify-signature": base64.StdEncoding.EncodeToString([]byte("sig")), "verify-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": base64.StdEncoding.EncodeToString([]byte("data")),
+		"signature": base64.StdEncoding.EncodeToString([]byte("sig")), "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "forbidden")
@@ -2251,13 +2090,9 @@ func TestVerifyCmd_Authorized_ValidSignature(t *testing.T) {
 	ctx := buildAdminCtx(sc)
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": keyID.String(), "verify-data": base64.StdEncoding.EncodeToString(data),
-		"verify-signature": base64.StdEncoding.EncodeToString(signature), "verify-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, out := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": base64.StdEncoding.EncodeToString(data),
+		"signature": base64.StdEncoding.EncodeToString(signature), "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err, "a valid signature must exit 0")
@@ -2279,13 +2114,9 @@ func TestVerifyCmd_InvalidSignature_ExitsNonZeroButPrintsResult(t *testing.T) {
 	ctx := buildAdminCtx(sc)
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": keyID.String(), "verify-data": base64.StdEncoding.EncodeToString([]byte("data")),
-		"verify-signature": base64.StdEncoding.EncodeToString([]byte("bad-sig")), "verify-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, out := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": base64.StdEncoding.EncodeToString([]byte("data")),
+		"signature": base64.StdEncoding.EncodeToString([]byte("bad-sig")), "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.Error(t, err, "an invalid signature must exit non-zero")
@@ -2305,13 +2136,9 @@ func TestVerifyCmd_ServiceError(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": keyID.String(), "verify-data": base64.StdEncoding.EncodeToString([]byte("data")),
-		"verify-signature": base64.StdEncoding.EncodeToString([]byte("sig")), "verify-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": base64.StdEncoding.EncodeToString([]byte("data")),
+		"signature": base64.StdEncoding.EncodeToString([]byte("sig")), "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.ErrorContains(t, err, "verify failed")
@@ -2330,13 +2157,9 @@ func TestVerifyCmd_SetsResolvedVaultID(t *testing.T) {
 	ctx := buildAdminCtx(sc)
 	ctx = context.WithValue(ctx, common.ClaimsKey, claims)
 
-	cleanup := viperSet(map[string]any{
-		"verify-key-id": keyID.String(), "verify-data": base64.StdEncoding.EncodeToString([]byte("data")),
-		"verify-signature": base64.StdEncoding.EncodeToString([]byte("sig")), "verify-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(), "data": base64.StdEncoding.EncodeToString([]byte("data")),
+		"signature": base64.StdEncoding.EncodeToString([]byte("sig")), "algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	err := cmd.Execute()
 	assert.NoError(t, err)
@@ -2370,15 +2193,11 @@ func TestSignCmd_PassesVersionToService(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
-		"sign-algorithm": "RS256",
-		"sign-version":   2,
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"algorithm": "RS256",
+		"version":   2})
 	cmd.SetContext(ctx)
 	assert.NoError(t, cmd.Execute())
 	cryptoSvc.AssertExpectations(t)
@@ -2398,14 +2217,10 @@ func TestSignCmd_OmittedVersionSendsZero(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"sign-key-id":    keyID.String(),
-		"sign-data":      base64.StdEncoding.EncodeToString([]byte("data")),
-		"sign-algorithm": "RS256",
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(signCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"algorithm": "RS256"})
 	cmd.SetContext(ctx)
 	assert.NoError(t, cmd.Execute())
 	cryptoSvc.AssertExpectations(t)
@@ -2428,16 +2243,12 @@ func TestVerifyCmd_PassesVersionToService(t *testing.T) {
 	// base64 line, so only this command needs one in context.
 	ctx = context.WithValue(ctx, common.OutputFormatterKey, newTestFmtr())
 
-	cleanup := viperSet(map[string]interface{}{
-		"verify-key-id":    keyID.String(),
-		"verify-data":      base64.StdEncoding.EncodeToString([]byte("data")),
-		"verify-signature": base64.StdEncoding.EncodeToString([]byte("sig")),
-		"verify-algorithm": "RS256",
-		"verify-version":   3,
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(verifyCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"data":      base64.StdEncoding.EncodeToString([]byte("data")),
+		"signature": base64.StdEncoding.EncodeToString([]byte("sig")),
+		"algorithm": "RS256",
+		"version":   3})
 	cmd.SetContext(ctx)
 	assert.NoError(t, cmd.Execute())
 	cryptoSvc.AssertExpectations(t)
@@ -2457,14 +2268,10 @@ func TestWrapCmd_PassesVersionToService(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"wrap-key-id":       keyID.String(),
-		"wrap-key-material": base64.StdEncoding.EncodeToString([]byte("material")),
-		"wrap-version":      4,
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(wrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"key-material": base64.StdEncoding.EncodeToString([]byte("material")),
+		"version":      4})
 	cmd.SetContext(ctx)
 	assert.NoError(t, cmd.Execute())
 	cryptoSvc.AssertExpectations(t)
@@ -2484,14 +2291,10 @@ func TestUnwrapCmd_PassesVersionToService(t *testing.T) {
 	ctx = context.WithValue(ctx, common.LogKey, newLogger())
 	ctx = context.WithValue(ctx, common.ServiceContainerKey, sc)
 
-	cleanup := viperSet(map[string]interface{}{
-		"unwrap-key-id":      keyID.String(),
-		"unwrap-wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
-		"unwrap-version":     5,
-	})
-	defer cleanup()
-
 	cmd, _ := newTestCmd(unwrapCmd.RunE, nil)
+	setFlags(cmd, map[string]any{"key-id": keyID.String(),
+		"wrapped-key": base64.StdEncoding.EncodeToString([]byte("wrapped")),
+		"version":     5})
 	cmd.SetContext(ctx)
 	assert.NoError(t, cmd.Execute())
 	cryptoSvc.AssertExpectations(t)
