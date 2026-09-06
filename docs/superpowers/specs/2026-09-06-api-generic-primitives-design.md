@@ -306,3 +306,12 @@ envelope. This makes an existing dependency explicit rather than creating one �
 `ComplianceReportServiceInterface.QueryLogs` already returns that type, so the
 build graph was already `api` -> `services/audit` -> `repositories` — but it is
 worth a deliberate look if a layer-boundary gate is ever added.
+
+**Resolved in plan 11** (`e54de6f`). The look was taken and the import removed.
+Commit `18e9f4f` had already established the opposite convention: it moved
+`KeyFilter`, `CertificateFilter` and `AuditFilter` into `model/` and left type
+aliases in `internal/repositories`, specifically so `api/` and `cmd/` would stop
+naming that package. `AuditLog` was simply missed by that move. Plan 11 mirrors
+the precedent — the struct now lives in `model/audit.go` with
+`type AuditLog = model.AuditLog` left behind — so `api/` again names no
+repository type in production code, and the response shape is unchanged.
