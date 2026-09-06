@@ -105,7 +105,7 @@ func (r *rotationPolicyRepository) Read(ctx context.Context, id uuid.UUID, scope
 	policy, err := ScopedGet(ctx, r.db, query, []any{id.String()}, scope, scanRotationPolicyRow)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("rotation policy not found")
+			return nil, fmt.Errorf("rotation policy not found: %w", ErrNotFound)
 		}
 		r.log.WithError(err).Error("Failed to read rotation policy")
 		return nil, fmt.Errorf("failed to read rotation policy: %w", err)
@@ -165,7 +165,7 @@ func (r *rotationPolicyRepository) Update(ctx context.Context, policy *model.Rot
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return fmt.Errorf("rotation policy not found")
+		return fmt.Errorf("rotation policy not found: %w", ErrNotFound)
 	}
 
 	r.log.WithFields(map[string]interface{}{
@@ -186,7 +186,7 @@ func (r *rotationPolicyRepository) Delete(ctx context.Context, id uuid.UUID, sco
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return fmt.Errorf("rotation policy not found")
+		return fmt.Errorf("rotation policy not found: %w", ErrNotFound)
 	}
 
 	r.log.WithField("policy_id", id).Info("Rotation policy deleted")
@@ -401,7 +401,7 @@ func (r *rotationPolicyRepository) UpdateSecretPolicyRotation(ctx context.Contex
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return fmt.Errorf("secret policy not found")
+		return fmt.Errorf("secret policy not found: %w", ErrNotFound)
 	}
 
 	return nil
@@ -671,7 +671,7 @@ func (r *rotationPolicyRepository) UpdateReminder(ctx context.Context, reminder 
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		return fmt.Errorf("reminder not found")
+		return fmt.Errorf("reminder not found: %w", ErrNotFound)
 	}
 
 	r.log.WithField("reminder_id", reminder.ID).Info("Reminder updated")

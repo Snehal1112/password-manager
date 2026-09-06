@@ -122,7 +122,7 @@ func (r *SessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.U
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("session not found")
+			return nil, fmt.Errorf("session not found: %w", ErrNotFound)
 		}
 		r.logger.WithFields(logrus.Fields{
 			"session_id": sessionID.String(),
@@ -174,7 +174,7 @@ func (r *SessionRepository) GetSessionByRefreshToken(ctx context.Context, refres
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("session not found or expired")
+			return nil, fmt.Errorf("session not found or expired: %w", ErrNotFound)
 		}
 		r.logger.WithFields(logrus.Fields{
 			"refresh_token_hash": refreshTokenHash[:10] + "...", // Log partial hash for security
@@ -297,7 +297,7 @@ func (r *SessionRepository) UpdateSessionLastUsed(ctx context.Context, sessionID
 		}
 
 		if rowsAffected == 0 {
-			return fmt.Errorf("session not found or already revoked")
+			return fmt.Errorf("session not found or already revoked: %w", ErrNotFound)
 		}
 
 		return nil
@@ -328,7 +328,7 @@ func (r *SessionRepository) RevokeSession(ctx context.Context, sessionID uuid.UU
 		}
 
 		if rowsAffected == 0 {
-			return fmt.Errorf("session not found or already revoked")
+			return fmt.Errorf("session not found or already revoked: %w", ErrNotFound)
 		}
 
 		return nil
