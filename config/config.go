@@ -390,15 +390,31 @@ func containsString(values []string, target string) bool {
 // internal/cachekit.TieredCache). Disabled by default -- a deployment with
 // no cache.rocket_mem section behaves identically to before this existed.
 type RocketMemConfig struct {
-	Enabled      bool
-	Addr         string
-	TLS          bool
+	Enabled bool
+	Addr    string
+	TLS     bool
+	// CAPath is optional: a PEM file to trust rocket-mem's TLS cert against,
+	// for a self-signed or private-CA deployment. Empty verifies against the
+	// system trust store instead.
+	CAPath       string
 	Username     string
 	Password     string
 	DialTimeout  time.Duration
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	PoolSize     int
+	// ReconnectSteadyStateInterval is how often the background reconnect
+	// supervisor polls Rocket-mem while it believes the connection is
+	// healthy. <= 0 disables the supervisor entirely.
+	ReconnectSteadyStateInterval time.Duration
+	// ReconnectInitialBackoff is the first retry delay once a poll fails.
+	ReconnectInitialBackoff time.Duration
+	// ReconnectMaxBackoff caps the growing retry delay during a sustained
+	// outage.
+	ReconnectMaxBackoff time.Duration
+	// ReconnectBackoffMultiplier grows the retry delay after each failed
+	// poll (delay *= multiplier, capped at ReconnectMaxBackoff).
+	ReconnectBackoffMultiplier float64
 }
 
 // LoadRocketMemConfig reads cache.rocket_mem.* from Viper. Fails closed:
@@ -411,11 +427,15 @@ type RocketMemConfig struct {
 // degrading silently.
 func LoadRocketMemConfig() (RocketMemConfig, error) {
 	cfg := RocketMemConfig{
-		Addr:         "127.0.0.1:6379",
-		DialTimeout:  100 * time.Millisecond,
-		ReadTimeout:  100 * time.Millisecond,
-		WriteTimeout: 100 * time.Millisecond,
-		PoolSize:     10,
+		Addr:                         "127.0.0.1:6379",
+		DialTimeout:                  100 * time.Millisecond,
+		ReadTimeout:                  100 * time.Millisecond,
+		WriteTimeout:                 100 * time.Millisecond,
+		PoolSize:                     10,
+		ReconnectSteadyStateInterval: 30 * time.Second,
+		ReconnectInitialBackoff:      1 * time.Second,
+		ReconnectMaxBackoff:          60 * time.Second,
+		ReconnectBackoffMultiplier:   2.0,
 	}
 	if viper.IsSet("cache.rocket_mem.enabled") {
 		cfg.Enabled = viper.GetBool("cache.rocket_mem.enabled")
@@ -425,6 +445,9 @@ func LoadRocketMemConfig() (RocketMemConfig, error) {
 	}
 	if viper.IsSet("cache.rocket_mem.tls") {
 		cfg.TLS = viper.GetBool("cache.rocket_mem.tls")
+	}
+	if viper.IsSet("cache.rocket_mem.ca_path") {
+		cfg.CAPath = viper.GetString("cache.rocket_mem.ca_path")
 	}
 	if viper.IsSet("cache.rocket_mem.username") {
 		cfg.Username = viper.GetString("cache.rocket_mem.username")
@@ -443,6 +466,18 @@ func LoadRocketMemConfig() (RocketMemConfig, error) {
 	}
 	if viper.IsSet("cache.rocket_mem.pool_size") {
 		cfg.PoolSize = viper.GetInt("cache.rocket_mem.pool_size")
+	}
+	if viper.IsSet("cache.rocket_mem.reconnect_steady_state_interval") {
+		cfg.ReconnectSteadyStateInterval = viper.GetDuration("cache.rocket_mem.reconnect_steady_state_interval")
+	}
+	if viper.IsSet("cache.rocket_mem.reconnect_initial_backoff") {
+		cfg.ReconnectInitialBackoff = viper.GetDuration("cache.rocket_mem.reconnect_initial_backoff")
+	}
+	if viper.IsSet("cache.rocket_mem.reconnect_max_backoff") {
+		cfg.ReconnectMaxBackoff = viper.GetDuration("cache.rocket_mem.reconnect_max_backoff")
+	}
+	if viper.IsSet("cache.rocket_mem.reconnect_backoff_multiplier") {
+		cfg.ReconnectBackoffMultiplier = viper.GetFloat64("cache.rocket_mem.reconnect_backoff_multiplier")
 	}
 
 	if cfg.Enabled && (!cfg.TLS || cfg.Username == "" || cfg.Password == "") {

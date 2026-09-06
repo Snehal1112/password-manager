@@ -98,8 +98,10 @@ services:
     networks:
       - rocketvault_net
 
-  # Optional Prometheus scraper for RocketVault's GET /metrics endpoint. Not
-  # started by a plain "docker compose up" -- requires --profile metrics:
+  # Optional Prometheus scraper for RocketVault's GET /metrics endpoint, plus
+  # Rocket-mem's metrics (see prometheus.yml's rocket-mem job) when that's
+  # running on the host alongside a manual Caddyfile.local. Not started by a
+  # plain "docker compose up" -- requires --profile metrics:
   #
   #   docker compose --profile metrics up --build
   #
@@ -123,6 +125,11 @@ services:
       - "${PROMETHEUS_PORT:-9090}:9090"
     networks:
       - rocketvault_net
+    extra_hosts:
+      # Resolves for the rocket-mem job in prometheus.yml, which scrapes
+      # Rocket-mem's metrics through the host's own Caddy TLS listener --
+      # see that job's comment for why it can't be reached any other way.
+      - "numericlabs.lxd:host-gateway"
 
   # Optional TLS-terminating reverse proxy. Not started by a plain
   # "docker compose up" -- requires --profile proxy, since Caddyfile's

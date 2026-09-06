@@ -256,14 +256,26 @@ cache:
   # records.
   rocket_mem:
     enabled: false
-    addr: "127.0.0.1:6379"
-    tls: false
+    addr: "numericlabs.lxd:16379"
+    tls: true
+    ca_path: ""
     username: ""
     password: ""
-    dial_timeout: "100ms"
-    read_timeout: "100ms"
-    write_timeout: "100ms"
+    dial_timeout: "1s"
+    read_timeout: "500ms"
+    write_timeout: "500ms"
     pool_size: 10
+    # Background reconnect supervisor: while healthy, polls Rocket-mem every
+    # reconnect_steady_state_interval; after a failed poll, retries with a
+    # growing, jittered backoff (starting at reconnect_initial_backoff,
+    # capped at reconnect_max_backoff) until it recovers. Purely for fast
+    # recovery detection and logging -- it never gates real Get/Set/Invalidate
+    # calls, which always try the network directly regardless of this loop's
+    # current view of health.
+    reconnect_steady_state_interval: "30s"
+    reconnect_initial_backoff: "1s"
+    reconnect_max_backoff: "60s"
+    reconnect_backoff_multiplier: 2.0
 
 oauth2:
   token_expiry: "30m"

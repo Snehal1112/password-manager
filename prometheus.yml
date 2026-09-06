@@ -29,6 +29,35 @@ scrape_configs:
         labels:
           service: rocketvault
 
+  # Rocket-mem's Prometheus endpoint (rocket-mem/crates/server/src/metrics.rs)
+  # binds only to 127.0.0.1:9121 on its host -- unreachable from this
+  # container directly, even via host-gateway, since a loopback bind never
+  # accepts connections from outside that host. Caddyfile.local's /metrics*
+  # route is the only thing that does reach it, reverse-proxying to
+  # 127.0.0.1:9121 from the same host Rocket-mem runs on. So this job goes
+  # through Caddy's TLS listener instead of a direct static_config target.
+  #
+  # numericlabs.lxd must resolve from inside this container -- add once,
+  # matching this compose file's own host machine:
+  #   extra_hosts:
+  #     - "numericlabs.lxd:host-gateway"
+  # (host-gateway resolves to the host's real, non-loopback address, which
+  # is what Caddy is actually listening on.)
+  #
+  # The TLS cert is a local self-signed one (see Caddyfile.local) -- there is
+  # no CA to verify it against from inside the container, so this is the one
+  # scrape job in this file that skips verification. Local-network-only by
+  # design; never point insecure_skip_verify at a real deployment.
+  - job_name: rocket-mem
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["numericlabs.lxd:443"]
+        labels:
+          service: rocket-mem
+
   # Prometheus scraping itself. Useful for confirming the stack is alive when
   # the RocketVault target is down.
   - job_name: prometheus

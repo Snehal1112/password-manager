@@ -353,6 +353,8 @@ func resetRocketMemViperKeys(t *testing.T) {
 		"cache.rocket_mem.username", "cache.rocket_mem.password",
 		"cache.rocket_mem.dial_timeout", "cache.rocket_mem.read_timeout",
 		"cache.rocket_mem.write_timeout", "cache.rocket_mem.pool_size",
+		"cache.rocket_mem.reconnect_steady_state_interval", "cache.rocket_mem.reconnect_initial_backoff",
+		"cache.rocket_mem.reconnect_max_backoff", "cache.rocket_mem.reconnect_backoff_multiplier",
 	} {
 		viper.Set(k, nil)
 	}
@@ -412,4 +414,25 @@ func TestLoadRocketMemConfig_DefaultTimeoutsAndPoolSize(t *testing.T) {
 	assert.Equal(t, 100*time.Millisecond, cfg.ReadTimeout)
 	assert.Equal(t, 100*time.Millisecond, cfg.WriteTimeout)
 	assert.Equal(t, 10, cfg.PoolSize)
+}
+
+func TestLoadRocketMemConfig_DefaultReconnectSettings(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, cfg.ReconnectSteadyStateInterval)
+	assert.Equal(t, 1*time.Second, cfg.ReconnectInitialBackoff)
+	assert.Equal(t, 60*time.Second, cfg.ReconnectMaxBackoff)
+	assert.Equal(t, 2.0, cfg.ReconnectBackoffMultiplier)
+}
+
+func TestLoadRocketMemConfig_OverrideReconnectSettings(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	viper.Set("cache.rocket_mem.reconnect_max_backoff", "120s")
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, cfg.ReconnectSteadyStateInterval, "unset fields should use defaults")
+	assert.Equal(t, 1*time.Second, cfg.ReconnectInitialBackoff, "unset fields should use defaults")
+	assert.Equal(t, 120*time.Second, cfg.ReconnectMaxBackoff)
+	assert.Equal(t, 2.0, cfg.ReconnectBackoffMultiplier, "unset fields should use defaults")
 }

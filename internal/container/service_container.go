@@ -233,6 +233,13 @@ type ServiceContainer struct {
 	// disabled. Not exposed via ServiceContainerInterface -- nothing outside
 	// this package constructs a TieredCache, so no getter is needed yet.
 	rocketMemClient *rocketmemcache.Client
+
+	// rocketMemSupervisorCancel stops the background reconnect supervisor
+	// goroutine (internal/rocketmemcache.Client.RunSupervisor). nil when
+	// cache.rocket_mem is disabled. Called once, from Close(), before
+	// closing rocketMemClient itself, so the goroutine exits before its
+	// underlying connection pool is torn out from under it.
+	rocketMemSupervisorCancel context.CancelFunc
 }
 
 // Config holds configuration for the service container.
@@ -296,6 +303,7 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 		container.rocketMemClient = rocketmemcache.New(rocketmemcache.Config{
 			Addr:         config.RocketMemConfig.Addr,
 			TLS:          config.RocketMemConfig.TLS,
+			CAPath:       config.RocketMemConfig.CAPath,
 			Username:     config.RocketMemConfig.Username,
 			Password:     config.RocketMemConfig.Password,
 			DialTimeout:  config.RocketMemConfig.DialTimeout,
@@ -311,7 +319,18 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 		// log loudly here rather than only on the first real operation.
 		if err := container.rocketMemClient.Ping(); err != nil {
 			container.logger.WithError(err).Warn("rocket_mem cache tier enabled but unreachable at startup; continuing with L1-only caching until it recovers")
+		} else {
+			container.logger.WithField("addr", config.RocketMemConfig.Addr).Info("rocket_mem cache tier connected")
 		}
+
+		supervisorCtx, cancelSupervisor := context.WithCancel(context.Background())
+		container.rocketMemSupervisorCancel = cancelSupervisor
+		go container.rocketMemClient.RunSupervisor(supervisorCtx, rocketmemcache.ReconnectPolicy{
+			SteadyStateInterval: config.RocketMemConfig.ReconnectSteadyStateInterval,
+			InitialBackoff:      config.RocketMemConfig.ReconnectInitialBackoff,
+			MaxBackoff:          config.RocketMemConfig.ReconnectMaxBackoff,
+			BackoffMultiplier:   config.RocketMemConfig.ReconnectBackoffMultiplier,
+		})
 	}
 
 	if err := container.initializeServices(); err != nil {
@@ -974,6 +993,9 @@ func (c *ServiceContainer) Close() error {
 		}
 	}
 
+	if c.rocketMemSupervisorCancel != nil {
+		c.rocketMemSupervisorCancel()
+	}
 	if c.rocketMemClient != nil {
 		if err := c.rocketMemClient.Close(); err != nil {
 			c.logger.WithError(err).Warn("Failed to close rocket-mem client")

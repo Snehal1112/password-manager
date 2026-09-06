@@ -3,7 +3,9 @@ package rocketmemcache
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
+	"os"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -15,8 +17,12 @@ import (
 // config.LoadRocketMemConfig (Plan 04) for how this is populated from
 // cache.rocket_mem.* in .rocketvault.yaml.
 type Config struct {
-	Addr         string
-	TLS          bool
+	Addr string
+	TLS  bool
+	// CAPath is the PEM file to trust rocket-mem's TLS cert against, for a
+	// self-signed or private-CA deployment. Empty means verify against the
+	// system trust store, the right default for a cert from a public CA.
+	CAPath       string
 	Username     string
 	Password     string
 	DialTimeout  time.Duration
@@ -48,6 +54,10 @@ type Client struct {
 // dials on first use), so New itself never blocks or fails. Call Ping
 // afterward for a one-shot, non-fatal reachability check.
 func New(cfg Config) *Client {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = logrus.StandardLogger()
+	}
 	opts := &redis.Options{
 		Addr:         cfg.Addr,
 		Username:     cfg.Username,
@@ -58,13 +68,29 @@ func New(cfg Config) *Client {
 		PoolSize:     cfg.PoolSize,
 	}
 	if cfg.TLS {
-		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	}
-	logger := cfg.Logger
-	if logger == nil {
-		logger = logrus.StandardLogger()
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		if cfg.CAPath != "" {
+			if pemBytes, err := os.ReadFile(cfg.CAPath); err != nil {
+				logger.WithError(err).WithField("ca_path", cfg.CAPath).
+					Warn("rocketmemcache: failed to read CA cert, falling back to system trust store")
+			} else if pool := x509.NewCertPool(); pool.AppendCertsFromPEM(pemBytes) {
+				tlsConfig.RootCAs = pool
+			} else {
+				logger.WithField("ca_path", cfg.CAPath).
+					Warn("rocketmemcache: CA cert file contained no valid certificates, falling back to system trust store")
+			}
+		}
+		opts.TLSConfig = tlsConfig
 	}
 	return &Client{rdb: redis.NewClient(opts), logger: logger}
+}
+
+// pingCheck is the connectivity check used internally by both Ping (which
+// logs unconditionally, since it's a one-shot startup check) and
+// RunSupervisor (which logs only on healthy<->unhealthy transitions, to
+// avoid one Warn line per retry during a sustained outage).
+func (c *Client) pingCheck(ctx context.Context) error {
+	return c.rdb.Ping(ctx).Err()
 }
 
 // Ping issues a single, one-shot connectivity check. Intended to be called
@@ -72,7 +98,7 @@ func New(cfg Config) *Client {
 // by design (the spec requires an L2 outage to never break the data plane):
 // callers should log a Warn on a non-nil return, not abort startup.
 func (c *Client) Ping() error {
-	err := c.rdb.Ping(context.Background()).Err()
+	err := c.pingCheck(context.Background())
 	if err != nil {
 		c.logger.WithError(err).Warn("rocketmemcache: startup PING failed -- L2 cache tier may be unreachable")
 	}

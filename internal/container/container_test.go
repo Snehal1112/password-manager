@@ -739,3 +739,33 @@ func TestNewServiceContainer_RocketMemEnabled_ClientConstructedAndClosed(t *test
 	// Get/Set calls degrade (proven in Plan 03's tests).
 	assert.NoError(t, c.Close())
 }
+
+// TestNewServiceContainer_RocketMemDisabled_SupervisorCancel_Nil pins that the
+// supervisor cancel func stays nil when rocket-mem is disabled.
+func TestNewServiceContainer_RocketMemDisabled_SupervisorCancelNil(t *testing.T) {
+	viper.Set("cache.rocket_mem.enabled", nil)
+	c, err := NewServiceContainer(Config{
+		Logger: newTestLogger(),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, c.rocketMemSupervisorCancel, "rocketMemSupervisorCancel must stay nil when cache.rocket_mem is disabled")
+	assert.NotPanics(t, func() { _ = c.Close() }, "Close must be safe with nil supervisor cancel")
+}
+
+// TestNewServiceContainer_RocketMemEnabled_SupervisorCancelNonNil pins that the
+// supervisor cancel func is constructed when rocket-mem is enabled.
+func TestNewServiceContainer_RocketMemEnabled_SupervisorCancelNonNil(t *testing.T) {
+	rmCfg := rvconfig.RocketMemConfig{
+		Enabled: true, Addr: "127.0.0.1:1", TLS: true, Username: "u", Password: "p",
+	}
+	cacheCfg, err := rvconfig.LoadCacheConfig()
+	require.NoError(t, err)
+	c, err := NewServiceContainer(Config{
+		Logger:          newTestLogger(),
+		CacheConfig:     &cacheCfg,
+		RocketMemConfig: &rmCfg,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, c.rocketMemSupervisorCancel, "rocketMemSupervisorCancel must be constructed when cache.rocket_mem is enabled")
+	assert.NotPanics(t, func() { _ = c.Close() }, "Close must safely call the cancel func")
+}

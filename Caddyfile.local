@@ -37,6 +37,20 @@ numericlabs.lxd {
 		reverse_proxy 127.0.0.1:5174
 	}
 
+	# Rocket-mem exposes Prometheus metrics over plain HTTP on :9121. This proxies
+	# only that metrics endpoint. Rocket-mem's RESP protocol itself is not proxied
+	# here — RocketVault's rocketmemcache client connects to it directly over raw
+	# TCP/TLS (see cache.rocket_mem.addr in .rocketvault.yaml), since RESP is not
+	# an HTTP protocol and cannot be routed by path like this.
+	handle /metrics* {
+		# Rocket-mem's metrics route is an exact string match on "/metrics"
+		# (crates/server/src/metrics.rs) -- deliberately not trailing-slash
+		# tolerant, to keep e.g. /metrics-admin from accidentally matching. Drop
+		# a trailing slash here so a browser's /metrics/ still reaches it.
+		uri strip_suffix /
+		reverse_proxy 127.0.0.1:9121
+	}
+
 	# Everything else is the RocketVault API on :8774.
 	handle {
 		reverse_proxy 127.0.0.1:8774
