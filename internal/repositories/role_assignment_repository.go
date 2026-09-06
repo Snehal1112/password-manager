@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -116,7 +117,12 @@ func (r *roleAssignmentRepository) FindByTuple(ctx context.Context, principalID 
 		principalID.String(), role, vaultID.String())
 	ra, err := scanRoleAssignment(row)
 	if err != nil {
-		if err.Error() == "role assignment not found" {
+		// (nil, nil) means "no such assignment", which callers treat as a
+		// normal absence rather than a failure. Identified by sentinel, not by
+		// message text: the previous string comparison meant rewording
+		// scanRoleAssignment's message silently turned every miss into an
+		// error on an authorization-adjacent path.
+		if errors.Is(err, ErrNotFound) {
 			return nil, nil
 		}
 		return nil, err
@@ -146,8 +152,8 @@ func scanRoleAssignment(row *sql.Row) (*model.RoleAssignment, error) {
 	var ra model.RoleAssignment
 	var idStr, pidStr, vidStr, cbStr string
 	err := row.Scan(&idStr, &pidStr, &ra.PrincipalType, &ra.Role, &vidStr, &cbStr, &ra.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("role assignment not found")
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("role assignment not found: %w", ErrNotFound)
 	}
 	if err != nil {
 		return nil, err
