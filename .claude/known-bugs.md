@@ -3735,6 +3735,41 @@ system user row already present.
 
 ---
 
+### B39 — `getDeletedKey` lists an entire vault to serve one id
+
+**Status**: Open (deferred 2026-09-06)
+**Severity**: Low — performance only, no correctness or authorization defect
+**Files**: `api/soft_delete.go` (lines 270-310),
+`internal/repositories/key_repository.go`, `internal/services/keys/key_service.go`
+
+`api/soft_delete.go`'s `getDeletedKey` calls `KeyService.ListDeletedKeys` for
+the whole vault and linear-scans the result for one key id. It is O(n) in the
+vault's soft-deleted key count for a single-item GET.
+
+Root cause: no scoped by-id read of a soft-deleted key exists.
+`KeyRepository.Read` filters `deleted_at IS NULL`, and `KeyRepository.ReadDeleted`
+takes no `model.Scope`, so a handler calling it would read across vault
+boundaries.
+
+Fix recipe: add `ReadDeletedScoped(ctx, id, scope)` to `KeyRepository` built on
+`ScopedGet[T]`, expose it as `KeyService.GetDeletedKey`, and rewire the handler.
+Deferred because the `KeyService` interface fan-out exceeded five files.
+
+Also worth auditing separately: every current caller of the unscoped
+`ReadDeleted`, to confirm none of them is on an authorization-relevant path.
+
+The measured fan-out, for whoever picks this up: seven files declare or stub a
+`ListDeletedKeys` method and would each need a `GetDeletedKey` pass-through —
+`internal/services/keys/key_service.go` (interface and implementation),
+`internal/services/retry/retry_key_service.go`,
+`internal/services/keys/mocks/mock_KeyService.go`, and four hand-rolled test
+doubles in `api/keys_crud_test.go`, `api/vault_scoped_keys_certs_test.go`,
+`cmd/keys/keys_cmd_test.go` and `cmd/keys/update_test.go`. The four hand-rolled
+doubles are the real cost: each must be edited by hand, and a missed one is a
+compile break rather than a silent bug.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and
