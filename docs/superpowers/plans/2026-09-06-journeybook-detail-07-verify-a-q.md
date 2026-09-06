@@ -33,7 +33,7 @@
 - Consumes: `a-f.json`, plus any A–F fields in `answers-cli.json` and `answers-authz.json`.
 - Produces: one verdict per field, keyed `<case-id>.<field>`.
 
-- [ ] **Step 1: Dispatch a fresh agent**
+- [x] **Step 1: Dispatch a fresh agent**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Verify A-F claims"`:
@@ -105,7 +105,7 @@ was wrong.
 Report back: counts per verdict, and every non-supported field in full.
 ```
 
-- [ ] **Step 2: Read the non-supported findings yourself**
+- [x] **Step 2: Read the non-supported findings yourself**
 
 ```bash
 cd /tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336-4049-b9b7-1a2c1359825a/scratchpad/enrich
@@ -139,7 +139,7 @@ the exemplar the other four groups copied, which makes an unchecked error in
 it the most expensive kind. Authorship is not a reason to skip a check; it is
 a reason to want one.
 
-- [ ] **Step 1: Dispatch a fresh agent**
+- [x] **Step 1: Dispatch a fresh agent**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Verify G-M claims"`:
@@ -205,7 +205,7 @@ Do not edit any other file. Report only -- somebody else applies the cuts.
 Report back: counts per verdict, and every non-supported field in full.
 ```
 
-- [ ] **Step 2: Read the findings, and read J's verdicts first**
+- [x] **Step 2: Read the findings, and read J's verdicts first**
 
 Run the same summary script from Task 1 Step 2 against `verdicts-g-m.json`.
 
@@ -224,7 +224,7 @@ is a decision to take to the human before continuing rather than after.
 - Consumes: `n-q.json` and N–Q entries in the two answer files.
 - Produces: verdicts for 47 cases.
 
-- [ ] **Step 1: Dispatch a fresh agent**
+- [x] **Step 1: Dispatch a fresh agent**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "sonnet"`,
 `description: "Verify N-Q claims"`:
@@ -285,7 +285,7 @@ Do not edit any other file. Report only -- somebody else applies the cuts.
 Report back: counts per verdict, and every non-supported field in full.
 ```
 
-- [ ] **Step 2: Read the findings**
+- [x] **Step 2: Read the findings**
 
 Run the summary script from Task 1 Step 2 against `verdicts-n-q.json`, and
 spot-check two `supported` verdicts by opening the citations yourself.
