@@ -32,7 +32,7 @@
 - Consumes: the `needs-code` arrays in all six scratchpad JSON files.
 - Produces: one worklist, split into the two buckets Tasks 2 and 3 consume.
 
-- [ ] **Step 1: Extract every open question**
+- [x] **Step 1: Extract every open question**
 
 ```bash
 cd /tmp/claude-1000/-home-numericlabs-data-rocket-rocketvault/4c18aef0-f336-4049-b9b7-1a2c1359825a/scratchpad/enrich
@@ -46,7 +46,7 @@ for f in j.json a-f.json g-m.json n-q.json r-u.json v-w.json; do
 done
 ```
 
-- [ ] **Step 2: Write the worklist, split by question type**
+- [x] **Step 2: Write the worklist, split by question type**
 
 Create `questions.md` with two sections. Sort each question into exactly one:
 
@@ -73,7 +73,7 @@ answer back.
 - Consumes: the "Commands and flags" section of `questions.md`.
 - Produces: the same JSON shape as an extraction file, containing only the fields the answers fill in. Plan 09 merges it alongside the rest.
 
-- [ ] **Step 1: Dispatch**
+- [x] **Step 1: Dispatch**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "opus"`,
 `description: "Resolve CLI command questions"`:
@@ -131,7 +131,7 @@ citation, every UNRESOLVED one, and every DISAGREEMENT in full. The last
 group goes to a human, so quote both sides exactly.
 ```
 
-- [ ] **Step 2: Spot-check the citations yourself**
+- [x] **Step 2: Spot-check the citations yourself**
 
 Pick three answers at random and open the cited line. A wrong `file.go:214`
 looks exactly like a right one in a report, and this is the phase where an
@@ -159,7 +159,7 @@ which one failed.
 - Consumes: the "Authorization and behaviour" section of `questions.md`.
 - Produces: `answers-authz.json`, and a decision from a human on every disagreement.
 
-- [ ] **Step 1: Dispatch**
+- [x] **Step 1: Dispatch**
 
 Agent tool, `subagent_type: "general-purpose"`, `model: "opus"`,
 `description: "Resolve authorization questions"`:
@@ -213,7 +213,7 @@ Report back: every ANSWERED question with its citation, every UNRESOLVED
 one, and every DISAGREEMENT in full with both sides quoted.
 ```
 
-- [ ] **Step 2: Take every disagreement to the human — this is a stop**
+- [x] **Step 2: Take every disagreement to the human — this is a stop**
 
 Collect the `DISAGREEMENT` entries from three places: the extraction agents'
 reports (plans 04 and 05), Task 2's report, and Task 3 Step 1's report.
@@ -236,7 +236,7 @@ If there are no disagreements, say so explicitly rather than skipping the step
 — "nothing to report" is information, and its absence is indistinguishable
 from a step that was forgotten.
 
-- [ ] **Step 3: Record what the human decided**
+- [x] **Step 3: Record what the human decided**
 
 Append the decisions to `questions.md` under a **Decisions** heading, each with
 the date and what was chosen. Plan 09's final review reads it, and plan 10 may
