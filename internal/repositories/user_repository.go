@@ -525,9 +525,12 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 	var users []model.User
 
 	err := r.queryWithMetrics("list_users", func() error {
-		// Optimized query with explicit column selection and ordering for better performance
+		// Optimized query with explicit column selection and ordering for better performance.
+		// Excludes the reserved system user row (model.SystemUserID) -- it is
+		// not a real account and must never appear in a user listing.
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users ORDER BY created_at DESC")
+			"SELECT id, username, password_hash, totp_secret, role, auth_provider, external_idp_subject, created_at FROM users WHERE id != ? ORDER BY created_at DESC",
+			model.SystemUserID)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to list users")
 			return fmt.Errorf("failed to list users: %w", err)
@@ -607,9 +610,12 @@ func (r *UserRepository) List(ctx context.Context) ([]model.User, error) {
 //
 //	True if valid, false otherwise, and an error if the operation fails.
 func (r *UserRepository) ValidateBootstrapToken(ctx context.Context, token string) (bool, error) {
-	// Check if users table is empty (bootstrap condition)
+	// Check if users table is empty (bootstrap condition). Excludes the
+	// reserved system user row (model.SystemUserID) -- it exists on every
+	// fresh database (see db.seedSystemUser) and is not a real account, so
+	// it must never count toward "an admin already exists."
 	var count int
-	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE id != ?", model.SystemUserID).Scan(&count)
 	if err != nil {
 		r.log.LogAuditError(uuid.Nil.String(), "validate_bootstrap_token", "failed", "Failed to query user count", err)
 		return false, fmt.Errorf("failed to query user count: %w", err)

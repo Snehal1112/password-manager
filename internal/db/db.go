@@ -192,6 +192,12 @@ func (d *DBRepository) SetupSchema(db *sql.DB, dialect Dialect) error {
 	if err := d.migrateSchema(db); err != nil {
 		return fmt.Errorf("failed to migrate schema: %w", err)
 	}
+	// Seed the reserved system user before anything that might reference it
+	// (SelfPKIProvider's own JWT signing key, seeded well after SetupSchema
+	// returns, but keeping this early avoids relying on that ordering).
+	if err := d.seedSystemUser(db); err != nil {
+		return fmt.Errorf("failed to seed system user: %w", err)
+	}
 	// Seed the bootstrap token from config so the first admin can be created.
 	if err := d.seedBootstrapToken(db); err != nil {
 		return fmt.Errorf("failed to seed bootstrap token: %w", err)
@@ -1292,6 +1298,41 @@ func isDuplicateColumnError(err error) bool {
 	// The check is dialect-agnostic (string match plus pq code), so either
 	// dialect value produces the same result here.
 	return SQLite.IsDuplicateColumnErr(err)
+}
+
+// systemUserPasswordHash is a deliberately syntactically-invalid bcrypt hash
+// (a real hash always starts with "$2a$"/"$2b$" etc.). bcrypt.CompareHashAndPassword
+// rejects any malformed hash before it ever compares a candidate password, so
+// the system user can never authenticate under any password -- there is
+// nothing to brute-force, unlike a valid hash of some fixed secret value.
+const systemUserPasswordHash = "!system-account-no-login!"
+
+// seedSystemUser inserts the reserved row at model.SystemUserID if absent.
+// It is idempotent. This row exists solely so FOREIGN KEY (user_id)
+// REFERENCES users(id) constraints -- e.g. on the keys table -- can be
+// satisfied by internally-generated resources with no human owner, such as
+// SelfPKIProvider's own JWT signing key (internal/signing/self_pki.go,
+// stored with UserID: uuid.Nil). Postgres enforces that FK unconditionally;
+// SQLite does not (foreign_keys PRAGMA is off project-wide, see the
+// audit_logs note above), which is why a missing system user row only ever
+// breaks a Postgres deployment. See known-bugs.md B60.
+func (d *DBRepository) seedSystemUser(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(
+		d.dialect.Rebind("SELECT COUNT(*) FROM users WHERE id = ?"), model.SystemUserID,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("failed to check system user: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := db.Exec(
+		d.dialect.Rebind("INSERT INTO users (id, username, password_hash, role, auth_provider) VALUES (?, ?, ?, ?, ?)"),
+		model.SystemUserID, model.SystemUsername, systemUserPasswordHash, model.RoleSystem, "local",
+	); err != nil {
+		return fmt.Errorf("failed to seed system user: %w", err)
+	}
+	return nil
 }
 
 // seedBootstrapToken inserts the configured bootstrap token into the

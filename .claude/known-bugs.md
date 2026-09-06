@@ -3633,6 +3633,108 @@ whether "provisioning grantee: refused, always" was actually true of
 
 ---
 
+### B60 — `SelfPKIProvider`'s JWT signing key can never be stored under Postgres
+
+**Status**: Fixed 2026-09-06, same day it was found (fix recipe option 1: a
+real seeded system user). `model.SystemUserID`/`SystemUsername`/`RoleSystem`
+added; `db.seedSystemUser` seeds the row idempotently in `SetupSchema`;
+`UserRepository.ValidateBootstrapToken` and `.List()` both exclude it
+(the bootstrap-token gate counting this row would have permanently blocked
+first-admin creation on every fresh install — caught before it shipped).
+Verified against a real Postgres container: `rocketvault-rocketvault-1`
+starts healthy, `SelfPKIProvider: loaded existing JWT signing key` logs
+clean, and `rocketvault users admin --bootstrap-token=...` still succeeds
+with the system user row already present.
+**Found**: 2026-09-06, while bringing up the docker-compose
+`--profile metrics` stack against a fresh Postgres volume
+**Severity**: High for the docker-compose/Fly.io/Railway-with-Postgres
+deployment path specifically: a completely fresh Postgres-backed instance
+with `jwt.key_source: self_pki` cannot start at all. Not reachable on SQLite.
+**Files**: `internal/signing/self_pki.go:129,210` (`UserID: uuid.Nil`),
+`internal/db/db.go` (every `FOREIGN KEY (user_id) REFERENCES users(id)` on
+the `keys` table, no exception for a system-owned key),
+`.rocketvault.docker.yaml.tmpl:23-30` (hardcodes `key_source: "self_pki"`
+for containers, with a comment stating this is deliberate for *both*
+SQLite and Postgres)
+
+**What it is**: `SelfPKIProvider` generates and stores RocketVault's own JWT
+signing key as a regular row in the `keys` table, owned by nobody —
+`UserID: uuid.Nil` — since it isn't a user-created key. The `keys` table's
+schema has no case for that: `user_id` is a plain `FOREIGN KEY ... REFERENCES
+users(id)`, so inserting a row with `uuid.Nil` requires a `users` row with
+that id to already exist, and none ever does.
+
+On SQLite this insert succeeds anyway — foreign keys aren't enforced by
+default in this codebase's SQLite connections, so the dangling reference is
+silently accepted. Postgres enforces foreign keys unconditionally, so the
+identical code path fails outright:
+
+```
+error: pq: insert or update on table "keys" violates foreign key constraint "keys_user_id_fkey"
+Error: service container initialization failed: failed to initialize
+services: JWT signing provider initialisation failed: SelfPKIProvider init:
+store generated key: failed to insert key: pq: insert or update on table
+"keys" violates foreign key constraint "keys_user_id_fkey"
+```
+
+The container never becomes healthy — the process exits before the HTTP
+server ever starts, on the very first boot against an empty Postgres
+database, before any user (and so before any real `KeyService`/JWT config
+exists to catch this earlier).
+
+**Impact**: any brand-new docker-compose (or Fly.io/Railway with
+`RV_DB_DRIVER=postgres`) deployment fails to start, unconditionally, with no
+workaround short of switching `jwt.key_source` away from the template's own
+documented default. SQLite deployments (the default for a plain `docker run`
+and for Railway) are unaffected, which is presumably why this was never
+caught before — this is likely the first time a genuinely fresh Postgres
+volume was exercised end-to-end with `self_pki` in place.
+
+**Fix recipe**: give system-owned keys a real home instead of a dangling
+`uuid.Nil` reference. Two shapes, either works, both dialect-safe:
+
+1. Seed a real "system" user row (fixed id `uuid.Nil` or a dedicated
+   sentinel UUID) during `migrateSchema`, with no login credentials and a
+   role that can never authenticate — `SelfPKIProvider` then owns a real
+   user, no schema change needed.
+2. Make `keys.user_id` nullable and drop the FK's `NOT NULL`, giving
+   `SelfPKIProvider` a `NULL` user_id for its own key and updating whatever
+   `KeyRepository` queries currently assume `user_id` is always present.
+
+Option 1 is smaller and touches no query code; option 2 is more honest about
+what a system key actually is. Either way, both SQLite and Postgres dialects
+in `internal/db/dialect.go` need the same fix applied identically — this bug
+existing at all is exactly the class of dialect-divergence risk the
+Postgres-support work was supposed to guard against.
+
+**Implemented**: option 1. `model.SystemUserID` (`"00000000-0000-0000-0000-000000000000"`,
+the same value `uuid.Nil` already produces), `model.SystemUsername`
+(`"__rocketvault_system__"`) and `model.RoleSystem` (`"system"`, deliberately
+excluded from `ValidRoles`) added in `model/user.go`. `db.seedSystemUser`
+(`internal/db/db.go`) inserts that row idempotently in `SetupSchema`, right
+after `migrateSchema` — a real users-table row, password_hash set to a
+syntactically-invalid bcrypt string so no password can ever authenticate it,
+same SELECT-then-INSERT idempotency pattern as `seedBootstrapToken`/
+`seedDefaultVault`.
+
+The one place this needed a companion fix, not just a seed: `UserRepository.
+ValidateBootstrapToken` (`internal/repositories/user_repository.go`) counted
+`SELECT COUNT(*) FROM users` to decide whether bootstrap ("no admin exists
+yet") is allowed. Seeding a permanent row would have made that count always
+≥ 1, permanently disabling first-admin creation on every fresh install —
+caught before it shipped, fixed by excluding `model.SystemUserID` from that
+count. `UserRepository.List()` excludes it too, so it never appears in a
+`users list`. (`internal/health/health.go`'s own `COUNT(*) FROM users` is
+purely a diagnostic number in a health payload, never gated on — left as is
+rather than plumbing a dialect through `HealthCollector` for cosmetics.)
+
+Verified against a real Postgres container from a clean volume: the
+dockerized `rocketvault` service starts healthy, and
+`rocketvault users admin --bootstrap-token=...` still succeeds with the
+system user row already present.
+
+---
+
 ## Deferred Refactors
 
 Both items formerly tracked here (H3, M2) were re-investigated on 2026-08-14 and

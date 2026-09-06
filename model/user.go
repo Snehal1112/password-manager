@@ -41,13 +41,34 @@ const (
 	RoleCryptoManager      = "crypto_manager"
 	RoleCertificateManager = "certificate_manager"
 	RoleServiceAccount     = "service_account"
+	RoleSystem             = "system"
 )
 
 // ValidRoles is every role assignable to a human user account via
 // CreateUser/UpdateUser. RoleServiceAccount is deliberately excluded --
 // service accounts are OAuth2 clients (model.OAuth2Client), not rows in the
-// users table, and never go through this validation path.
+// users table, and never go through this validation path. RoleSystem is
+// deliberately excluded too -- it belongs solely to the row at SystemUserID
+// and must never be assignable to a real account.
 var ValidRoles = []string{RoleAdmin, RoleSecretsManager, RoleCryptoManager, RoleCertificateManager, RoleUser}
+
+// SystemUserID is the fixed, well-known id of a real row in the users table
+// that owns internally-generated resources with no human behind them --
+// currently SelfPKIProvider's own JWT signing key
+// (internal/signing/self_pki.go), stored with UserID: uuid.Nil. Tables like
+// `keys` have FOREIGN KEY (user_id) REFERENCES users(id): Postgres enforces
+// that unconditionally, so the row at this id must actually exist (seeded by
+// db.seedSystemUser) or such an insert fails outright. SQLite does not
+// enforce it, which is why this went unnoticed until a fresh Postgres
+// deployment -- see known-bugs.md B60. Deliberately the same value as
+// uuid.Nil.String(), matching the "no real owner yet" sentinel already used
+// elsewhere in this codebase (e.g. seedDefaultVault's creator fallback).
+const SystemUserID = "00000000-0000-0000-0000-000000000000"
+
+// SystemUsername is the reserved username of the row at SystemUserID. The
+// users table's own UNIQUE constraint on username is what actually prevents
+// a real account from ever registering under this name.
+const SystemUsername = "__rocketvault_system__"
 
 // IsValidRole reports whether role is one of ValidRoles.
 func IsValidRole(role string) bool {

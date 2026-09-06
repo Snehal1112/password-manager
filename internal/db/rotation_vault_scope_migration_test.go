@@ -48,7 +48,7 @@ func TestMigrateSchema_RotationPoliciesVaultID(t *testing.T) {
 		-- same migrateSchema statement list.
 		CREATE TABLE keys (
 			id TEXT PRIMARY KEY, name TEXT NOT NULL,
-			vault_id TEXT NOT NULL DEFAULT '`+defaultVaultID+`'
+			vault_id TEXT NOT NULL DEFAULT '` + defaultVaultID + `'
 		);
 		-- Old-shape rotation_policies: no vault_id column, has existing rows.
 		CREATE TABLE rotation_policies (
@@ -70,8 +70,8 @@ func TestMigrateSchema_RotationPoliciesVaultID(t *testing.T) {
 		INSERT INTO rotation_policies (id, user_id, name, interval_days)
 			VALUES ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'p1', 30);
 		INSERT INTO keys (id, name, vault_id) VALUES
-			('33333333-0000-0000-0000-000000000001', 'key-in-default', '`+defaultVaultID+`'),
-			('33333333-0000-0000-0000-000000000002', 'key-in-vault-b', '`+otherVaultID+`');
+			('33333333-0000-0000-0000-000000000001', 'key-in-default', '` + defaultVaultID + `'),
+			('33333333-0000-0000-0000-000000000002', 'key-in-vault-b', '` + otherVaultID + `');
 		INSERT INTO key_rotation_policies (id, key_id, user_id) VALUES
 			('44444444-0000-0000-0000-000000000001', '33333333-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001'),
 			('44444444-0000-0000-0000-000000000002', '33333333-0000-0000-0000-000000000002', '22222222-0000-0000-0000-000000000001');
