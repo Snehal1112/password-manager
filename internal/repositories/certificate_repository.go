@@ -705,34 +705,22 @@ func (r *CertificateRepository) ListAll(ctx context.Context) ([]model.Certificat
 	var certs []model.Certificate
 
 	err := r.executeWithMetrics("list_all_certificates", func() error {
+		// Reads through the shared certificateColumns/scanCertificateRow pair
+		// rather than a second hand-written SELECT list. The previous literal
+		// omitted vault_id, deleted_at and purge_protection, and parsed IDs
+		// with an unchecked Must-style parse -- a corrupt column panicked the
+		// renewal scheduler's goroutine instead of returning an error.
 		rows, err := r.db.QueryContext(ctx,
-			"SELECT id, user_id, name, certificate, private_key, created_at, expires_at, auto_renew, renewal_days, key_id, ca_cert_id, enabled, not_before FROM certificates WHERE deleted_at IS NULL")
+			"SELECT "+certificateColumns+" FROM certificates WHERE deleted_at IS NULL")
 		if err != nil {
 			return fmt.Errorf("failed to list all certificates: %w", err)
 		}
 		defer rows.Close() //nolint:errcheck
 
 		for rows.Next() {
-			var cert model.Certificate
-			var idStr, userIDStr string
-			var keyIDStr, caCertIDStr sql.NullString
-			if err := rows.Scan(&idStr, &userIDStr, &cert.Name, &cert.Certificate, &cert.PrivateKey, &cert.CreatedAt,
-				&cert.ExpiresAt, &cert.AutoRenew, &cert.RenewalDays, &keyIDStr, &caCertIDStr, &cert.Enabled, &cert.NotBefore); err != nil {
-				return fmt.Errorf("failed to scan certificate row: %w", err)
-			}
-			cert.ID = uuid.MustParse(idStr)
-			cert.UserID = uuid.MustParse(userIDStr)
-			if keyIDStr.Valid {
-				cert.KeyID = uuid.MustParse(keyIDStr.String)
-			}
-			// The renewal scheduler branches on this, so it must survive the
-			// listing read too.
-			if caCertIDStr.Valid && caCertIDStr.String != "" {
-				caCertID, parseErr := uuid.Parse(caCertIDStr.String)
-				if parseErr != nil {
-					return fmt.Errorf("failed to parse CA certificate ID: %w", parseErr)
-				}
-				cert.CACertID = &caCertID
+			cert, scanErr := scanCertificateRow(rows.Scan)
+			if scanErr != nil {
+				return scanErr
 			}
 			certs = append(certs, cert)
 		}
