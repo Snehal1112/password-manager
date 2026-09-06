@@ -26,3 +26,38 @@ var createdCertColumns = []vaultcli.Column[*certServices.CreateCertificateResult
 	vaultcli.Col("Name", func(r *certServices.CreateCertificateResult) string { return r.Name }),
 	vaultcli.Col("Created", func(r *certServices.CreateCertificateResult) string { return vaultcli.CellTime(r.CreatedAt) }),
 }
+
+// certPolicyColumns is what `rotation-policy get` prints.
+var certPolicyColumns = []vaultcli.Column[*model.CertificatePolicy]{
+	vaultcli.Col("Validity-Months", func(p *model.CertificatePolicy) string { return vaultcli.CellInt(p.ValidityMonths) }),
+	vaultcli.Col("Key-Type", func(p *model.CertificatePolicy) string { return p.KeyType }),
+	vaultcli.Col("Key-Size", func(p *model.CertificatePolicy) string { return vaultcli.CellInt(p.KeySize) }),
+	vaultcli.Col("Curve", func(p *model.CertificatePolicy) string { return p.Curve }),
+	vaultcli.Col("Subject", func(p *model.CertificatePolicy) string { return p.Subject }),
+	vaultcli.Col("SANs", func(p *model.CertificatePolicy) string { return p.SANs }),
+	vaultcli.Col("Auto-Renew", func(p *model.CertificatePolicy) string { return vaultcli.CellBool(p.AutoRenew) }),
+	vaultcli.Col("Days-Before-Expiry", func(p *model.CertificatePolicy) string {
+		return vaultcli.CellInt(p.DaysBeforeExpiry)
+	}),
+	vaultcli.Col("Issuer-Name", func(p *model.CertificatePolicy) string { return p.IssuerName }),
+	vaultcli.Col("Updated", func(p *model.CertificatePolicy) string { return vaultcli.CellTime(p.UpdatedAt) }),
+}
+
+// certPolicyListColumns is what `rotation-policy list` prints. Its Auto-Renew
+// and Days-Before-Expiry come from the policy record, not from the
+// certificate row's own auto_renew/renewal_days -- the two can disagree, and
+// only the certificate's own fields drive the renewal scheduler. See the list
+// command's help text.
+var certPolicyListColumns = []vaultcli.Column[model.CertificatePolicyWithCertName]{
+	vaultcli.Col("Certificate-ID", func(p model.CertificatePolicyWithCertName) string {
+		return vaultcli.CellUUID(p.CertificateID)
+	}),
+	vaultcli.Col("Certificate-Name", func(p model.CertificatePolicyWithCertName) string { return p.CertificateName }),
+	vaultcli.Col("Validity-Months", func(p model.CertificatePolicyWithCertName) string {
+		return vaultcli.CellInt(p.ValidityMonths)
+	}),
+	vaultcli.Col("Auto-Renew", func(p model.CertificatePolicyWithCertName) string { return vaultcli.CellBool(p.AutoRenew) }),
+	vaultcli.Col("Days-Before-Expiry", func(p model.CertificatePolicyWithCertName) string {
+		return vaultcli.CellInt(p.DaysBeforeExpiry)
+	}),
+}

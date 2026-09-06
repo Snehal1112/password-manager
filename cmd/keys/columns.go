@@ -37,3 +37,37 @@ var createdKeyColumns = []vaultcli.Column[*keyServices.CreateKeyResult]{
 	vaultcli.Col("Tags", func(r *keyServices.CreateKeyResult) string { return vaultcli.CellCSV(r.Tags) }),
 	vaultcli.Col("Created", func(r *keyServices.CreateKeyResult) string { return vaultcli.CellTime(r.CreatedAt) }),
 }
+
+// keyRotationPolicyColumns is what `rotation-policy get` prints.
+var keyRotationPolicyColumns = []vaultcli.Column[*model.KeyRotationPolicy]{
+	vaultcli.Col("Enabled", func(p *model.KeyRotationPolicy) string { return vaultcli.CellBool(p.Enabled) }),
+	vaultcli.Col("Rotate-After-Days", func(p *model.KeyRotationPolicy) string { return vaultcli.CellInt(p.RotateAfterDays) }),
+	vaultcli.Col("Notify-Before-Expiry-Days", func(p *model.KeyRotationPolicy) string {
+		return vaultcli.CellInt(p.NotifyBeforeExpiryDays)
+	}),
+	vaultcli.Col("Expiry-Days", func(p *model.KeyRotationPolicy) string { return vaultcli.CellInt(p.ExpiryDays) }),
+	// A policy that has never fired renders "-" rather than an empty cell, so
+	// "never rotated" is visibly distinct from a missing value.
+	vaultcli.Col("Last-Rotated", func(p *model.KeyRotationPolicy) string {
+		if p.LastRotatedAt == nil {
+			return "-"
+		}
+		return vaultcli.CellTime(*p.LastRotatedAt)
+	}),
+	vaultcli.Col("Next-Rotation", func(p *model.KeyRotationPolicy) string { return vaultcli.CellTime(p.NextRotationAt) }),
+}
+
+// keyRotationPolicyListColumns is what `rotation-policy list` prints: the
+// per-key summary, which carries the key name the detail view has no room for
+// and omits the fields that only matter when inspecting one policy.
+var keyRotationPolicyListColumns = []vaultcli.Column[model.KeyRotationPolicyWithKeyName]{
+	vaultcli.Col("Key-ID", func(p model.KeyRotationPolicyWithKeyName) string { return vaultcli.CellUUID(p.KeyID) }),
+	vaultcli.Col("Key-Name", func(p model.KeyRotationPolicyWithKeyName) string { return p.KeyName }),
+	vaultcli.Col("Enabled", func(p model.KeyRotationPolicyWithKeyName) string { return vaultcli.CellBool(p.Enabled) }),
+	vaultcli.Col("Rotate-After-Days", func(p model.KeyRotationPolicyWithKeyName) string {
+		return vaultcli.CellInt(p.RotateAfterDays)
+	}),
+	vaultcli.Col("Next-Rotation", func(p model.KeyRotationPolicyWithKeyName) string {
+		return vaultcli.CellTime(p.NextRotationAt)
+	}),
+}

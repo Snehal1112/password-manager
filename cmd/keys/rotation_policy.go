@@ -26,17 +26,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	vvalidation "rocketvault/internal/validation"
 	"rocketvault/model"
 )
@@ -72,65 +67,34 @@ here. A key with no policy set is reported, not treated as an error.`,
   rocketvault keys rotation-policy get <key-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "get_key_rotation_policy", Action: model.ActionKeysRotationPolicyRead, Policy: model.OpGet,
+		})
+		if err != nil {
+			return err
 		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_key_rotation_policy", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "get_key_rotation_policy", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		keyService := serviceContainer.GetKeyService()
+		svc := s.Container.GetKeyService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyRead, model.OpGet)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_key_rotation_policy", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
-
-		policy, err := keyService.GetKeyRotationPolicy(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID))
+		policy, err := svc.GetKeyRotationPolicy(s.Ctx, keyID, s.Scope)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				log.LogAuditInfo(claims.UserID.String(), "get_key_rotation_policy", "success", fmt.Sprintf("no rotation policy for key: %s", keyID))
+				s.OK(fmt.Sprintf("no rotation policy for key: %s", keyID))
 				fmt.Fprintf(cmd.OutOrStdout(), "No rotation policy set for key %s\n", keyID) //nolint:errcheck,gosec
 				return nil
 			}
-			log.LogAuditError(claims.UserID.String(), "get_key_rotation_policy", "failed", fmt.Sprintf("failed to get rotation policy: %s", err), err)
-			return fmt.Errorf("failed to get rotation policy: %w", err)
+			return s.Fail("failed to get rotation policy", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "get_key_rotation_policy", "success", fmt.Sprintf("rotation policy retrieved for key: %s", keyID))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		lastRotated := "-"
-		if policy.LastRotatedAt != nil {
-			lastRotated = policy.LastRotatedAt.Format(time.RFC3339)
-		}
-
-		headers := []string{"Enabled", "Rotate-After-Days", "Notify-Before-Expiry-Days", "Expiry-Days", "Last-Rotated", "Next-Rotation"}
-		row := []string{
-			strconv.FormatBool(policy.Enabled),
-			strconv.Itoa(policy.RotateAfterDays),
-			strconv.Itoa(policy.NotifyBeforeExpiryDays),
-			strconv.Itoa(policy.ExpiryDays),
-			lastRotated,
-			policy.NextRotationAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("rotation policy retrieved for key: %s", keyID))
+		return vaultcli.Print(s, keyRotationPolicyColumns, policy)
 	},
 }
 
@@ -164,33 +128,21 @@ the policy, not a one-off rotation (use "keys rotate" for that).`,
   rocketvault keys rotation-policy set <key-id> --rotate-after-days 90 --enabled=false`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "set_key_rotation_policy", Action: model.ActionKeysRotationPolicyWrite, Policy: model.OpSet,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
 		if !cmd.Flags().Changed("rotate-after-days") || !cmd.Flags().Changed("enabled") {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", "missing required flags: --rotate-after-days and --enabled", nil)
-			return fmt.Errorf("--rotate-after-days and --enabled are required: this replaces the whole policy, so every field must be supplied")
-		}
-
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+			return s.Fail("--rotate-after-days and --enabled are required: this replaces the whole policy, so every field must be supplied", nil)
 		}
 
 		rotateAfterDays, _ := cmd.Flags().GetInt("rotate-after-days")
@@ -202,15 +154,13 @@ the policy, not a one-off rotation (use "keys rotate" for that).`,
 			RotateAfterDays: rotateAfterDays,
 			Enabled:         enabled,
 		}); err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", fmt.Sprintf("invalid rotation policy: %s", err), err)
-			return fmt.Errorf("invalid rotation policy: %w", err)
+			return s.Fail("invalid rotation policy", err)
 		}
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyWrite, model.OpSet)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+		if err := s.Authorize(); err != nil {
+			return err
 		}
+		svc := s.Container.GetKeyService()
 
 		req := model.UpsertKeyRotationPolicyRequest{
 			RotateAfterDays:        rotateAfterDays,
@@ -218,13 +168,12 @@ the policy, not a one-off rotation (use "keys rotate" for that).`,
 			ExpiryDays:             expiryDays,
 			Enabled:                enabled,
 		}
-		policy, err := serviceContainer.GetKeyService().UpsertKeyRotationPolicy(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID), req)
+		policy, err := svc.UpsertKeyRotationPolicy(s.Ctx, keyID, s.Scope, req)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_key_rotation_policy", "failed", fmt.Sprintf("failed to set rotation policy: %s", err), err)
-			return fmt.Errorf("failed to set rotation policy: %w", err)
+			return s.Fail("failed to set rotation policy", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "set_key_rotation_policy", "success", fmt.Sprintf("rotation policy set for key: %s", keyID))
+		s.OK(fmt.Sprintf("rotation policy set for key: %s", keyID))
 		fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy set for key %s: next rotation at %s\n", //nolint:errcheck,gosec
 			keyID, policy.NextRotationAt.Format(time.RFC3339))
 		return nil
@@ -249,46 +198,32 @@ target vault, which defaults to "default".`,
   rocketvault keys rotation-policy delete <key-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCryptoManager) {
-			log.LogAuditError(claims.UserID.String(), "delete_key_rotation_policy", "failed", "forbidden: requires admin or crypto_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or crypto_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "delete_key_rotation_policy", Action: model.ActionKeysRotationPolicyWrite, Policy: model.OpDelete,
+			Roles: []string{model.RoleAdmin, model.RoleCryptoManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		keyID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key_rotation_policy", "failed", fmt.Sprintf("invalid key ID: %s", err), err)
-			return fmt.Errorf("invalid key ID: %w", err)
+			return s.Fail("invalid key ID", err)
 		}
 
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key_rotation_policy", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
+		svc := s.Container.GetKeyService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyWrite, model.OpDelete)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_key_rotation_policy", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
-
-		if err := serviceContainer.GetKeyService().DeleteKeyRotationPolicy(ctx, keyID, model.NewVaultScope(vaultID, claims.UserID)); err != nil {
+		if err := svc.DeleteKeyRotationPolicy(s.Ctx, keyID, s.Scope); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				log.LogAuditError(claims.UserID.String(), "delete_key_rotation_policy", "failed", fmt.Sprintf("no rotation policy for key: %s", keyID), err)
-				return fmt.Errorf("no rotation policy exists for key %s", keyID)
+				return s.Fail(fmt.Sprintf("no rotation policy exists for key %s", keyID), nil)
 			}
-			log.LogAuditError(claims.UserID.String(), "delete_key_rotation_policy", "failed", fmt.Sprintf("failed to delete rotation policy: %s", err), err)
-			return fmt.Errorf("failed to delete rotation policy: %w", err)
+			return s.Fail("failed to delete rotation policy", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "delete_key_rotation_policy", "success", fmt.Sprintf("rotation policy deleted for key: %s", keyID))
+		s.OK(fmt.Sprintf("rotation policy deleted for key: %s", keyID))
 		fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy for key %s deleted successfully\n", keyID) //nolint:errcheck,gosec
 		return nil
 	},
@@ -313,52 +248,25 @@ here.`,
   rocketvault keys rotation-policy list --vault payments`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "list_key_rotation_policies", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		keyService := serviceContainer.GetKeyService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyRead, model.OpGet)
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "list_key_rotation_policies", Action: model.ActionKeysRotationPolicyRead, Policy: model.OpGet,
+		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_key_rotation_policies", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+			return err
 		}
 
-		policies, err := keyService.ListKeyRotationPolicies(ctx, model.NewVaultScope(vaultID, claims.UserID))
+		if err := s.Authorize(); err != nil {
+			return err
+		}
+		svc := s.Container.GetKeyService()
+
+		policies, err := svc.ListKeyRotationPolicies(s.Ctx, s.Scope)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_key_rotation_policies", "failed", fmt.Sprintf("failed to list rotation policies: %s", err), err)
-			return fmt.Errorf("failed to list rotation policies: %w", err)
+			return s.Fail("failed to list rotation policies", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "list_key_rotation_policies", "success", fmt.Sprintf("listed %d key rotation policies", len(policies)))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"Key-ID", "Key-Name", "Enabled", "Rotate-After-Days", "Next-Rotation"}
-		rows := make([][]string, len(policies))
-		for i, p := range policies {
-			rows[i] = []string{
-				p.KeyID.String(),
-				p.KeyName,
-				strconv.FormatBool(p.Enabled),
-				strconv.Itoa(p.RotateAfterDays),
-				p.NextRotationAt.Format(time.RFC3339),
-			}
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+		s.OK(fmt.Sprintf("listed %d key rotation policies", len(policies)))
+		return vaultcli.Print(s, keyRotationPolicyListColumns, policies...)
 	},
 }
 
@@ -384,40 +292,28 @@ process; "keys rotate" is the only way to rotate from the CLI.`,
   rocketvault keys rotation-policy status --vault payments`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		keyService := serviceContainer.GetKeyService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionKeysRotationPolicyRead, model.OpGet)
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "key_rotation_policy_status", Action: model.ActionKeysRotationPolicyRead, Policy: model.OpGet,
+		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
-		scope := model.NewVaultScope(vaultID, claims.UserID)
-
-		due, err := keyService.ListDueKeyRotationPolicies(ctx, scope)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", fmt.Sprintf("failed to get due rotations: %s", err), err)
-			return fmt.Errorf("failed to get due key rotations: %w", err)
-		}
-		policies, err := keyService.ListKeyRotationPolicies(ctx, scope)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "key_rotation_policy_status", "failed", fmt.Sprintf("failed to list policies: %s", err), err)
-			return fmt.Errorf("failed to list key rotation policies: %w", err)
+			return err
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "key_rotation_policy_status", "success", fmt.Sprintf("%d due, %d policies", len(due), len(policies)))
+		if err := s.Authorize(); err != nil {
+			return err
+		}
+		svc := s.Container.GetKeyService()
+
+		due, err := svc.ListDueKeyRotationPolicies(s.Ctx, s.Scope)
+		if err != nil {
+			return s.Fail("failed to get due key rotations", err)
+		}
+		policies, err := svc.ListKeyRotationPolicies(s.Ctx, s.Scope)
+		if err != nil {
+			return s.Fail("failed to list key rotation policies", err)
+		}
+
+		s.OK(fmt.Sprintf("%d due, %d policies", len(due), len(policies)))
 
 		fmt.Fprintln(cmd.OutOrStdout(), "Key Rotation Status")                      //nolint:errcheck
 		fmt.Fprintln(cmd.OutOrStdout(), "────────────────────────────────────────") //nolint:errcheck

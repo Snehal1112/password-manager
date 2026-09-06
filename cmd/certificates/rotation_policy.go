@@ -8,17 +8,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strconv"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
 	"rocketvault/cmd/vaultcli"
-	"rocketvault/common"
-	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
-	"rocketvault/internal/logging"
 	"rocketvault/model"
 )
 
@@ -53,64 +47,34 @@ A certificate with no policy set is reported, not treated as an error.`,
   rocketvault certificates rotation-policy get <cert-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "get_certificate_rotation_policy", Action: model.ActionCertificatesRead, Policy: model.OpGet,
+		})
+		if err != nil {
+			return err
 		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
 		certID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate_rotation_policy", "failed", fmt.Sprintf("invalid certificate ID: %s", err), err)
-			return fmt.Errorf("invalid certificate ID: %w", err)
+			return s.Fail("invalid certificate ID", err)
 		}
 
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate_rotation_policy", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
-		certService := serviceContainer.GetCertificateService()
+		svc := s.Container.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "get_certificate_rotation_policy", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
-
-		policy, err := certService.GetCertificatePolicy(ctx, certID, model.NewVaultScope(vaultID, claims.UserID))
+		policy, err := svc.GetCertificatePolicy(s.Ctx, certID, s.Scope)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				log.LogAuditInfo(claims.UserID.String(), "get_certificate_rotation_policy", "success", fmt.Sprintf("no rotation policy for certificate: %s", certID))
+				s.OK(fmt.Sprintf("no rotation policy for certificate: %s", certID))
 				fmt.Fprintf(cmd.OutOrStdout(), "No rotation policy set for certificate %s\n", certID) //nolint:errcheck,gosec
 				return nil
 			}
-			log.LogAuditError(claims.UserID.String(), "get_certificate_rotation_policy", "failed", fmt.Sprintf("failed to get rotation policy: %s", err), err)
-			return fmt.Errorf("failed to get rotation policy: %w", err)
+			return s.Fail("failed to get rotation policy", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "get_certificate_rotation_policy", "success", fmt.Sprintf("rotation policy retrieved for certificate: %s", certID))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"Validity-Months", "Key-Type", "Key-Size", "Curve", "Subject", "SANs", "Auto-Renew", "Days-Before-Expiry", "Issuer-Name", "Updated"}
-		row := []string{
-			strconv.Itoa(policy.ValidityMonths),
-			policy.KeyType,
-			strconv.Itoa(policy.KeySize),
-			policy.Curve,
-			policy.Subject,
-			policy.SANs,
-			strconv.FormatBool(policy.AutoRenew),
-			strconv.Itoa(policy.DaysBeforeExpiry),
-			policy.IssuerName,
-			policy.UpdatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		s.OK(fmt.Sprintf("rotation policy retrieved for certificate: %s", certID))
+		return vaultcli.Print(s, certPolicyColumns, policy)
 	},
 }
 
@@ -146,33 +110,21 @@ certificate itself.`,
     --validity-months 12 --subject "CN=example.com" --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCertificateManager) {
-			log.LogAuditError(claims.UserID.String(), "set_certificate_rotation_policy", "failed", "forbidden: requires admin or certificate_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "set_certificate_rotation_policy", Action: model.ActionCertificatesUpdate, Policy: model.OpSet,
+			Roles: []string{model.RoleAdmin, model.RoleCertificateManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		certID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_certificate_rotation_policy", "failed", fmt.Sprintf("invalid certificate ID: %s", err), err)
-			return fmt.Errorf("invalid certificate ID: %w", err)
+			return s.Fail("invalid certificate ID", err)
 		}
 
 		if !cmd.Flags().Changed("validity-months") || !cmd.Flags().Changed("subject") {
-			log.LogAuditError(claims.UserID.String(), "set_certificate_rotation_policy", "failed", "missing required flags: --validity-months and --subject", nil)
-			return fmt.Errorf("--validity-months and --subject are required: this replaces the whole policy, so every field must be supplied")
-		}
-
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "set_certificate_rotation_policy", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+			return s.Fail("--validity-months and --subject are required: this replaces the whole policy, so every field must be supplied", nil)
 		}
 
 		validityMonths, _ := cmd.Flags().GetInt("validity-months")
@@ -185,11 +137,10 @@ certificate itself.`,
 		daysBeforeExpiry, _ := cmd.Flags().GetInt("days-before-expiry")
 		issuerName, _ := cmd.Flags().GetString("issuer-name")
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesUpdate, model.OpSet)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_certificate_rotation_policy", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+		if err := s.Authorize(); err != nil {
+			return err
 		}
+		svc := s.Container.GetCertificateService()
 
 		req := model.UpsertCertificatePolicyRequest{
 			ValidityMonths:   validityMonths,
@@ -202,13 +153,12 @@ certificate itself.`,
 			DaysBeforeExpiry: daysBeforeExpiry,
 			IssuerName:       issuerName,
 		}
-		policy, err := serviceContainer.GetCertificateService().UpsertCertificatePolicy(ctx, certID, model.NewVaultScope(vaultID, claims.UserID), req)
+		policy, err := svc.UpsertCertificatePolicy(s.Ctx, certID, s.Scope, req)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "set_certificate_rotation_policy", "failed", fmt.Sprintf("failed to set rotation policy: %s", err), err)
-			return fmt.Errorf("failed to set rotation policy: %w", err)
+			return s.Fail("failed to set rotation policy", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "set_certificate_rotation_policy", "success", fmt.Sprintf("rotation policy set for certificate: %s", certID))
+		s.OK(fmt.Sprintf("rotation policy set for certificate: %s", certID))
 		fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy set for certificate %s: validity %d months, subject %q\n", //nolint:errcheck,gosec
 			certID, policy.ValidityMonths, policy.Subject)
 		return nil
@@ -236,46 +186,32 @@ certificate itself.`,
   rocketvault certificates rotation-policy delete <cert-id> --vault payments`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-		if !common.HasAnyRole(claims.Roles, model.RoleAdmin, model.RoleCertificateManager) {
-			log.LogAuditError(claims.UserID.String(), "delete_certificate_rotation_policy", "failed", "forbidden: requires admin or certificate_manager role", nil)
-			return fmt.Errorf("forbidden: requires admin or certificate_manager role")
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "delete_certificate_rotation_policy", Action: model.ActionCertificatesUpdate, Policy: model.OpDelete,
+			Roles: []string{model.RoleAdmin, model.RoleCertificateManager},
+		})
+		if err != nil {
+			return err
 		}
 
 		certID, err := uuid.Parse(args[0])
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_certificate_rotation_policy", "failed", fmt.Sprintf("invalid certificate ID: %s", err), err)
-			return fmt.Errorf("invalid certificate ID: %w", err)
+			return s.Fail("invalid certificate ID", err)
 		}
 
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "delete_certificate_rotation_policy", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
+		if err := s.Authorize(); err != nil {
+			return err
 		}
+		svc := s.Container.GetCertificateService()
 
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesUpdate, model.OpDelete)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "delete_certificate_rotation_policy", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
-
-		if err := serviceContainer.GetCertificateService().DeleteCertificatePolicy(ctx, certID, model.NewVaultScope(vaultID, claims.UserID)); err != nil {
+		if err := svc.DeleteCertificatePolicy(s.Ctx, certID, s.Scope); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				log.LogAuditError(claims.UserID.String(), "delete_certificate_rotation_policy", "failed", fmt.Sprintf("no rotation policy for certificate: %s", certID), err)
-				return fmt.Errorf("no rotation policy exists for certificate %s", certID)
+				return s.Fail(fmt.Sprintf("no rotation policy exists for certificate %s", certID), nil)
 			}
-			log.LogAuditError(claims.UserID.String(), "delete_certificate_rotation_policy", "failed", fmt.Sprintf("failed to delete rotation policy: %s", err), err)
-			return fmt.Errorf("failed to delete rotation policy: %w", err)
+			return s.Fail("failed to delete rotation policy", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "delete_certificate_rotation_policy", "success", fmt.Sprintf("rotation policy deleted for certificate: %s", certID))
+		s.OK(fmt.Sprintf("rotation policy deleted for certificate: %s", certID))
 		fmt.Fprintf(cmd.OutOrStdout(), "Rotation policy for certificate %s deleted successfully\n", certID) //nolint:errcheck,gosec
 		return nil
 	},
@@ -303,52 +239,25 @@ target vault, which defaults to "default". No global role is checked here.`,
   rocketvault certificates rotation-policy list --vault payments`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "list_certificate_rotation_policies", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		certService := serviceContainer.GetCertificateService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "list_certificate_rotation_policies", Action: model.ActionCertificatesRead, Policy: model.OpGet,
+		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_certificate_rotation_policies", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
+			return err
 		}
 
-		policies, err := certService.ListCertificatePolicies(ctx, model.NewVaultScope(vaultID, claims.UserID))
+		if err := s.Authorize(); err != nil {
+			return err
+		}
+		svc := s.Container.GetCertificateService()
+
+		policies, err := svc.ListCertificatePolicies(s.Ctx, s.Scope)
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "list_certificate_rotation_policies", "failed", fmt.Sprintf("failed to list certificate policies: %s", err), err)
-			return fmt.Errorf("failed to list certificate policies: %w", err)
+			return s.Fail("failed to list certificate policies", err)
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "list_certificate_rotation_policies", "success", fmt.Sprintf("listed %d certificate policies", len(policies)))
-
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"Certificate-ID", "Certificate-Name", "Validity-Months", "Auto-Renew", "Days-Before-Expiry"}
-		rows := make([][]string, len(policies))
-		for i, p := range policies {
-			rows[i] = []string{
-				p.CertificateID.String(),
-				p.CertificateName,
-				strconv.Itoa(p.ValidityMonths),
-				strconv.FormatBool(p.AutoRenew),
-				strconv.Itoa(p.DaysBeforeExpiry),
-			}
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+		s.OK(fmt.Sprintf("listed %d certificate policies", len(policies)))
+		return vaultcli.Print(s, certPolicyListColumns, policies...)
 	},
 }
 
@@ -387,40 +296,28 @@ process; "certificates renew" is the only way to renew from the CLI.`,
   rocketvault certificates rotation-policy status --vault payments`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		claims, ok := ctx.Value(common.ClaimsKey).(*model.Claims)
-		if !ok {
-			return fmt.Errorf("unauthorized: missing authentication claims")
-		}
-
-		log := ctx.Value(common.LogKey).(*logging.Logger)
-
-		serviceContainer, ok := ctx.Value(common.ServiceContainerKey).(container.ServiceContainerInterface)
-		if !ok || serviceContainer == nil {
-			log.LogAuditError(claims.UserID.String(), "certificate_rotation_policy_status", "failed", "service container not available", nil)
-			return fmt.Errorf("service container not available in context")
-		}
-		certService := serviceContainer.GetCertificateService()
-
-		vaultID, err := vaultcli.RequireDataAction(ctx, cmd, serviceContainer, claims.UserID, model.ActionCertificatesRead, model.OpGet)
+		s, err := vaultcli.Caller(cmd, vaultcli.Op{
+			Audit: "certificate_rotation_policy_status", Action: model.ActionCertificatesRead, Policy: model.OpGet,
+		})
 		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "certificate_rotation_policy_status", "failed", fmt.Sprintf("vault authorization failed: %s", err), err)
-			return fmt.Errorf("vault authorization failed: %w", err)
-		}
-		scope := model.NewVaultScope(vaultID, claims.UserID)
-
-		due, err := certService.ListCertificatesDueForRenewal(ctx, scope)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "certificate_rotation_policy_status", "failed", fmt.Sprintf("failed to get due renewals: %s", err), err)
-			return fmt.Errorf("failed to get due certificate renewals: %w", err)
-		}
-		policies, err := certService.ListCertificatePolicies(ctx, scope)
-		if err != nil {
-			log.LogAuditError(claims.UserID.String(), "certificate_rotation_policy_status", "failed", fmt.Sprintf("failed to list policies: %s", err), err)
-			return fmt.Errorf("failed to list certificate policies: %w", err)
+			return err
 		}
 
-		log.LogAuditInfo(claims.UserID.String(), "certificate_rotation_policy_status", "success", fmt.Sprintf("%d due, %d policies", len(due), len(policies)))
+		if err := s.Authorize(); err != nil {
+			return err
+		}
+		svc := s.Container.GetCertificateService()
+
+		due, err := svc.ListCertificatesDueForRenewal(s.Ctx, s.Scope)
+		if err != nil {
+			return s.Fail("failed to get due certificate renewals", err)
+		}
+		policies, err := svc.ListCertificatePolicies(s.Ctx, s.Scope)
+		if err != nil {
+			return s.Fail("failed to list certificate policies", err)
+		}
+
+		s.OK(fmt.Sprintf("%d due, %d policies", len(due), len(policies)))
 
 		fmt.Fprintln(cmd.OutOrStdout(), "Certificate Renewal Status")               //nolint:errcheck
 		fmt.Fprintln(cmd.OutOrStdout(), "────────────────────────────────────────") //nolint:errcheck
