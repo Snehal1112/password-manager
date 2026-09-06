@@ -10,7 +10,8 @@ import (
 
 // ErrUndecryptable means a stored value opened with neither the old nor the
 // new master key. Almost always a wrong --old-key-env; possibly a row sealed
-// with a third, unknown key.
+// with a third, unknown key — for example a second, unfinished rotation whose
+// new key was lost before it was recorded as the config's master_key.
 var ErrUndecryptable = errors.New("value decrypts with neither the old nor the new master key")
 
 // action is what a rotation run must do with one stored value.

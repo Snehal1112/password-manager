@@ -1,6 +1,18 @@
 // Package rekey re-encrypts every master-key-sealed column in the database
 // from an old master key to a new one.
 //
+// Use case: RocketVault seals secrets, software key material, and certificate
+// private keys at rest with a single instance-wide AES-256 master key (see
+// common.EncryptSecret). That key can outlive its trust: it may be suspected
+// of compromise (an operator left, a backup leaked, a pentest finding), or an
+// organisation may simply run periodic key rotation as a compliance control.
+// In either case every row sealed under the old key must be decrypted and
+// resealed under a replacement before the old key can be retired — this
+// package is that migration, driven end-to-end by the
+// "rocketvault master-key rotate" CLI command (cmd/master_key.go). It is an
+// offline maintenance operation: the documented procedure is to stop the
+// server, take a database backup, run a --dry-run preview, then run for real.
+//
 // It works on raw ciphertext columns rather than through the repository layer
 // on purpose: rotation must reach soft-deleted rows and version-history rows
 // owned by any user (repository reads are scope- and soft-delete-filtered),

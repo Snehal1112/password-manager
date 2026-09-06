@@ -19,7 +19,10 @@ const DefaultBatchSize = 100
 // masterKeySize is the AES-256 key length in raw bytes.
 const masterKeySize = 32
 
-// Options configures a rotation run.
+// Options configures a rotation run. OldKey and NewKey are read from
+// environment variables by the CLI layer (cmd/master_key.go) and never
+// accepted as command-line arguments, so key material cannot leak through
+// shell history or a process listing.
 type Options struct {
 	// OldKey is the 32-byte key the stored data is currently sealed with.
 	OldKey []byte
@@ -57,7 +60,11 @@ func (r Report) TotalReEncrypted() int {
 	return total
 }
 
-// Rekeyer re-encrypts master-key-sealed columns from one key to another.
+// Rekeyer re-encrypts master-key-sealed columns from one key to another. It is
+// the mechanism behind master key rotation: one instance is built per CLI
+// invocation of "rocketvault master-key rotate" and discarded once Run
+// returns, so it holds no state across runs beyond the open database
+// connection.
 type Rekeyer struct {
 	db     rvdb.DB
 	logger *logging.Logger
@@ -228,6 +235,9 @@ func (r *Rekeyer) applyTarget(ctx context.Context, target Target, pending []pend
 // applyBatch rewrites one batch of rows inside a single transaction. Each
 // update is guarded by the ciphertext read during the plan phase, so a row
 // changed by a still-running server aborts the run instead of being clobbered.
+// This is why the documented procedure stops the server first: rotation is not
+// designed to race a live writer, only to detect and refuse the race if the
+// operator's "stop the server" step was skipped.
 func (r *Rekeyer) applyBatch(ctx context.Context, updateSQL string, batch []pendingUpdate) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
