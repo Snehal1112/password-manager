@@ -66,26 +66,6 @@ func TestSlowQueryThresholdIsConfigurable(t *testing.T) {
 		"the exported accessor must observe SetSlowQueryThreshold")
 }
 
-// TestNoRepositoryHardcodesTheThreshold guards against a sixth copy of the
-// wrapper reappearing with its own literal cutoff.
-func TestNoRepositoryHardcodesTheThreshold(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	require.NoError(t, err)
-
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, readErr := os.ReadFile(name)
-		require.NoError(t, readErr, "read %s", name)
-		require.NotContains(t, string(src), "100*time.Millisecond",
-			"%s must take its slow-query cutoff from db.SlowQueryThreshold()", name)
-		require.NotContains(t, string(src), "100 * time.Millisecond",
-			"%s must take its slow-query cutoff from db.SlowQueryThreshold()", name)
-	}
-}
-
 // TestWithMetricsPropagatesTheError confirms the wrapper is transparent: it
 // times and records the call but never swallows or rewrites its result.
 func TestWithMetricsPropagatesTheError(t *testing.T) {
@@ -95,7 +75,9 @@ func TestWithMetricsPropagatesTheError(t *testing.T) {
 }
 ```
 
-The import block is `errors`, `os`, `strings`, `testing`, `time`, `github.com/stretchr/testify/require`, `rvdb "rocketvault/internal/db"`, `rocketvault/internal/repositories`.
+The import block is `errors`, `testing`, `time`, `github.com/stretchr/testify/require`, `rvdb "rocketvault/internal/db"`, `rocketvault/internal/repositories`.
+
+**Note on task boundaries:** the guard test that forbids a hardcoded threshold anywhere in the package (`TestNoRepositoryHardcodesTheThreshold`) belongs to **Task 2**, not here. It cannot pass until Task 2 deletes the five existing copies, and committing a knowingly-red test would break `git bisect` across this branch. Task 1's two tests both pass the moment its implementation lands.
 
 `withMetrics` is unexported, so the external test package reaches it through the standard `export_test.go` hook — a file in the *internal* package `repositories`, whose `_test.go` suffix keeps it out of the production build:
 
@@ -111,10 +93,8 @@ var WithMetricsForTest = withMetrics
 
 - [ ] **Step 2: Run the tests and verify they fail**
 
-Run: `go test ./internal/repositories/ -run 'TestSlowQueryThreshold|TestNoRepositoryHardcodes|TestWithMetrics' -v`
-Expected:
-- `TestSlowQueryThresholdIsConfigurable` FAILS to compile — `rvdb.SlowQueryThreshold` is undefined.
-- The other two fail to compile for the same reason (`withMetrics` does not exist yet).
+Run: `go test ./internal/repositories/ -run 'TestSlowQueryThreshold|TestWithMetrics' -v`
+Expected: both FAIL to compile — `rvdb.SlowQueryThreshold` and `repositories.WithMetricsForTest` are undefined.
 
 A compile failure is the correct red here; do not work around it.
 
@@ -190,12 +170,12 @@ func withMetrics(table, operation string, fn func() error) error {
 Run: `go test ./internal/repositories/ -run 'TestSlowQueryThreshold|TestWithMetrics' -v`
 Expected: PASS
 
-`TestNoRepositoryHardcodesTheThreshold` still FAILS — the five old copies are still in place. Task 2 removes them.
+- [ ] **Step 6: Run the full verification — this commit must be green**
 
-- [ ] **Step 6: Run the build**
+Run: `go build ./... && go vet ./... && go test ./internal/repositories/... ./internal/services/...`
+Expected: all PASS. `withMetrics` is unused until Task 2, which `go vet` does not flag for functions.
 
-Run: `go build ./... && go vet ./...`
-Expected: PASS. `withMetrics` is unused so far, which `go vet` does not flag for functions.
+Every commit on this branch is green; do not land a red one.
 
 - [ ] **Step 7: Commit** (use the `1-git-commit` skill)
 
@@ -209,11 +189,46 @@ git add internal/db/db.go internal/repositories/metrics.go internal/repositories
 
 **Files:**
 - Modify: `internal/repositories/key_repository.go:279-298`, `certificate_repository.go:314-348`, `secret_repository.go:124-142`, `user_repository.go:42-60`, `session_repository.go:433-451`
-- Test: `internal/repositories/metrics_test.go` (already written in Task 1)
+- Test: `internal/repositories/metrics_test.go` (extend — the guard test below lands in THIS commit)
 
 **Interfaces:**
 - Consumes: `withMetrics` from Task 1.
-- Produces: five `executeWithMetrics` methods are deleted; all their call sites move to `withMetrics`.
+- Produces: five `executeWithMetrics` methods become one-line delegations; the guard test that forbids a hardcoded threshold.
+
+- [ ] **Step 0: Add the guard test**
+
+This test belongs here rather than in Task 1 because it cannot pass until the five copies below are gone, and a knowingly-red commit would break `git bisect`. Append to `internal/repositories/metrics_test.go`:
+
+```go
+// TestNoRepositoryHardcodesTheThreshold guards against a sixth copy of the
+// metrics wrapper reappearing with its own literal cutoff. The five copies
+// this replaced each hardcoded 100ms while db.RecordQueryExecution applied
+// the configured monitoring.slow_query_threshold -- so once an operator tuned
+// that setting, the SlowQueryCount metric and the slow-query log warnings
+// disagreed about which queries were slow.
+func TestNoRepositoryHardcodesTheThreshold(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err)
+
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, readErr := os.ReadFile(name)
+		require.NoError(t, readErr, "read %s", name)
+		require.NotContains(t, string(src), "100*time.Millisecond",
+			"%s must take its slow-query cutoff from db.SlowQueryThreshold()", name)
+		require.NotContains(t, string(src), "100 * time.Millisecond",
+			"%s must take its slow-query cutoff from db.SlowQueryThreshold()", name)
+	}
+}
+```
+
+Add `"os"` and `"strings"` to the test file's import block.
+
+Run: `go test ./internal/repositories/ -run TestNoRepositoryHardcodesTheThreshold -v`
+Expected: FAIL — all five copies still hardcode the literal. That is this task's red.
 
 Each repository keeps its `r.executeWithMetrics(op, fn)` call sites intact by converting the method into a thin delegation, rather than editing dozens of call sites. This also preserves `itemLifecycleConfig.wrap`, which is assigned `r.executeWithMetrics` by `crud()` and expects that exact `func(string, func() error) error` shape.
 
@@ -290,7 +305,7 @@ Removing the bodies may leave `time` or `logrus` unused in some of these files. 
 - [ ] **Step 7: Run the tests and verify they pass**
 
 Run: `go test ./internal/repositories/ -run TestNoRepositoryHardcodesTheThreshold -v`
-Expected: PASS — this test was red at the end of Task 1 and goes green here.
+Expected: PASS — red at Step 0, green here. That is this task's red-to-green cycle.
 
 Run: `go build ./... && go vet ./... && go test ./internal/repositories/... ./internal/services/...`
 Expected: all PASS

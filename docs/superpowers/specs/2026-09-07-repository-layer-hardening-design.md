@@ -144,10 +144,36 @@ innocuous edit into a behavior change.
 
 ### F4 — `executeWithMetrics` copy-pasted five times, ignoring configuration
 
-Five identical definitions exist: `key_repository.go:280`,
-`certificate_repository.go:330`, `secret_repository.go:125`,
-`user_repository.go:43`, `session_repository.go:434`. Each hardcodes
-`100 * time.Millisecond` as the slow-query cutoff.
+Five definitions exist: `key_repository.go:280`, `certificate_repository.go:330`,
+`secret_repository.go:125`, `user_repository.go:43`, `session_repository.go:434`.
+Each hardcodes `100 * time.Millisecond` as the slow-query cutoff.
+
+**Correction (2026-09-07, found during implementation):** an earlier draft of
+this section called all five *identical*. That was wrong, and the difference
+matters. Four are byte-identical apart from an optional `"table"` log field.
+`SessionRepository`'s diverges in three ways:
+
+1. It **never calls `db.RecordQueryExecution(duration)`** — so session
+   operations have never been counted in `QueryCount`, `TotalQueryTime`, or
+   `SlowQueryCount` at all. The database-performance metrics silently exclude
+   an entire repository.
+2. It logs through `r.logger` (the injected `*logging.Logger`) rather than the
+   package-level `logrus` the other four use.
+3. It emits a different message, `"Slow session repository query detected"`,
+   plus a `"threshold": 100` field the others do not have — a field that
+   hardcodes the very value this finding is about.
+
+Consolidating therefore does more than remove duplication for session: it
+starts counting session queries in the shared metrics for the first time. That
+is the right outcome — session lookups are ordinary database queries and their
+absence from `QueryCount` made the metric under-report — but it is a **behavior
+change to a metric's meaning**, not a pure refactor, and operators reading
+`rocketvault_db_*` will see the counts step up on deployment.
+
+Two smaller consequences of the same consolidation: the distinct log message is
+replaced by the shared `"Slow database query detected"` (so any log-based alert
+matching the old string stops matching), and the `"threshold": 100` field is
+dropped rather than corrected.
 
 Meanwhile `db.RecordQueryExecution` — which every one of those five calls —
 applies `getSlowQueryThreshold()`, the value `bootstrap.go:296` sets from
