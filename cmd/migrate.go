@@ -291,7 +291,11 @@ func createMigration(cmd *cobra.Command, args []string) error {
 	path := fmt.Sprintf("%s/%s", migrationsDir, filename)
 
 	content := migrationFileContent(version, slug)
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	// 0600: a migration is a schema change awaiting review, and this file is
+	// created in the developer's own tree. It gets its real mode from the
+	// repository once committed, so there is no reason to write it group- and
+	// world-readable here.
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("failed to write migration file: %w", err)
 	}
 

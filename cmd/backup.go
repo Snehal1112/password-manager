@@ -335,8 +335,15 @@ func runBackupRestore(cmd *cobra.Command) error {
 	fmt.Printf("Decrypt: %t\n", backupRestoreDecrypt)
 	fmt.Print("Are you sure you want to continue? (type 'yes' to confirm): ")
 
+	// A read error leaves confirmation empty, which fails the check below and
+	// cancels the restore. Ignoring the error would be the same outcome today,
+	// but this is the confirmation gate on a destructive operation: it must
+	// never be possible for a failed read to fall through as approval.
 	var confirmation string
-	fmt.Scanln(&confirmation)
+	if _, err := fmt.Scanln(&confirmation); err != nil {
+		fmt.Println("Restore cancelled: could not read confirmation.")
+		return nil
+	}
 	if confirmation != "yes" {
 		fmt.Println("Restore cancelled.")
 		return nil
