@@ -519,8 +519,13 @@ func scanSecretPolicyRow(rows *sql.Rows) (model.SecretPolicy, error) {
 		return sp, err
 	}
 
-	sp.SecretID, _ = uuid.Parse(secretIDStr)
-	sp.PolicyID, _ = uuid.Parse(policyIDStr)
+	var err error
+	if sp.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+		return sp, fmt.Errorf("invalid secret id: %w", err)
+	}
+	if sp.PolicyID, err = uuid.Parse(policyIDStr); err != nil {
+		return sp, fmt.Errorf("invalid policy id: %w", err)
+	}
 	if lastRotatedAt.Valid {
 		sp.LastRotatedAt = &lastRotatedAt.Time
 	}
@@ -569,9 +574,16 @@ func scanRotationReminderRow(rows *sql.Rows) (model.RotationReminder, error) {
 		return reminder, err
 	}
 
-	reminder.ID, _ = uuid.Parse(reminderID)
-	reminder.SecretID, _ = uuid.Parse(secretIDStr)
-	reminder.PolicyID, _ = uuid.Parse(policyIDStr)
+	var err error
+	if reminder.ID, err = uuid.Parse(reminderID); err != nil {
+		return reminder, fmt.Errorf("invalid reminder id: %w", err)
+	}
+	if reminder.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+		return reminder, fmt.Errorf("invalid secret id: %w", err)
+	}
+	if reminder.PolicyID, err = uuid.Parse(policyIDStr); err != nil {
+		return reminder, fmt.Errorf("invalid policy id: %w", err)
+	}
 	if nextReminderAt.Valid {
 		reminder.NextReminderAt = &nextReminderAt.Time
 	}
@@ -694,9 +706,15 @@ func (r *rotationPolicyRepository) GetReminderBySecret(ctx context.Context, secr
 		return nil, fmt.Errorf("failed to get reminder: %w", err)
 	}
 
-	reminder.ID, _ = uuid.Parse(idStr)
-	reminder.SecretID, _ = uuid.Parse(secretIDStr)
-	reminder.PolicyID, _ = uuid.Parse(policyIDStr)
+	if reminder.ID, err = uuid.Parse(idStr); err != nil {
+		return nil, fmt.Errorf("invalid reminder id: %w", err)
+	}
+	if reminder.SecretID, err = uuid.Parse(secretIDStr); err != nil {
+		return nil, fmt.Errorf("invalid secret id: %w", err)
+	}
+	if reminder.PolicyID, err = uuid.Parse(policyIDStr); err != nil {
+		return nil, fmt.Errorf("invalid policy id: %w", err)
+	}
 	if nextReminderAt.Valid {
 		reminder.NextReminderAt = &nextReminderAt.Time
 	}
