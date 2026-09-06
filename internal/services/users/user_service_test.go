@@ -1072,3 +1072,53 @@ func TestFindOrCreateExternalUser_UsernameCollision_Suffixes(t *testing.T) {
 	assert.NotEqual(t, "taken", got.Username)
 	repo.AssertExpectations(t)
 }
+
+// ---------------------------------------------------------------------------
+// Reserved system user guard
+// ---------------------------------------------------------------------------
+
+// The row at model.SystemUserID is not an account: it exists so the `keys`
+// table's foreign key is satisfiable for SelfPKIProvider's JWT signing key.
+// Deleting it cascades that key away on Postgres; updating it hands the
+// reserved row a real password and role. Neither must reach the repository.
+func TestDeleteUser_SystemUser_Refused(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	svc := newService(repo, &mockPasswordService{}, &mockTOTPService{})
+
+	err := svc.DeleteUser(context.Background(), uuid.MustParse(model.SystemUserID))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reserved system user")
+	repo.AssertNotCalled(t, "Delete", mock.Anything, mock.Anything)
+}
+
+func TestUpdateUser_SystemUser_Refused(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	svc := newService(repo, &mockPasswordService{}, &mockTOTPService{})
+
+	newName := "attacker"
+	err := svc.UpdateUser(context.Background(), UpdateUserRequest{
+		UserID:      uuid.MustParse(model.SystemUserID),
+		CallerRoles: []string{model.RoleAdmin},
+		Username:    &newName,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reserved system user")
+	repo.AssertNotCalled(t, "Read", mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+}
+
+// A normal user id must still pass the guard untouched.
+func TestDeleteUser_OrdinaryUser_Allowed(t *testing.T) {
+	t.Parallel()
+	repo := &mockUserRepository{}
+	id := uuid.New()
+	repo.On("Delete", mock.Anything, id).Return(nil)
+	svc := newService(repo, &mockPasswordService{}, &mockTOTPService{})
+
+	require.NoError(t, svc.DeleteUser(context.Background(), id))
+	repo.AssertExpectations(t)
+}

@@ -54,6 +54,28 @@ type UpdateUserRequest struct {
 	Roles       []string // nil means no change; non-nil (even empty) is a validation error.
 }
 
+// guardSystemUser rejects any mutation targeting the reserved row at
+// model.SystemUserID. That row is not an account: it exists so the `keys`
+// table's FOREIGN KEY (user_id) REFERENCES users(id) is satisfiable for
+// internally-generated resources, currently SelfPKIProvider's own JWT
+// signing key (see model.SystemUserID's doc comment and known-bugs.md B60).
+//
+// Deleting it cascades that signing key away on Postgres, so every
+// outstanding token fails its `kid` lookup and the instance silently
+// re-keys on next boot; on SQLite it leaves the key dangling and reopens
+// B60. Updating it can hand the reserved row a real password hash and role.
+// Neither DELETE /api/v1/users/{id} (admin plus "not your own account") nor
+// `rocketvault users delete <id>` excluded this id, and the id is the
+// well-known uuid.Nil, so both are reachable by any admin. The repository's
+// List and bootstrap-count queries already hide this row; this closes the
+// write side.
+func guardSystemUser(userID uuid.UUID, verb string) error {
+	if userID.String() == model.SystemUserID {
+		return fmt.Errorf("the reserved system user cannot be %s", verb)
+	}
+	return nil
+}
+
 // UserService handles user management operations.
 // It orchestrates user creation and updates by coordinating
 // with authentication services and user repositories.
@@ -245,6 +267,10 @@ func (s *userService) FindOrCreateExternalUser(ctx context.Context, req FindOrCr
 //
 //	An error if the update fails.
 func (s *userService) UpdateUser(ctx context.Context, req UpdateUserRequest) error {
+	if err := guardSystemUser(req.UserID, "updated"); err != nil {
+		return err
+	}
+
 	// Only admins may change any user's roles -- including their own. This
 	// is the self-promotion guard: a non-admin including "admin" (or any
 	// role) in req.Roles is rejected here before roles are ever validated
@@ -370,6 +396,10 @@ func (s *userService) ListUsers(ctx context.Context) ([]model.User, error) {
 //
 //	An error if deletion fails.
 func (s *userService) DeleteUser(ctx context.Context, userID uuid.UUID) error {
+	if err := guardSystemUser(userID, "deleted"); err != nil {
+		return err
+	}
+
 	if err := s.userRepo.Delete(ctx, userID); err != nil {
 		s.logger.LogAuditError(userID.String(), "delete_user", "failed", "Failed to delete user", err)
 		return fmt.Errorf("failed to delete user: %w", err)
