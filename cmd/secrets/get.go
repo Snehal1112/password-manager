@@ -26,8 +26,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,7 +35,6 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
 	"rocketvault/model"
 )
 
@@ -102,25 +99,7 @@ member created.`,
 			return fmt.Errorf("failed to retrieve secret: %w", err)
 		}
 
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"ID", "Name", "Value", "Version", "Enabled", "ContentType", "Tags", "Expires", "NotBefore", "Created"}
-		row := []string{
-			secret.ID.String(),
-			secret.Name,
-			secret.Value,
-			strconv.Itoa(secret.Version),
-			strconv.FormatBool(secret.Enabled),
-			secret.ContentType,
-			strings.Join(secret.Tags, ","),
-			formatOptionalTime(secret.ExpiresAt),
-			formatOptionalTime(secret.NotBefore),
-			secret.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		return renderSecret(cmd, ctx, secretDetailColumns, *secret)
 	},
 }
 
@@ -134,11 +113,6 @@ func runSecretsGetRemote(cmd *cobra.Command, ctx context.Context, target *clicli
 	if !ok || token == "" {
 		return fmt.Errorf("remote session token not available in context")
 	}
-	fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-	if !ok {
-		return fmt.Errorf("output formatter not available in context")
-	}
-
 	vault, _ := cmd.Flags().GetString("vault")
 	if vault == "" {
 		vault = target.Vault
@@ -149,34 +123,16 @@ func runSecretsGetRemote(cmd *cobra.Command, ctx context.Context, target *clicli
 		return err
 	}
 
-	headers := []string{"ID", "Name", "Value", "Version", "Enabled", "ContentType", "Tags", "Expires", "NotBefore", "Created"}
-	row := []string{
-		secret.ID,
-		secret.Name,
-		secret.Value,
-		strconv.Itoa(secret.Version),
-		strconv.FormatBool(secret.Enabled),
-		secret.ContentType,
-		strings.Join(secret.Tags, ","),
-		formatOptionalTime(secret.ExpiresAt),
-		formatOptionalTime(secret.NotBefore),
-		secret.CreatedAt,
-	}
-	return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+	return renderSecret(cmd, ctx, remoteSecretDetailColumns, *secret)
 }
 
 // InitSecretsGet initializes the get command for secrets
 // It sets up the command flags and adds it to the secrets command tree.
 // This function is called in the main function of the application to set up the command structure.
-// It returns the modified secrets command.
 // Parameters:
 //
 //	secretsCmd: The parent command under which the get command will be added.
-//
-// Returns:
-//
-//	The modified secrets command with the get command added.
-func InitSecretsGet(secretsCmd *cobra.Command) *cobra.Command {
+func InitSecretsGet(secretsCmd *cobra.Command) {
 	secretsCmd.AddCommand(getCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -188,7 +144,6 @@ func InitSecretsGet(secretsCmd *cobra.Command) *cobra.Command {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// getCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	return secretsCmd
 }
 
 // formatOptionalTime formats a pointer to time.Time as RFC3339, returning empty string for nil.

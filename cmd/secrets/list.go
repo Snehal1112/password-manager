@@ -26,9 +26,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -37,7 +34,6 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
 	"rocketvault/model"
 )
 
@@ -96,24 +92,7 @@ caller's own.
 			return fmt.Errorf("failed to list secrets: %w", err)
 		}
 
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-
-		headers := []string{"ID", "Name", "Version", "Enabled", "Tags", "Created"}
-		rows := make([][]string, len(secretsList))
-		for i, s := range secretsList {
-			rows[i] = []string{
-				s.ID.String(),
-				s.Name,
-				strconv.Itoa(s.Version),
-				strconv.FormatBool(s.Enabled),
-				strings.Join(s.Tags, ","),
-				s.CreatedAt.Format(time.RFC3339),
-			}
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+		return renderSecrets(cmd, ctx, secretSummaryColumns, secretsList...)
 	},
 }
 
@@ -130,11 +109,6 @@ func runSecretsListRemote(cmd *cobra.Command, ctx context.Context, target *clicl
 	if !ok || token == "" {
 		return fmt.Errorf("remote session token not available in context")
 	}
-	fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-	if !ok {
-		return fmt.Errorf("output formatter not available in context")
-	}
-
 	vault, _ := cmd.Flags().GetString("vault")
 	if vault == "" {
 		vault = target.Vault
@@ -145,32 +119,15 @@ func runSecretsListRemote(cmd *cobra.Command, ctx context.Context, target *clicl
 		return err
 	}
 
-	headers := []string{"ID", "Name", "Version", "Enabled", "Tags", "Created"}
-	rows := make([][]string, len(secretsList))
-	for i, s := range secretsList {
-		rows[i] = []string{
-			s.ID,
-			s.Name,
-			strconv.Itoa(s.Version),
-			strconv.FormatBool(s.Enabled),
-			strings.Join(s.Tags, ","),
-			s.CreatedAt,
-		}
-	}
-	return fmtr.Write(cmd.OutOrStdout(), headers, rows)
+	return renderSecrets(cmd, ctx, remoteSecretSummaryColumns, secretsList...)
 }
 
 // InitSecretsList initializes the list command for secrets
 // It sets up the command flags and adds it to the secrets command tree.
 // This function is called in the main function of the application to set up the command structure.
-// It returns the modified secrets command.
 // Parameters:
 //
 //	secretsCmd: The parent command under which the list command will be added.
-//
-// Returns:
-//
-//	*cobra.Command: The modified secrets command with the list command added.
 //
 // Example usage:
 //
@@ -211,9 +168,8 @@ func runSecretsListRemote(cmd *cobra.Command, ctx context.Context, target *clicl
 //	ctx := context.WithValue(context.Background(), "db", db)
 //	secretsCmd.SetContext(ctx)
 //	secretsCmd.Execute()
-func InitSecretsList(secretsCmd *cobra.Command) *cobra.Command {
+func InitSecretsList(secretsCmd *cobra.Command) {
 	secretsCmd.AddCommand(listCmd)
 
 	listCmd.Flags().StringSlice("tags", []string{}, "Tags to filter secrets (comma-separated)")
-	return secretsCmd
 }

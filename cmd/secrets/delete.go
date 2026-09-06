@@ -142,12 +142,9 @@ func runSecretsDeleteRemote(cmd *cobra.Command, ctx context.Context, target *cli
 // and adds it to the secrets command.
 // It also sets up the necessary flags and configuration settings.
 // This function is called in the main package to set up the command.
-// It returns the modified secrets command.
 // Parameters:
 // - secretsCmd: The parent command to which the delete command will be added.
-// Returns:
-// - *cobra.Command: The modified secrets command with the delete command added.
-func InitSecretsDelete(secretsCmd *cobra.Command) *cobra.Command {
+func InitSecretsDelete(secretsCmd *cobra.Command) {
 	secretsCmd.AddCommand(deleteCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -159,6 +156,4 @@ func InitSecretsDelete(secretsCmd *cobra.Command) *cobra.Command {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// deleteCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-
-	return secretsCmd
 }

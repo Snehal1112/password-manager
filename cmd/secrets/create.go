@@ -26,8 +26,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -35,7 +33,6 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/cliclient"
 	"rocketvault/internal/container"
-	"rocketvault/internal/formatter"
 	secretsServices "rocketvault/internal/services/secrets"
 	"rocketvault/model"
 )
@@ -126,19 +123,7 @@ it has been soft-deleted.`,
 			return fmt.Errorf("failed to create secret: %w", err)
 		}
 
-		fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-		if !ok {
-			return fmt.Errorf("output formatter not available in context")
-		}
-		headers := []string{"ID", "Name", "Version", "Enabled", "Created"}
-		row := []string{
-			secret.ID.String(),
-			secret.Name,
-			strconv.Itoa(secret.Version),
-			strconv.FormatBool(secret.Enabled),
-			secret.CreatedAt.Format(time.RFC3339),
-		}
-		return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+		return renderSecret(cmd, ctx, secretCreatedColumns, *secret)
 	},
 }
 
@@ -152,11 +137,6 @@ func runSecretsCreateRemote(cmd *cobra.Command, ctx context.Context, target *cli
 	if !ok || token == "" {
 		return fmt.Errorf("remote session token not available in context")
 	}
-	fmtr, ok := ctx.Value(common.OutputFormatterKey).(formatter.Formatter)
-	if !ok {
-		return fmt.Errorf("output formatter not available in context")
-	}
-
 	vault, _ := cmd.Flags().GetString("vault")
 	if vault == "" {
 		vault = target.Vault
@@ -173,9 +153,7 @@ func runSecretsCreateRemote(cmd *cobra.Command, ctx context.Context, target *cli
 		return err
 	}
 
-	headers := []string{"ID", "Name", "Version", "Enabled", "Created"}
-	row := []string{secret.ID, secret.Name, strconv.Itoa(secret.Version), strconv.FormatBool(secret.Enabled), secret.CreatedAt}
-	return fmtr.Write(cmd.OutOrStdout(), headers, [][]string{row})
+	return renderSecret(cmd, ctx, remoteSecretCreatedColumns, *secret)
 }
 
 // InitSecretsCreate initializes the create command for secrets.
@@ -185,18 +163,15 @@ func runSecretsCreateRemote(cmd *cobra.Command, ctx context.Context, target *cli
 // Parameters:
 //   - secretsCmd: *cobra.Command - the parent command to which the create command will be added
 //
-// Return type: *cobra.Command - the initialized create command
 // Example usage:
 //
 //	secretsCmd := &cobra.Command{Use: "secrets"}
 //	createCmd := InitSecretsCreate(secretsCmd)
 //	createCmd.Execute()
-func InitSecretsCreate(secretsCmd *cobra.Command) *cobra.Command {
+func InitSecretsCreate(secretsCmd *cobra.Command) {
 	secretsCmd.AddCommand(createCmd)
 
 	createCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
 	createCmd.Flags().String("content-type", "", "Media type of the secret value (e.g. application/json)")
 	createCmd.Flags().Bool("purge-protection", false, "Protect the secret from being purged")
-
-	return secretsCmd
 }

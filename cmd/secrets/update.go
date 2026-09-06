@@ -180,10 +180,9 @@ func runSecretsUpdateRemote(cmd *cobra.Command, ctx context.Context, target *cli
 }
 
 // InitSecretsUpdate adds the update command to the secrets command.
-func InitSecretsUpdate(secretsCmd *cobra.Command) *cobra.Command {
+func InitSecretsUpdate(secretsCmd *cobra.Command) {
 	secretsCmd.AddCommand(updateCmd)
 	updateCmd.Flags().StringSlice("tags", []string{}, "Tags for the secret (comma-separated)")
 	updateCmd.Flags().String("content-type", "", "Media type of the secret value")
 	updateCmd.Flags().Bool("purge-protection", false, "Protect the secret from being purged")
-	return secretsCmd
 }

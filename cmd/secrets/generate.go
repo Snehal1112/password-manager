@@ -85,15 +85,10 @@ server or vault operation at all.`,
 // InitSecretsGenerate initializes the generate command under the secrets command.
 // It sets up the command flags and adds it to the secrets command tree.
 // This function is called in the main function of the application to set up the command structure.
-// It returns the modified secrets command.
 // Parameters:
 //
 //	secretsCmd: The parent command under which the generate command will be added.
-//
-// Returns:
-//
-//	The modified secrets command with the generate command added.
-func InitSecretsGenerate(secretsCmd *cobra.Command) *cobra.Command {
+func InitSecretsGenerate(secretsCmd *cobra.Command) {
 	secretsCmd.AddCommand(generateCmd)
 
 	generateCmd.Flags().Int("length", 16, "Length of the generated password")
@@ -101,6 +96,4 @@ func InitSecretsGenerate(secretsCmd *cobra.Command) *cobra.Command {
 	generateCmd.Flags().Bool("lowercase", true, "Include lowercase letters")
 	generateCmd.Flags().Bool("numbers", true, "Include numbers")
 	generateCmd.Flags().Bool("special", true, "Include special characters")
-
-	return secretsCmd
 }
