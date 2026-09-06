@@ -5,10 +5,12 @@ package cache
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"rocketvault/common"
 	"rocketvault/internal/cachekit"
 	"rocketvault/model"
 )
@@ -31,6 +33,40 @@ type SecretCache struct {
 func NewSecretCache(cfg cachekit.Config, logger *logrus.Logger) *SecretCache {
 	return &SecretCache{
 		core:   cachekit.NewFromConfig[string, *model.Secret](cfg),
+		logger: logger,
+	}
+}
+
+// NewSecretCacheWithL2 creates a SecretCache backed by a TieredCache: cfg's
+// in-process cache as L1, l2 as the shared Rocket-mem tier (l2TTL is that
+// tier's own entry lifetime). GetSecret hands this cache already-decrypted
+// plaintext (see cache_integration.go), so values are JSON-marshaled and
+// then encrypted via common.EncryptSecret/DecryptSecret -- the same
+// primitive already used for this secret's DB-at-rest encryption -- before
+// ever reaching l2 (see the design spec's Problem Statement table: this is
+// the mandatory case, never PlainJSONCodec). Used only when
+// cache.rocket_mem is enabled; NewSecretCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewSecretCache path instead of building a live
+// TieredCache -- an operator's cache.secrets.enabled: false must not be
+// silently overridden by cache.rocket_mem.enabled: true.
+func NewSecretCacheWithL2(cfg cachekit.Config, logger *logrus.Logger, l2 cachekit.L2, l2TTL time.Duration) *SecretCache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewSecretCache(cfg, logger)
+	}
+	l1 := cachekit.NewFromConfig[string, *model.Secret](cfg)
+	codec := cachekit.EncryptedJSONCodec[*model.Secret]{
+		Encrypt: common.EncryptSecret,
+		Decrypt: common.DecryptSecret,
+	}
+	keys := cachekit.KeyCodec[string]{
+		ToWire:   func(k string) string { return k },
+		FromWire: func(w string) (string, bool) { return w, true },
+	}
+	return &SecretCache{
+		core:   cachekit.NewTieredCache[string, *model.Secret](l1, l2, codec, keys, "rocketvault:secret:", l2TTL),
 		logger: logger,
 	}
 }

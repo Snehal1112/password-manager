@@ -698,3 +698,44 @@ func TestNewServiceContainer_PurgeRemovesWebhookConfig(t *testing.T) {
 			"check that service_container.go still calls "+
 			"c.vaultService.SetWebhookCleaner(vaultWebhookRepo)")
 }
+
+// ---------------------------------------------------------------------------
+// Test 19 — rocket-mem client construction is gated by cache.rocket_mem.enabled
+// ---------------------------------------------------------------------------
+
+// TestNewServiceContainer_RocketMemDisabledByDefault_NoClientConstructed
+// pins that a container built with no RocketMemConfig override (so it loads
+// from Viper, and cache.rocket_mem defaults to disabled) never constructs a
+// rocket-mem client, and that Close() stays safe with a nil client.
+func TestNewServiceContainer_RocketMemDisabledByDefault_NoClientConstructed(t *testing.T) {
+	viper.Set("cache.rocket_mem.enabled", nil)
+	c, err := NewServiceContainer(Config{
+		Logger: newTestLogger(),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, c.rocketMemClient, "rocketMemClient must stay nil when cache.rocket_mem is disabled")
+	assert.NotPanics(t, func() { _ = c.Close() }, "Close must be a no-op-safe even with rocket_mem disabled")
+}
+
+// TestNewServiceContainer_RocketMemEnabled_ClientConstructedAndClosed pins
+// that an explicit, enabled RocketMemConfig override causes the container to
+// construct a client and that Close() closes it without error, even though
+// the configured address is unreachable.
+func TestNewServiceContainer_RocketMemEnabled_ClientConstructedAndClosed(t *testing.T) {
+	rmCfg := rvconfig.RocketMemConfig{
+		Enabled: true, Addr: "127.0.0.1:1", TLS: true, Username: "u", Password: "p",
+	}
+	cacheCfg, err := rvconfig.LoadCacheConfig()
+	require.NoError(t, err)
+	c, err := NewServiceContainer(Config{
+		Logger:          newTestLogger(),
+		CacheConfig:     &cacheCfg,
+		RocketMemConfig: &rmCfg,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, c.rocketMemClient, "rocketMemClient must be constructed when cache.rocket_mem.enabled is true")
+	// go-redis dials lazily, so constructing against an unreachable address
+	// (127.0.0.1:1) must not fail container construction -- only actual
+	// Get/Set calls degrade (proven in Plan 03's tests).
+	assert.NoError(t, c.Close())
+}

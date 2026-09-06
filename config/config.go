@@ -384,3 +384,71 @@ func containsString(values []string, target string) bool {
 	}
 	return false
 }
+
+// RocketMemConfig holds connection settings for the optional shared
+// Rocket-mem L2 cache tier (see internal/rocketmemcache and
+// internal/cachekit.TieredCache). Disabled by default -- a deployment with
+// no cache.rocket_mem section behaves identically to before this existed.
+type RocketMemConfig struct {
+	Enabled      bool
+	Addr         string
+	TLS          bool
+	Username     string
+	Password     string
+	DialTimeout  time.Duration
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	PoolSize     int
+}
+
+// LoadRocketMemConfig reads cache.rocket_mem.* from Viper. Fails closed:
+// Rocket-mem defaults to a fully open ACL until at least one user is
+// configured (verified against its source), so enabling this cache without
+// both TLS and credentials would hand a network-adjacent attacker
+// cache-poisoning/DoS capability even though cached payloads are
+// encrypted. Mirrors this codebase's existing pattern of aborting startup
+// on a bad security-relevant config (e.g. master_key) rather than
+// degrading silently.
+func LoadRocketMemConfig() (RocketMemConfig, error) {
+	cfg := RocketMemConfig{
+		Addr:         "127.0.0.1:6379",
+		DialTimeout:  100 * time.Millisecond,
+		ReadTimeout:  100 * time.Millisecond,
+		WriteTimeout: 100 * time.Millisecond,
+		PoolSize:     10,
+	}
+	if viper.IsSet("cache.rocket_mem.enabled") {
+		cfg.Enabled = viper.GetBool("cache.rocket_mem.enabled")
+	}
+	if viper.IsSet("cache.rocket_mem.addr") {
+		cfg.Addr = viper.GetString("cache.rocket_mem.addr")
+	}
+	if viper.IsSet("cache.rocket_mem.tls") {
+		cfg.TLS = viper.GetBool("cache.rocket_mem.tls")
+	}
+	if viper.IsSet("cache.rocket_mem.username") {
+		cfg.Username = viper.GetString("cache.rocket_mem.username")
+	}
+	if viper.IsSet("cache.rocket_mem.password") {
+		cfg.Password = viper.GetString("cache.rocket_mem.password")
+	}
+	if viper.IsSet("cache.rocket_mem.dial_timeout") {
+		cfg.DialTimeout = viper.GetDuration("cache.rocket_mem.dial_timeout")
+	}
+	if viper.IsSet("cache.rocket_mem.read_timeout") {
+		cfg.ReadTimeout = viper.GetDuration("cache.rocket_mem.read_timeout")
+	}
+	if viper.IsSet("cache.rocket_mem.write_timeout") {
+		cfg.WriteTimeout = viper.GetDuration("cache.rocket_mem.write_timeout")
+	}
+	if viper.IsSet("cache.rocket_mem.pool_size") {
+		cfg.PoolSize = viper.GetInt("cache.rocket_mem.pool_size")
+	}
+
+	if cfg.Enabled && (!cfg.TLS || cfg.Username == "" || cfg.Password == "") {
+		return RocketMemConfig{}, fmt.Errorf(
+			"cache.rocket_mem: enabled requires tls=true and a non-empty username/password " +
+				"(rocket-mem defaults to a fully open ACL until a user is configured)")
+	}
+	return cfg, nil
+}

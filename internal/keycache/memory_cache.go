@@ -2,8 +2,11 @@
 package keycache
 
 import (
+	"time"
+
 	"github.com/google/uuid"
 
+	"rocketvault/common"
 	"rocketvault/internal/cachekit"
 )
 
@@ -23,6 +26,29 @@ type cacheImpl struct {
 // one when cfg.Enabled, a no-op one otherwise.
 func NewCache(cfg cachekit.Config) Cache {
 	return &cacheImpl{core: cachekit.NewFromConfig[keyCacheKey, *Entry](cfg)}
+}
+
+// NewCacheWithL2 creates a Cache backed by a TieredCache: cfg's in-process
+// cache as L1, l2 as the shared Rocket-mem tier (l2TTL is that tier's own
+// entry lifetime). Uses entryCodec (not the generic EncryptedJSONCodec) so
+// Entry's interface-typed PrivateKey/PublicKey fields round-trip correctly
+// -- see l2_codec.go. Used only when cache.rocket_mem is enabled;
+// NewCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewCache path instead of building a live TieredCache --
+// an operator's cache.keys.enabled: false must not be silently overridden by
+// cache.rocket_mem.enabled: true.
+func NewCacheWithL2(cfg cachekit.Config, l2 cachekit.L2, l2TTL time.Duration) Cache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewCache(cfg)
+	}
+	l1 := cachekit.NewFromConfig[keyCacheKey, *Entry](cfg)
+	codec := entryCodec{encrypt: common.EncryptSecret, decrypt: common.DecryptSecret}
+	return &cacheImpl{
+		core: cachekit.NewTieredCache[keyCacheKey, *Entry](l1, l2, codec, keyCacheKeyCodec(), "rocketvault:key:", l2TTL),
+	}
 }
 
 // NewNopCache returns a Cache that never hits, for explicit use outside

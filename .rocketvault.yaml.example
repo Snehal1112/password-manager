@@ -231,6 +231,40 @@ cache:
     cleanup_interval: "1m"
     max_entries: 500
 
+  # Optional shared L2 (network) cache tier, backed by an external Rust
+  # key-value store ("Rocket-mem") speaking RESP. Disabled by default -- a
+  # deployment with no cache.rocket_mem section (or enabled: false) behaves
+  # identically to before this tier existed: every domain cache above stays
+  # purely in-process (L1 only). Opt in only if you run multiple RocketVault
+  # instances that should share a single warm cache -- see
+  # docs/superpowers/specs/2026-09-06-rocket-mem-tiered-cache-design.md for
+  # the full design.
+  #
+  # Fail-closed by design: enabling this (enabled: true) without BOTH
+  # tls: true and a non-empty username/password aborts startup outright.
+  # Rocket-mem defaults to a fully open ACL until at least one user is
+  # configured, so enabling network access without both would hand a
+  # network-adjacent attacker cache-poisoning/DoS capability even though
+  # every cached payload is itself encrypted before it ever reaches the wire.
+  #
+  # TLS trust note: only the system CA store is consulted for Rocket-mem's
+  # certificate today -- there is no CA-pinning / insecure-skip-verify config
+  # (unlike oidc.ca_cert_path below). Use a certificate already trusted by
+  # the host's system trust store, and run one dedicated Rocket-mem instance
+  # per deployment -- there is no per-deployment namespace on the wire-key
+  # prefix yet, so two deployments sharing one instance would cross-serve
+  # records.
+  rocket_mem:
+    enabled: false
+    addr: "127.0.0.1:6379"
+    tls: false
+    username: ""
+    password: ""
+    dial_timeout: "100ms"
+    read_timeout: "100ms"
+    write_timeout: "100ms"
+    pool_size: 10
+
 oauth2:
   token_expiry: "30m"
   issuer: "http://localhost:8774"  # production: your real HTTPS issuer URL

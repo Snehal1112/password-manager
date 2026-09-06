@@ -20,6 +20,7 @@ import (
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/rocketmemcache"
 	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -226,6 +227,12 @@ type ServiceContainer struct {
 	keyCache keycache.Cache
 	// Prometheus metrics for crypto operations.
 	cryptoMetrics metrics.CryptoMetrics
+
+	// rocketMemClient is the single shared L2 connection backing every
+	// domain's TieredCache (Plans 05-08). nil when cache.rocket_mem is
+	// disabled. Not exposed via ServiceContainerInterface -- nothing outside
+	// this package constructs a TieredCache, so no getter is needed yet.
+	rocketMemClient *rocketmemcache.Client
 }
 
 // Config holds configuration for the service container.
@@ -234,6 +241,10 @@ type Config struct {
 	Logger      *logging.Logger
 	CacheConfig *rvconfig.CacheConfig
 	Viper       *viper.Viper // Configuration manager for retry policies and other settings
+
+	// RocketMemConfig overrides the loaded cache.rocket_mem.* config, mirroring
+	// CacheConfig's own override field -- nil means "load from Viper".
+	RocketMemConfig *rvconfig.RocketMemConfig
 }
 
 // NewServiceContainer creates a new service container with the provided configuration.
@@ -274,6 +285,35 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 	}
 	container.cacheConfig = *config.CacheConfig
 
+	if config.RocketMemConfig == nil {
+		loaded, err := rvconfig.LoadRocketMemConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load rocket_mem config: %w", err)
+		}
+		config.RocketMemConfig = &loaded
+	}
+	if config.RocketMemConfig.Enabled {
+		container.rocketMemClient = rocketmemcache.New(rocketmemcache.Config{
+			Addr:         config.RocketMemConfig.Addr,
+			TLS:          config.RocketMemConfig.TLS,
+			Username:     config.RocketMemConfig.Username,
+			Password:     config.RocketMemConfig.Password,
+			DialTimeout:  config.RocketMemConfig.DialTimeout,
+			ReadTimeout:  config.RocketMemConfig.ReadTimeout,
+			WriteTimeout: config.RocketMemConfig.WriteTimeout,
+			PoolSize:     config.RocketMemConfig.PoolSize,
+			Logger:       container.logger.Logger,
+		})
+		// One-shot, non-fatal reachability check: a fully-broken L2 (wrong
+		// TLS cert, bad ACL credentials, unreachable) must not abort
+		// startup -- the data plane always has L1 (or the DB) to fall back
+		// on -- but it must not look identical to a healthy L2 either, so
+		// log loudly here rather than only on the first real operation.
+		if err := container.rocketMemClient.Ping(); err != nil {
+			container.logger.WithError(err).Warn("rocket_mem cache tier enabled but unreachable at startup; continuing with L1-only caching until it recovers")
+		}
+	}
+
 	if err := container.initializeServices(); err != nil {
 		return nil, fmt.Errorf("failed to initialize services: %w", err)
 	}
@@ -309,7 +349,11 @@ func (c *ServiceContainer) initializeServices() error {
 	c.vaultService = vaultServices.NewVaultService(c.vaultRepository, vaultCascade, c.logger)
 	c.vaultService.SetGlobalPurgeProtection(c.globalPurgeProtection)
 	c.vaultService.SetTxBeginner(c.conn)
-	c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
+	if c.rocketMemClient != nil {
+		c.vaultCache = vaultcache.NewCacheWithL2(c.cacheConfig.Vaults, c.rocketMemClient, c.cacheConfig.Vaults.TTL)
+	} else {
+		c.vaultCache = vaultcache.NewCache(c.cacheConfig.Vaults)
+	}
 	c.vaultService.SetVaultCache(c.vaultCache)
 	vaultWebhookRepo := repositories.NewVaultWebhookRepository(c.conn, c.logger)
 	c.vaultWebhookService = vaultServices.NewVaultWebhookService(vaultWebhookRepo, c.logger)
@@ -338,12 +382,20 @@ func (c *ServiceContainer) initializeServices() error {
 
 	// Secret cache is always constructed: a real cache when enabled, a
 	// no-op one otherwise, so downstream code never nil-checks it.
-	c.secretCache = cache.NewSecretCache(c.cacheConfig.Secrets, c.logger.Logger)
+	if c.rocketMemClient != nil {
+		c.secretCache = cache.NewSecretCacheWithL2(c.cacheConfig.Secrets, c.logger.Logger, c.rocketMemClient, c.cacheConfig.Secrets.TTL)
+	} else {
+		c.secretCache = cache.NewSecretCache(c.cacheConfig.Secrets, c.logger.Logger)
+	}
 	c.vaultService.SetSecretCacheFlusher(c.secretCache)
 
 	// Certificate cache is always constructed: a real cache when enabled, a
 	// no-op one otherwise, so downstream code never nil-checks it.
-	c.certCache = certcache.NewCache(c.cacheConfig.Certificates, c.logger.Logger)
+	if c.rocketMemClient != nil {
+		c.certCache = certcache.NewCacheWithL2(c.cacheConfig.Certificates, c.logger.Logger, c.rocketMemClient, c.cacheConfig.Certificates.TTL)
+	} else {
+		c.certCache = certcache.NewCache(c.cacheConfig.Certificates, c.logger.Logger)
+	}
 
 	// Initialize retry service before any service that wraps with retry logic.
 	if c.viper != nil {
@@ -564,7 +616,11 @@ func (c *ServiceContainer) initializeServices() error {
 	c.secretService = c.cachedSecretService
 
 	// Key cache is always constructed via the unified cache.keys.* config.
-	c.keyCache = keycache.NewCache(c.cacheConfig.Keys)
+	if c.rocketMemClient != nil {
+		c.keyCache = keycache.NewCacheWithL2(c.cacheConfig.Keys, c.rocketMemClient, c.cacheConfig.Keys.TTL)
+	} else {
+		c.keyCache = keycache.NewCache(c.cacheConfig.Keys)
+	}
 
 	// Initialize Prometheus metrics for crypto operations.
 	c.cryptoMetrics = metrics.NewDefaultPrometheusCryptoMetrics()
@@ -915,6 +971,12 @@ func (c *ServiceContainer) Close() error {
 	if c.keyProvider != nil {
 		if err := c.keyProvider.Close(); err != nil {
 			c.logger.WithError(err).Warn("Failed to close key provider")
+		}
+	}
+
+	if c.rocketMemClient != nil {
+		if err := c.rocketMemClient.Close(); err != nil {
+			c.logger.WithError(err).Warn("Failed to close rocket-mem client")
 		}
 	}
 

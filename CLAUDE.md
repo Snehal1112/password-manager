@@ -219,6 +219,24 @@ is gone — see `docs/release-notes/v4.1.0-role-parity-and-authz-fix.md` for the
 breaking-change note. `cache.certificates.*`/`cache.users.*` are accepted in
 config but reserved for future use; no cache is wired up for those domains yet.
 
+An optional L2 (network) tier sits behind all four domain caches:
+`cache.rocket_mem.*`, loaded via `config.LoadRocketMemConfig()` and backed by
+`internal/rocketmemcache` (a thin client over an external, RESP-speaking
+key-value store, "Rocket-mem") and `internal/cachekit.TieredCache`. It exists
+for cache coherency across multiple RocketVault instances sharing one
+Rocket-mem — an in-process-only cache can't do that. Opt-in and disabled by
+default; a deployment with no `cache.rocket_mem` section (or `enabled: false`)
+is unaffected, and each of the four `...WithL2` domain constructors falls back
+to the plain in-process-only cache whenever *that domain's own* cache is
+disabled, so `cache.<domain>.enabled: false` is never silently overridden by
+`cache.rocket_mem.enabled: true`. `LoadRocketMemConfig` fails closed: enabling
+it without both `tls: true` and a non-empty username/password aborts startup
+outright (Rocket-mem defaults to a fully open ACL until a user is configured).
+Only the system CA store is consulted for Rocket-mem's certificate today —
+there is no CA-pinning/insecure-skip-verify config yet. See
+`docs/superpowers/specs/2026-09-06-rocket-mem-tiered-cache-design.md` for the
+full design.
+
 ### Certificate Management (`internal/services/certificates/`) - NEW ✨
 - **CertificateService**: Certificate lifecycle management, CA validation
 - Soft-delete (list/restore/purge) is vault-scoped for both keys and certificates, mirroring the pre-existing secrets soft-delete pattern (`internal/services/secrets/secret_service.go`'s `ListDeletedSecrets`/`RecoverSecret`/`PurgeSecret`) — see `KeyService.ListDeletedKeys`/`RecoverKey`/`PurgeKey` and the `CertificateService` equivalents.

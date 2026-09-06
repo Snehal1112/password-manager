@@ -5,6 +5,8 @@
 package vaultcache
 
 import (
+	"time"
+
 	"rocketvault/internal/cachekit"
 	"rocketvault/model"
 )
@@ -38,4 +40,28 @@ func (c *Cache) Invalidate(name string) {
 // Stop shuts down the background TTL sweep. Safe to call more than once.
 func (c *Cache) Stop() {
 	c.core.Stop()
+}
+
+// NewCacheWithL2 creates a Cache backed by a TieredCache: cfg's in-process
+// cache as L1, l2 as the shared Rocket-mem tier (l2TTL is that tier's own
+// entry lifetime). Uses PlainJSONCodec -- model.Vault carries no secret
+// material (see the design spec). Used only when cache.rocket_mem is
+// enabled; NewCache's behavior is unchanged.
+//
+// Mirrors cachekit.NewFromConfig's own enabled/valid branching exactly: if
+// this domain's own cache is disabled or its config is invalid, this falls
+// back to the plain NewCache path instead of building a live TieredCache --
+// an operator's cache.vaults.enabled: false must not be silently overridden
+// by cache.rocket_mem.enabled: true.
+func NewCacheWithL2(cfg cachekit.Config, l2 cachekit.L2, l2TTL time.Duration) *Cache {
+	if !cfg.Enabled || cfg.Validate() != nil {
+		return NewCache(cfg)
+	}
+	l1 := cachekit.NewFromConfig[string, *model.Vault](cfg)
+	var codec cachekit.PlainJSONCodec[*model.Vault]
+	keys := cachekit.KeyCodec[string]{
+		ToWire:   func(k string) string { return k },
+		FromWire: func(w string) (string, bool) { return w, true },
+	}
+	return &Cache{core: cachekit.NewTieredCache[string, *model.Vault](l1, l2, codec, keys, "rocketvault:vault:", l2TTL)}
 }
