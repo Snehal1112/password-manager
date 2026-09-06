@@ -27,15 +27,51 @@ type deletedOps[T any] struct {
 // Item stays a per-type function rather than being unified. The three list
 // responses deliberately expose different fields, and those shapes are a wire
 // contract that must not drift as a side effect of sharing code.
+// Envelope wraps the projected rows in this resource's own list response
+// type. It is a function rather than a key name because the envelope's first
+// key differs per resource, and three explicit types express that better than
+// one map with a dynamic key.
 type deletedResource[T any] struct {
 	IDParam    string // The wire name used in a 400, e.g. "key_id".
-	ListKey    string // The response envelope key, e.g. "deleted_keys".
 	RecoverMsg string // The recover success message.
 
 	ID       func(*ApiParams) string
 	Ops      func(*Context) (deletedOps[T], bool)
 	Item     func(T) any
+	Envelope func([]any) any
 	WriteErr func(*Context, error)
+}
+
+// deletedSecretsResponse is the GET /deleted/secrets envelope.
+//
+// Fields are declared in the alphabetical order the map[string]any this
+// replaces encoded them in, so the JSON byte order is unchanged. Neither
+// field is omitempty: an empty listing must still carry both keys.
+type deletedSecretsResponse struct {
+	DeletedSecrets []any `json:"deleted_secrets"`
+	Total          int   `json:"total"`
+}
+
+// deletedKeysResponse is the GET /deleted/keys envelope.
+type deletedKeysResponse struct {
+	DeletedKeys []any `json:"deleted_keys"`
+	Total       int   `json:"total"`
+}
+
+// deletedCertificatesResponse is the GET /deleted/certificates envelope.
+type deletedCertificatesResponse struct {
+	DeletedCertificates []any `json:"deleted_certificates"`
+	Total               int   `json:"total"`
+}
+
+// recoveredResponse is the envelope returned by a successful restore.
+//
+// The shape is identical across all three resources, so one type serves. Note
+// the declaration order: "id" before "message", because the map this replaces
+// sorted its keys and "id" sorts first.
+type recoveredResponse struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
 }
 
 // listHandler lists the resolved vault's soft-deleted items.
@@ -76,7 +112,7 @@ func (res deletedResource[T]) listHandler() func(*Context, http.ResponseWriter, 
 			projected = append(projected, res.Item(item))
 		}
 
-		writeJSON(w, map[string]any{res.ListKey: projected, "total": len(projected)})
+		writeJSON(w, res.Envelope(projected))
 	}
 }
 
@@ -106,7 +142,7 @@ func (res deletedResource[T]) recoverHandler() func(*Context, http.ResponseWrite
 			return
 		}
 
-		writeJSON(w, map[string]any{"message": res.RecoverMsg, "id": id.String()})
+		writeJSON(w, recoveredResponse{ID: id.String(), Message: res.RecoverMsg})
 	}
 }
 
@@ -140,6 +176,20 @@ func (res deletedResource[T]) purgeHandler() func(*Context, http.ResponseWriter,
 	}
 }
 
+// deletedSecretItem is one row of the deleted-secrets listing.
+//
+// Unlike its key and certificate siblings below, this replaces a map, so its
+// fields are declared in alphabetical json-tag order to keep the encoded byte
+// order unchanged. DeletedAt carries no omitempty because the map always
+// emitted the key, including as null.
+type deletedSecretItem struct {
+	CreatedAt any    `json:"created_at"`
+	DeletedAt any    `json:"deleted_at"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Version   int    `json:"version"`
+}
+
 // deletedKeyItem is one row of the deleted-keys listing.
 type deletedKeyItem struct {
 	ID              string `json:"id"`
@@ -160,7 +210,6 @@ type deletedCertItem struct {
 // deletedSecrets describes the secrets soft-delete surface.
 var deletedSecrets = deletedResource[model.Secret]{
 	IDParam:    "secret_id",
-	ListKey:    "deleted_secrets",
 	RecoverMsg: "Secret recovered successfully",
 	ID:         func(p *ApiParams) string { return p.SecretID },
 	Ops: func(c *Context) (deletedOps[model.Secret], bool) {
@@ -175,13 +224,16 @@ var deletedSecrets = deletedResource[model.Secret]{
 		}, true
 	},
 	Item: func(s model.Secret) any {
-		return map[string]any{
-			"id":         s.ID.String(),
-			"name":       s.Name,
-			"version":    s.Version,
-			"deleted_at": s.DeletedAt,
-			"created_at": s.CreatedAt,
+		return deletedSecretItem{
+			CreatedAt: s.CreatedAt,
+			DeletedAt: s.DeletedAt,
+			ID:        s.ID.String(),
+			Name:      s.Name,
+			Version:   s.Version,
 		}
+	},
+	Envelope: func(items []any) any {
+		return deletedSecretsResponse{DeletedSecrets: items, Total: len(items)}
 	},
 	WriteErr: writeSecretError,
 }
@@ -189,7 +241,6 @@ var deletedSecrets = deletedResource[model.Secret]{
 // deletedKeys describes the keys soft-delete surface.
 var deletedKeys = deletedResource[model.Key]{
 	IDParam:    "key_id",
-	ListKey:    "deleted_keys",
 	RecoverMsg: "Key recovered successfully",
 	ID:         func(p *ApiParams) string { return p.KeyID },
 	Ops: func(c *Context) (deletedOps[model.Key], bool) {
@@ -212,13 +263,15 @@ var deletedKeys = deletedResource[model.Key]{
 			PurgeProtection: k.PurgeProtection,
 		}
 	},
+	Envelope: func(items []any) any {
+		return deletedKeysResponse{DeletedKeys: items, Total: len(items)}
+	},
 	WriteErr: writeKeyError,
 }
 
 // deletedCertificates describes the certificates soft-delete surface.
 var deletedCertificates = deletedResource[model.Certificate]{
 	IDParam:    "certificate_id",
-	ListKey:    "deleted_certificates",
 	RecoverMsg: "Certificate recovered successfully",
 	ID:         func(p *ApiParams) string { return p.CertificateID },
 	Ops: func(c *Context) (deletedOps[model.Certificate], bool) {
@@ -239,6 +292,9 @@ var deletedCertificates = deletedResource[model.Certificate]{
 			DeletedAt:       cert.DeletedAt,
 			PurgeProtection: cert.PurgeProtection,
 		}
+	},
+	Envelope: func(items []any) any {
+		return deletedCertificatesResponse{DeletedCertificates: items, Total: len(items)}
 	},
 	WriteErr: writeCertificateError,
 }
