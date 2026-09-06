@@ -57,7 +57,7 @@ in the session case.
 
 ### F6 — Discarded `uuid.Parse` errors silently yield `uuid.Nil`
 
-Thirty-five sites assign a parsed UUID while discarding the error:
+Thirty-six sites assign a parsed UUID while discarding the error:
 
 ```go
 policy.ID, _ = uuid.Parse(id)
@@ -100,7 +100,7 @@ Two distinct problems:
    the package returns a wrapped parse error.
 2. **Latent:** `cert.VaultID` is left zero for every certificate the renewal
    scheduler sees. This is *not* currently exploitable —
-   `CheckAndRenewCertificates` (`renewal_service.go:45`) passes
+   `CheckAndRenewCertificates` (`renewal_service.go:86`) passes
    `model.NewAdminScope(cert.UserID)`, which applies no vault predicate, so the
    zero value never reaches a query. It becomes a real bug the moment renewal
    grows any vault-aware behavior.
@@ -344,7 +344,7 @@ successor so the chain runs without prompting:
 (discarded parse errors) occur in the *same loop bodies* — fixing one without
 the other would mean editing the same six functions twice and reviewing the
 same diff hunks twice. So plan 01 takes every error-swallowing site in
-`rotation_repository.go` (which holds 21 of the 35 parse sites and 3 of the 4
+`rotation_repository.go` (which holds 21 of the 36 parse sites and 3 of the 4
 scan-error sites) and plan 02 takes the rest.
 
 Ordering rationale: the two error-surfacing plans run first, since they are the

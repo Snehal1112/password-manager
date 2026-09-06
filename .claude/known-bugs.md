@@ -3882,7 +3882,7 @@ of the happy-path scenario (`get` against a nonexistent vault name).
 
 ### B65 — Swallowed scan errors truncated result sets silently
 
-**Status**: Fixed in commits `398f56b`, `7032545`, `1873418`
+**Status**: Fixed in commits `7032545`, `1873418`
 **Severity**: High — silent wrong answers, no error surfaced, security-visible
 in the session case
 **Files**: `internal/repositories/rotation_repository.go`,
@@ -3907,21 +3907,32 @@ of logging and continuing, and each checks `rows.Err()` after the loop exits.
 See `docs/superpowers/specs/2026-09-07-repository-layer-hardening-design.md`
 § F1 for the full analysis.
 
+**Commit note**: `398f56b` does **not** belong on this list — it is a pure
+F6 fix (B66), touching only `scanRotationPolicyRow`'s single-row scan and
+`List`'s scan closure, neither of which is a `continue`-on-failure loop.
+Plans 01 and 02 split this package's fixes by *file*, not by finding,
+because F1 and F6 occur in the same loop bodies — so `7032545` (rotation)
+and `1873418` (session) each mix F1's `rows.Err()`/error-return fix with
+some F6 parse-error fixes in the same hunks, and a reader tracing one
+finding to one commit will not find a clean one-to-one correspondence.
+
 ---
 
 ### B66 — Discarded `uuid.Parse` errors silently yielded `uuid.Nil`
 
-**Status**: Fixed in commits `398f56b`, `acd10c6`, `7fa2e16`, `e4fde67`
+**Status**: Fixed in commits `398f56b`, `7032545`, `acd10c6`, `7fa2e16`, `e4fde67`
 **Severity**: Medium-high — silent substitution of a privileged sentinel
 value for corrupt data
 **Files**: `internal/repositories/rotation_repository.go` (21 sites),
 `internal/repositories/versioning_repository.go` (9 sites),
 `internal/repositories/certificate_policy_repository.go` (6 sites)
 
-**Symptom**: 35 sites across the three files assigned a parsed UUID while
+**Symptom**: 36 sites across the three files assigned a parsed UUID while
 discarding the parse error, e.g. `policy.VaultID, _ = uuid.Parse(vaultID)`. A
 malformed or empty UUID column therefore produced `uuid.Nil` rather than an
-error, with no indication anything had gone wrong.
+error, with no indication anything had gone wrong. (21 + 9 + 6 = 36; the
+design doc's prose originally said "35," an arithmetic error against its own
+correct per-file breakdown, corrected there and here.)
 
 **Root cause**: `uuid.Nil` is not an inert value in this codebase — it is the
 `auditActor` constant for key and certificate lifecycle operations, and
@@ -3930,12 +3941,20 @@ scanner in the package (`scanKeyRow`, `scanCertificateRow`, `scanSecretRow`,
 `parseRoleAssignmentIDs`) already returned a wrapped parse error; these three
 files were the outliers.
 
-**What was fixed**: all 35 sites now return a wrapped parse error instead of
+**What was fixed**: all 36 sites now return a wrapped parse error instead of
 discarding it. See the design doc's § F6 for the full site list; note this
 is the one fix in this effort that changes behavior on data that exists
 today — a deployed database with a malformed UUID in one of these columns
 now surfaces an error on read where it previously produced a silent
 `uuid.Nil`, which is the intended outcome of the fix.
+
+**Commit note**: `1873418`'s commit message says "Closes the last of the 35
+discarded-uuid.Parse sites" — that count was wrong at the time (see above);
+the commit itself is not being amended for a message-only number, since a
+landed commit's history is not worth rewriting for this. `398f56b` and
+`7032545` each mix this finding's fixes with F1 fixes (B65) in the same
+loop bodies, per that entry's note — this package's plans were split by
+file, not by finding.
 
 ---
 
@@ -3960,7 +3979,7 @@ documented as the cause of an earlier bug where `keyColumns` and
 `List()` return both fields zero-valued.
 
 The missing `vault_id` was **latent, not live**: `CheckAndRenewCertificates`
-(`renewal_service.go:45`) passes `model.NewAdminScope(cert.UserID)`, which
+(`renewal_service.go:86`) passes `model.NewAdminScope(cert.UserID)`, which
 applies no vault predicate, so the zero-valued `VaultID` never reached a
 query. The live defect was strictly the `uuid.MustParse` panic.
 
