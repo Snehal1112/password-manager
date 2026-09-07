@@ -144,6 +144,8 @@ retry:
       - "database is locked"
       - "busy"
       - "timeout"
+      - "connection reset by peer"
+      - "broken pipe"
     jitter_enabled: true
 
   external_services:
