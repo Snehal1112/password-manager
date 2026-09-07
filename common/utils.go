@@ -23,7 +23,11 @@ type AppError struct {
 	StatusCode    int    `json:"status_code,omitempty"` // The http status code
 	Where         string `json:"-"`                     // The function where it happened in the form of Struct.Func
 	IsOAuth       bool   `json:"is_oauth,omitempty"`    // Whether the error is OAuth specific
-	params        map[string]interface{}
+	// RetryAfterSeconds, when non-zero, is a hint that the caller should back
+	// off and retry later (e.g. a tripped circuit breaker). Written to both
+	// the JSON body and the Retry-After header.
+	RetryAfterSeconds int `json:"retry_after_seconds,omitempty"`
+	params            map[string]interface{}
 }
 
 // NewID generates a new unique identifier string using base32 encoding.

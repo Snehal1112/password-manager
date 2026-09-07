@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +12,7 @@ import (
 	"rocketvault/common"
 	"rocketvault/internal/container"
 	"rocketvault/internal/logging"
+	"rocketvault/internal/retry"
 	authServices "rocketvault/internal/services/auth"
 	certServices "rocketvault/internal/services/certificates"
 	keyServices "rocketvault/internal/services/keys"
@@ -17,6 +20,16 @@ import (
 	userServices "rocketvault/internal/services/users"
 	"rocketvault/model"
 )
+
+// serviceUnavailableRetryAfterSeconds is the Retry-After hint sent when a
+// request fails because a retry.RetryService circuit breaker is open or its
+// retry budget was exhausted. Deliberately shorter than any shipped
+// retry.circuit_breaker.timeout (default 60s, commonly tuned to 30s): the
+// breaker may close again well before its own timeout via a successful
+// half-open trial from another request, and a short, fixed hint keeps a
+// well-behaved client from either hammering immediately or waiting far
+// longer than necessary.
+const serviceUnavailableRetryAfterSeconds = 5
 
 // RequestClaims holds the identity claims ApiSessionRequired attaches to an
 // authenticated request. It is a value type (not a pointer) so a Context left
@@ -108,8 +121,23 @@ func (c *Context) SetNotFound(resource string) {
 		resource+" not found", nil, "", http.StatusNotFound)
 }
 
-// SetInternalError sets a 500 error for unexpected failures.
+// SetInternalError sets a 500 error for unexpected failures — or a 503 with
+// a Retry-After hint when err is a retry.RetryService circuit-breaker-open or
+// retry-budget-exhausted error. That distinction matters beyond the status
+// code: retry.WithExponentialBackoff wraps both with %w specifically so the
+// caller's own sentinel survives errors.Is, but this switch runs first and
+// intentionally does not unwrap further — the detail string stays a fixed,
+// generic message rather than err.Error(), which could otherwise serialize a
+// wrapped driver error (e.g. a raw SQL error string) into the response body,
+// the same information-disclosure class as known-bugs.md's B24/B25/B55.
 func (c *Context) SetInternalError(err error) {
+	if err != nil && (errors.Is(err, retry.ErrCircuitBreakerOpen) || errors.Is(err, retry.ErrMaxRetriesExceeded)) {
+		c.Err = common.NewAppError("api.context.set_service_unavailable",
+			"Service temporarily unavailable, please retry", nil, "", http.StatusServiceUnavailable)
+		c.Err.RetryAfterSeconds = serviceUnavailableRetryAfterSeconds
+		return
+	}
+
 	msg := "Internal server error"
 	detail := ""
 	if err != nil {
@@ -213,13 +241,22 @@ func ApiSessionRequired(a *app.App, handler func(*Context, http.ResponseWriter, 
 
 // writeError writes a structured JSON error response with request_id.
 func writeError(w http.ResponseWriter, c *Context) {
-	writeJSONStatus(w, c.Err.StatusCode, map[string]any{
+	body := map[string]any{
 		"id":             c.Err.ID,
 		"message":        c.Err.Message,
 		"detailed_error": c.Err.DetailedError,
 		"status_code":    c.Err.StatusCode,
 		"request_id":     c.RequestID,
-	})
+	}
+
+	// Retry-After must be set before writeJSONStatus's WriteHeader call
+	// commits the header map (see writeJSONStatus's own comment on this).
+	if c.Err.RetryAfterSeconds > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(c.Err.RetryAfterSeconds))
+		body["retry_after_seconds"] = c.Err.RetryAfterSeconds
+	}
+
+	writeJSONStatus(w, c.Err.StatusCode, body)
 }
 
 // svc resolves a service from the request's container.

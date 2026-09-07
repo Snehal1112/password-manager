@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,11 +19,13 @@ import (
 	rvconfig "rocketvault/config"
 	"rocketvault/internal/backup"
 	"rocketvault/internal/cache"
+	"rocketvault/internal/certcache"
 	"rocketvault/internal/crypto"
 	"rocketvault/internal/keycache"
 	"rocketvault/internal/logging"
 	"rocketvault/internal/metrics"
 	"rocketvault/internal/repositories"
+	"rocketvault/internal/retry"
 	auditServices "rocketvault/internal/services/audit"
 	authServices "rocketvault/internal/services/auth"
 	authzServices "rocketvault/internal/services/authorization"
@@ -35,7 +38,6 @@ import (
 	userServices "rocketvault/internal/services/users"
 	vaultServices "rocketvault/internal/services/vaults"
 	"rocketvault/internal/signing"
-	"rocketvault/internal/certcache"
 	"rocketvault/internal/vaultcache"
 )
 
@@ -316,4 +318,71 @@ func TestSessionRequired_RBACDenied_Returns403(t *testing.T) {
 	assert.False(t, handlerCalled, "inner handler must NOT be invoked on RBAC denial")
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 	rbac.AssertExpectations(t)
+}
+
+// TestSetInternalError_CircuitBreakerOpen_Returns503WithoutLeakingChain
+// verifies that a retry.ErrCircuitBreakerOpen error (wrapped, as
+// retry.WithExponentialBackoff and the CircuitBreaker return it in
+// production) maps to 503 with a Retry-After hint, and that the response
+// carries a fixed generic message rather than the wrapped error chain —
+// which could otherwise reach down to a raw driver error string.
+func TestSetInternalError_CircuitBreakerOpen_Returns503WithoutLeakingChain(t *testing.T) {
+	wrapped := fmt.Errorf("some operation: %w", retry.ErrCircuitBreakerOpen)
+
+	testApp := &app.App{}
+	handler := api.ApiHandler(testApp, func(c *api.Context, w http.ResponseWriter, r *http.Request) {
+		c.SetInternalError(wrapped)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/secrets", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	assert.Equal(t, "5", rr.Header().Get("Retry-After"))
+	assert.NotContains(t, rr.Body.String(), retry.ErrCircuitBreakerOpen.Error(),
+		"the wrapped circuit-breaker error text must not reach the response body")
+}
+
+// TestSetInternalError_MaxRetriesExceeded_Returns503WithoutLeakingChain covers
+// the other retry-exhaustion sentinel WithExponentialBackoff returns, wrapping
+// a driver-shaped error the way a real database failure would.
+func TestSetInternalError_MaxRetriesExceeded_Returns503WithoutLeakingChain(t *testing.T) {
+	driverErr := errors.New("database is locked: file is locked")
+	wrapped := fmt.Errorf("%w: %w", retry.ErrMaxRetriesExceeded, driverErr)
+
+	testApp := &app.App{}
+	handler := api.ApiHandler(testApp, func(c *api.Context, w http.ResponseWriter, r *http.Request) {
+		c.SetInternalError(wrapped)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/secrets", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rr.Code)
+	assert.Equal(t, "5", rr.Header().Get("Retry-After"))
+	assert.NotContains(t, rr.Body.String(), driverErr.Error(),
+		"the wrapped driver error text must not reach the response body")
+}
+
+// TestSetInternalError_OrdinaryError_StillReturns500 is the control case:
+// an error unrelated to retry exhaustion keeps today's 500 behavior, detail
+// text included, so the new branch in SetInternalError doesn't widen beyond
+// the two retry sentinels it targets.
+func TestSetInternalError_OrdinaryError_StillReturns500(t *testing.T) {
+	plain := errors.New("unexpected failure: disk full")
+
+	testApp := &app.App{}
+	handler := api.ApiHandler(testApp, func(c *api.Context, w http.ResponseWriter, r *http.Request) {
+		c.SetInternalError(plain)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/secrets", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rr.Code)
+	assert.Empty(t, rr.Header().Get("Retry-After"))
+	assert.Contains(t, rr.Body.String(), plain.Error())
 }
