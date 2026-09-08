@@ -183,3 +183,22 @@ func TestClient_ClusterMode_Unreachable_DegradesGracefully(t *testing.T) {
 	assert.NotPanics(t, func() { c.Invalidate("anything") })
 	assert.NotPanics(t, func() { assert.Error(t, c.Ping()) })
 }
+
+// TestClient_ClusterMode_Unreachable_KeysDegradesToEmpty proves Keys in
+// cluster mode degrades to empty rather than panicking when the cluster
+// is unreachable.
+func TestClient_ClusterMode_Unreachable_KeysDegradesToEmpty(t *testing.T) {
+	c := rocketmemcache.New(rocketmemcache.Config{
+		ClusterMode:  true,
+		Addrs:        []string{"127.0.0.1:1", "127.0.0.1:2"},
+		DialTimeout:  200 * time.Millisecond,
+		ReadTimeout:  200 * time.Millisecond,
+		WriteTimeout: 200 * time.Millisecond,
+		PoolSize:     1,
+	})
+	defer c.Close()
+
+	var keys []string
+	assert.NotPanics(t, func() { keys = c.Keys("rocketvault:secret:") })
+	assert.Empty(t, keys)
+}

@@ -192,18 +192,44 @@ func (c *Client) Invalidate(wireKey string) {
 	}
 }
 
-// Keys returns every live key matching prefix* (Rocket-mem's KEYS
-// supports a basic prefix-wildcard glob -- verified against a live
-// instance in this package's integration suite). Any error degrades to an
-// empty slice, same fail-open reasoning as every other method here, and is
-// logged at Warn.
+// Keys returns every live key matching prefix* (Rocket-mem's KEYS supports a
+// basic prefix-wildcard glob -- verified against a live instance in this
+// package's integration suite). Any error degrades to an empty slice, same
+// fail-open reasoning as every other method here, and is logged at Warn.
+//
+// In cluster mode, a plain KEYS call would only reach whichever single
+// shard go-redis happens to route it to, silently missing every key that
+// lives on the other masters -- so this fans out across every master via
+// ForEachMaster and merges the results. Each live key lives on exactly one
+// shard (Rocket-mem's slots are disjoint), so there's no need to
+// deduplicate across shards.
 func (c *Client) Keys(prefix string) []string {
-	keys, err := c.rdb.Keys(context.Background(), prefix+"*").Result()
+	cc, ok := c.rdb.(*redis.ClusterClient)
+	if !ok {
+		keys, err := c.rdb.Keys(context.Background(), prefix+"*").Result()
+		if err != nil {
+			c.logger.WithError(err).WithField("prefix", prefix).Warn("rocketmemcache: Keys failed, degrading to empty")
+			return nil
+		}
+		return keys
+	}
+
+	var all []string
+	err := cc.ForEachMaster(context.Background(), func(ctx context.Context, shard *redis.Client) error {
+		keys, err := shard.Keys(ctx, prefix+"*").Result()
+		if err != nil {
+			c.logger.WithError(err).WithField("prefix", prefix).WithField("shard", shard.Options().Addr).
+				Warn("rocketmemcache: Keys failed on one shard, continuing with the rest")
+			return nil // do not abort the other shards' fan-out over one shard's failure.
+		}
+		all = append(all, keys...)
+		return nil
+	})
 	if err != nil {
-		c.logger.WithError(err).WithField("prefix", prefix).Warn("rocketmemcache: Keys failed, degrading to empty")
+		c.logger.WithError(err).WithField("prefix", prefix).Warn("rocketmemcache: cluster Keys fan-out failed, degrading to empty")
 		return nil
 	}
-	return keys
+	return all
 }
 
 // Close releases the underlying connection pool. Owned and called exactly
