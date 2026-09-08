@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -215,6 +216,7 @@ func (c *Client) Keys(prefix string) []string {
 	}
 
 	var all []string
+	var mu sync.Mutex
 	err := cc.ForEachMaster(context.Background(), func(ctx context.Context, shard *redis.Client) error {
 		keys, err := shard.Keys(ctx, prefix+"*").Result()
 		if err != nil {
@@ -222,7 +224,9 @@ func (c *Client) Keys(prefix string) []string {
 				Warn("rocketmemcache: Keys failed on one shard, continuing with the rest")
 			return nil // do not abort the other shards' fan-out over one shard's failure.
 		}
+		mu.Lock()
 		all = append(all, keys...)
+		mu.Unlock()
 		return nil
 	})
 	if err != nil {
