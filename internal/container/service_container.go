@@ -302,6 +302,8 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 	if config.RocketMemConfig.Enabled {
 		container.rocketMemClient = rocketmemcache.New(rocketmemcache.Config{
 			Addr:         config.RocketMemConfig.Addr,
+			ClusterMode:  config.RocketMemConfig.ClusterMode,
+			Addrs:        config.RocketMemConfig.Addrs,
 			TLS:          config.RocketMemConfig.TLS,
 			CAPath:       config.RocketMemConfig.CAPath,
 			Username:     config.RocketMemConfig.Username,

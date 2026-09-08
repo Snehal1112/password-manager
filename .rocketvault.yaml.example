@@ -258,6 +258,15 @@ cache:
   # records.
   rocket_mem:
     enabled: false
+    # cluster_mode/addrs target rocket-mem's cluster.conf-defined 3-node
+    # cluster directly (see rocket-mem's cluster.conf: shard-a/b/c). Set
+    # cluster_mode: false and use addr (singular) instead to point at one
+    # standalone rocket-mem node.
+    cluster_mode: true
+    addrs:
+      - "numericlabs.lxd:16379"
+      - "numericlabs.lxd:16380"
+      - "numericlabs.lxd:16381"
     addr: "numericlabs.lxd:16379"
     tls: true
     ca_path: ""
