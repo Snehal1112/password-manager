@@ -403,7 +403,7 @@ type RocketMemConfig struct {
 	// discovery, but listing all of them tolerates one seed being down at
 	// startup.
 	Addrs []string
-	TLS     bool
+	TLS   bool
 	// CAPath is optional: a PEM file to trust rocket-mem's TLS cert against,
 	// for a self-signed or private-CA deployment. Empty verifies against the
 	// system trust store instead.
