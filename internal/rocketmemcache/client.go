@@ -21,7 +21,7 @@ type Config struct {
 	Addr string
 	// ClusterMode, when true, builds a cluster-aware client against Addrs
 	// (rocket-mem's static, gossip-free cluster: topology comes from one
-	// CLUSTER SHARDS call at connect time, and go-redis follows MOVED
+	// CLUSTER SLOTS call at connect time, and go-redis follows MOVED
 	// redirects itself from then on).
 	ClusterMode bool
 	// Addrs holds the cluster's seed node addresses. Only used when
@@ -31,9 +31,13 @@ type Config struct {
 	// CAPath is the PEM file to trust rocket-mem's TLS cert against, for a
 	// self-signed or private-CA deployment. Empty means verify against the
 	// system trust store, the right default for a cert from a public CA.
-	CAPath       string
-	Username     string
-	Password     string
+	CAPath   string
+	Username string
+	Password string
+	// DialTimeout applies per dial attempt. In cluster mode, go-redis's
+	// initial topology discovery (loadState) walks Addrs sequentially until
+	// one seed answers, so an unreachable cluster's first call can take up
+	// to roughly len(Addrs) * DialTimeout rather than just DialTimeout.
 	DialTimeout  time.Duration
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration

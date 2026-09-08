@@ -101,11 +101,26 @@ func testClusterAddrs() []string {
 	return []string{"127.0.0.1:16379", "127.0.0.1:16380", "127.0.0.1:16381"}
 }
 
+func testClusterTLS() bool {
+	return os.Getenv("ROCKETMEM_TEST_CLUSTER_TLS") == "true"
+}
+
+func testClusterUsername() string {
+	return os.Getenv("ROCKETMEM_TEST_CLUSTER_USERNAME")
+}
+
+func testClusterPassword() string {
+	return os.Getenv("ROCKETMEM_TEST_CLUSTER_PASSWORD")
+}
+
 func newTestClusterClient(t *testing.T) *rocketmemcache.Client {
 	t.Helper()
 	c := rocketmemcache.New(rocketmemcache.Config{
 		ClusterMode:  true,
 		Addrs:        testClusterAddrs(),
+		TLS:          testClusterTLS(),
+		Username:     testClusterUsername(),
+		Password:     testClusterPassword(),
 		DialTimeout:  time.Second,
 		ReadTimeout:  time.Second,
 		WriteTimeout: time.Second,

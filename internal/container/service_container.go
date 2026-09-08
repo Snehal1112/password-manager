@@ -321,6 +321,8 @@ func NewServiceContainer(config Config) (*ServiceContainer, error) {
 		// log loudly here rather than only on the first real operation.
 		if err := container.rocketMemClient.Ping(); err != nil {
 			container.logger.WithError(err).Warn("rocket_mem cache tier enabled but unreachable at startup; continuing with L1-only caching until it recovers")
+		} else if config.RocketMemConfig.ClusterMode {
+			container.logger.WithField("addrs", config.RocketMemConfig.Addrs).Info("rocket_mem cache tier connected (cluster mode)")
 		} else {
 			container.logger.WithField("addr", config.RocketMemConfig.Addr).Info("rocket_mem cache tier connected")
 		}

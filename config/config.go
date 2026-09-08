@@ -395,7 +395,7 @@ type RocketMemConfig struct {
 	// ClusterMode, when true, treats Addrs as a rocket-mem cluster's seed
 	// node addresses instead of using Addr for a single standalone node.
 	// Rocket-mem's cluster topology is static (no gossip, no resharding), so
-	// go-redis discovers the full node set once via CLUSTER SHARDS and
+	// go-redis discovers the full node set once via CLUSTER SLOTS and
 	// follows MOVED redirects itself -- no rediscovery polling needed.
 	ClusterMode bool
 	// Addrs holds the cluster's seed node addresses. Only used when
