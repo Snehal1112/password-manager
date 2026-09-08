@@ -392,6 +392,17 @@ func containsString(values []string, target string) bool {
 type RocketMemConfig struct {
 	Enabled bool
 	Addr    string
+	// ClusterMode, when true, treats Addrs as a rocket-mem cluster's seed
+	// node addresses instead of using Addr for a single standalone node.
+	// Rocket-mem's cluster topology is static (no gossip, no resharding), so
+	// go-redis discovers the full node set once via CLUSTER SHARDS and
+	// follows MOVED redirects itself -- no rediscovery polling needed.
+	ClusterMode bool
+	// Addrs holds the cluster's seed node addresses. Only used when
+	// ClusterMode is true; any one live node is enough to seed topology
+	// discovery, but listing all of them tolerates one seed being down at
+	// startup.
+	Addrs []string
 	TLS     bool
 	// CAPath is optional: a PEM file to trust rocket-mem's TLS cert against,
 	// for a self-signed or private-CA deployment. Empty verifies against the
@@ -443,6 +454,12 @@ func LoadRocketMemConfig() (RocketMemConfig, error) {
 	if viper.IsSet("cache.rocket_mem.addr") {
 		cfg.Addr = viper.GetString("cache.rocket_mem.addr")
 	}
+	if viper.IsSet("cache.rocket_mem.cluster_mode") {
+		cfg.ClusterMode = viper.GetBool("cache.rocket_mem.cluster_mode")
+	}
+	if viper.IsSet("cache.rocket_mem.addrs") {
+		cfg.Addrs = viper.GetStringSlice("cache.rocket_mem.addrs")
+	}
 	if viper.IsSet("cache.rocket_mem.tls") {
 		cfg.TLS = viper.GetBool("cache.rocket_mem.tls")
 	}
@@ -484,6 +501,11 @@ func LoadRocketMemConfig() (RocketMemConfig, error) {
 		return RocketMemConfig{}, fmt.Errorf(
 			"cache.rocket_mem: enabled requires tls=true and a non-empty username/password " +
 				"(rocket-mem defaults to a fully open ACL until a user is configured)")
+	}
+	if cfg.Enabled && cfg.ClusterMode && len(cfg.Addrs) == 0 {
+		return RocketMemConfig{}, fmt.Errorf(
+			"cache.rocket_mem: cluster_mode is true but addrs is empty " +
+				"(list at least one cluster node's address)")
 	}
 	return cfg, nil
 }

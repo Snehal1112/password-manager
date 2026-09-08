@@ -355,6 +355,7 @@ func resetRocketMemViperKeys(t *testing.T) {
 		"cache.rocket_mem.write_timeout", "cache.rocket_mem.pool_size",
 		"cache.rocket_mem.reconnect_steady_state_interval", "cache.rocket_mem.reconnect_initial_backoff",
 		"cache.rocket_mem.reconnect_max_backoff", "cache.rocket_mem.reconnect_backoff_multiplier",
+		"cache.rocket_mem.cluster_mode", "cache.rocket_mem.addrs",
 	} {
 		viper.Set(k, nil)
 	}
@@ -435,4 +436,43 @@ func TestLoadRocketMemConfig_OverrideReconnectSettings(t *testing.T) {
 	assert.Equal(t, 1*time.Second, cfg.ReconnectInitialBackoff, "unset fields should use defaults")
 	assert.Equal(t, 120*time.Second, cfg.ReconnectMaxBackoff)
 	assert.Equal(t, 2.0, cfg.ReconnectBackoffMultiplier, "unset fields should use defaults")
+}
+
+func TestLoadRocketMemConfig_ClusterModeDefaultsFalse(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.False(t, cfg.ClusterMode)
+	assert.Empty(t, cfg.Addrs)
+}
+
+func TestLoadRocketMemConfig_ClusterModeWithoutAddrs_FailsClosed(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	viper.Set("cache.rocket_mem.enabled", true)
+	viper.Set("cache.rocket_mem.cluster_mode", true)
+	viper.Set("cache.rocket_mem.tls", true)
+	viper.Set("cache.rocket_mem.username", "vault")
+	viper.Set("cache.rocket_mem.password", "secret")
+
+	_, err := LoadRocketMemConfig()
+	assert.Error(t, err, "cluster_mode without addrs must fail startup, not silently run single-node")
+}
+
+func TestLoadRocketMemConfig_ClusterModeWithAddrs_Succeeds(t *testing.T) {
+	resetRocketMemViperKeys(t)
+	viper.Set("cache.rocket_mem.enabled", true)
+	viper.Set("cache.rocket_mem.cluster_mode", true)
+	viper.Set("cache.rocket_mem.addrs", []string{
+		"numericlabs.lxd:16379", "numericlabs.lxd:16380", "numericlabs.lxd:16381",
+	})
+	viper.Set("cache.rocket_mem.tls", true)
+	viper.Set("cache.rocket_mem.username", "rocketvault")
+	viper.Set("cache.rocket_mem.password", "s3cret")
+
+	cfg, err := LoadRocketMemConfig()
+	require.NoError(t, err)
+	assert.True(t, cfg.ClusterMode)
+	assert.Equal(t, []string{
+		"numericlabs.lxd:16379", "numericlabs.lxd:16380", "numericlabs.lxd:16381",
+	}, cfg.Addrs)
 }
