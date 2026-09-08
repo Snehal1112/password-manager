@@ -163,3 +163,23 @@ func TestClient_Set_NonPositiveTTL_DoesNotPanicAndWarns(t *testing.T) {
 	}
 	assert.True(t, foundTTLWarn, "a non-positive ttl must log a Warn about the substituted default")
 }
+
+func TestClient_ClusterMode_Unreachable_DegradesGracefully(t *testing.T) {
+	c := rocketmemcache.New(rocketmemcache.Config{
+		ClusterMode:  true,
+		Addrs:        []string{"127.0.0.1:1", "127.0.0.1:2"}, // nothing listens here
+		DialTimeout:  200 * time.Millisecond,
+		ReadTimeout:  200 * time.Millisecond,
+		WriteTimeout: 200 * time.Millisecond,
+		PoolSize:     1,
+	})
+	defer c.Close()
+
+	assert.NotPanics(t, func() {
+		_, ok := c.Get("anything")
+		assert.False(t, ok)
+	})
+	assert.NotPanics(t, func() { c.Set("anything", []byte("x"), time.Minute) })
+	assert.NotPanics(t, func() { c.Invalidate("anything") })
+	assert.NotPanics(t, func() { assert.Error(t, c.Ping()) })
+}

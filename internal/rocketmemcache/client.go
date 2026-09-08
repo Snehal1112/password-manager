@@ -18,7 +18,15 @@ import (
 // cache.rocket_mem.* in .rocketvault.yaml.
 type Config struct {
 	Addr string
-	TLS  bool
+	// ClusterMode, when true, builds a cluster-aware client against Addrs
+	// (rocket-mem's static, gossip-free cluster: topology comes from one
+	// CLUSTER SHARDS call at connect time, and go-redis follows MOVED
+	// redirects itself from then on).
+	ClusterMode bool
+	// Addrs holds the cluster's seed node addresses. Only used when
+	// ClusterMode is true.
+	Addrs []string
+	TLS   bool
 	// CAPath is the PEM file to trust rocket-mem's TLS cert against, for a
 	// self-signed or private-CA deployment. Empty means verify against the
 	// system trust store, the right default for a cert from a public CA.
@@ -38,15 +46,29 @@ type Config struct {
 	Logger *logrus.Logger
 }
 
+// rdbConn is the subset of go-redis's Cmdable that Client actually calls.
+// Both *redis.Client (standalone) and *redis.ClusterClient (cluster mode)
+// satisfy it, so Client itself never needs to know which one it holds
+// except in Keys, which needs cluster-specific fan-out (see Keys below).
+type rdbConn interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Keys(ctx context.Context, pattern string) *redis.StringSliceCmd
+	Ping(ctx context.Context) *redis.StatusCmd
+	Close() error
+}
+
 // Client implements cachekit.L2 against a real Rocket-mem (or any
-// RESP2/3-compatible) server. Every method swallows errors per the
-// design spec's fail-open contract: an unreachable or misbehaving
-// Rocket-mem must degrade to a cache miss, never break a caller. Errors are
-// not silently dropped anymore, though -- every degraded path logs a Warn
-// (see Config.Logger) so an operator can tell a fully-broken L2 apart from a
-// healthy one instead of both looking identical.
+// RESP2/3-compatible) server, standalone or clustered. Every method
+// swallows errors per the design spec's fail-open contract: an unreachable
+// or misbehaving Rocket-mem must degrade to a cache miss, never break a
+// caller. Errors are not silently dropped anymore, though -- every degraded
+// path logs a Warn (see Config.Logger) so an operator can tell a
+// fully-broken L2 apart from a healthy one instead of both looking
+// identical.
 type Client struct {
-	rdb    *redis.Client
+	rdb    rdbConn
 	logger *logrus.Logger
 }
 
@@ -58,17 +80,10 @@ func New(cfg Config) *Client {
 	if logger == nil {
 		logger = logrus.StandardLogger()
 	}
-	opts := &redis.Options{
-		Addr:         cfg.Addr,
-		Username:     cfg.Username,
-		Password:     cfg.Password,
-		DialTimeout:  cfg.DialTimeout,
-		ReadTimeout:  cfg.ReadTimeout,
-		WriteTimeout: cfg.WriteTimeout,
-		PoolSize:     cfg.PoolSize,
-	}
+
+	var tlsConfig *tls.Config
 	if cfg.TLS {
-		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 		if cfg.CAPath != "" {
 			if pemBytes, err := os.ReadFile(cfg.CAPath); err != nil {
 				logger.WithError(err).WithField("ca_path", cfg.CAPath).
@@ -80,9 +95,39 @@ func New(cfg Config) *Client {
 					Warn("rocketmemcache: CA cert file contained no valid certificates, falling back to system trust store")
 			}
 		}
-		opts.TLSConfig = tlsConfig
 	}
-	return &Client{rdb: redis.NewClient(opts), logger: logger}
+
+	var rdb rdbConn
+	if cfg.ClusterMode {
+		opts := &redis.ClusterOptions{
+			Addrs:        cfg.Addrs,
+			Username:     cfg.Username,
+			Password:     cfg.Password,
+			DialTimeout:  cfg.DialTimeout,
+			ReadTimeout:  cfg.ReadTimeout,
+			WriteTimeout: cfg.WriteTimeout,
+			PoolSize:     cfg.PoolSize,
+		}
+		if tlsConfig != nil {
+			opts.TLSConfig = tlsConfig
+		}
+		rdb = redis.NewClusterClient(opts)
+	} else {
+		opts := &redis.Options{
+			Addr:         cfg.Addr,
+			Username:     cfg.Username,
+			Password:     cfg.Password,
+			DialTimeout:  cfg.DialTimeout,
+			ReadTimeout:  cfg.ReadTimeout,
+			WriteTimeout: cfg.WriteTimeout,
+			PoolSize:     cfg.PoolSize,
+		}
+		if tlsConfig != nil {
+			opts.TLSConfig = tlsConfig
+		}
+		rdb = redis.NewClient(opts)
+	}
+	return &Client{rdb: rdb, logger: logger}
 }
 
 // pingCheck is the connectivity check used internally by both Ping (which
