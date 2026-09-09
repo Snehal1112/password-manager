@@ -48,7 +48,7 @@ numericlabs.lxd {
 		# tolerant, to keep e.g. /metrics-admin from accidentally matching. Drop
 		# a trailing slash here so a browser's /metrics/ still reaches it.
 		uri strip_suffix /
-		reverse_proxy 127.0.0.1:9121
+		reverse_proxy 192.168.1.12:9121
 	}
 
 	# Everything else is the RocketVault API on :8774.
